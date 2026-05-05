@@ -1,1 +1,65 @@
 package cache
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+)
+
+type Cache struct {
+	path string
+}
+
+func NewCache(path string) *Cache {
+	return &Cache{path: path}
+}
+
+func (c *Cache) ChangedFiles(files []string) ([]string, error) {
+	oldHashes, _ := c.load()
+	var changed []string
+	for _, f := range files {
+		h, err := hashFile(f)
+		if err != nil {
+			return nil, err
+		}
+		if oldHashes[f] != h {
+			changed = append(changed, f)
+		}
+	}
+	return changed, nil
+}
+
+func (c *Cache) Save(files []string) error {
+	hashes := make(map[string]string, len(files))
+	for _, f := range files {
+		h, err := hashFile(f)
+		if err != nil {
+			return err
+		}
+		hashes[f] = h
+	}
+	data, _ := json.Marshal(hashes)
+	return os.WriteFile(c.path, data, 0644)
+}
+
+func (c *Cache) load() (map[string]string, error) {
+	data, err := os.ReadFile(c.path)
+	if err != nil {
+		return nil, err
+	}
+	var hashes map[string]string
+	if err := json.Unmarshal(data, &hashes); err != nil {
+		return nil, err
+	}
+	return hashes, nil
+}
+
+func hashFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
