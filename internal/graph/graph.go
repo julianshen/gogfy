@@ -1,6 +1,10 @@
 package graph
 
-import "github.com/julianshen/gogfy/internal/schema"
+import (
+	"sort"
+
+	"github.com/julianshen/gogfy/internal/schema"
+)
 
 type Graph struct {
 	Nodes []schema.Node
@@ -41,8 +45,20 @@ func (b *Builder) Build() Graph {
 	for _, n := range b.nodes {
 		g.Nodes = append(g.Nodes, n)
 	}
+	sort.Slice(g.Nodes, func(i, j int) bool {
+		return g.Nodes[i].ID < g.Nodes[j].ID
+	})
 	for _, e := range b.edges {
 		g.Edges = append(g.Edges, e)
 	}
+	sort.Slice(g.Edges, func(i, j int) bool {
+		if g.Edges[i].Source != g.Edges[j].Source {
+			return g.Edges[i].Source < g.Edges[j].Source
+		}
+		if g.Edges[i].Target != g.Edges[j].Target {
+			return g.Edges[i].Target < g.Edges[j].Target
+		}
+		return g.Edges[i].Relation < g.Edges[j].Relation
+	})
 	return g
 }
