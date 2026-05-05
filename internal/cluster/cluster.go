@@ -1,22 +1,36 @@
 package cluster
 
-import "github.com/julianshen/gogfy/internal/schema"
+import (
+	"sort"
+	"strconv"
+
+	"github.com/julianshen/gogfy/internal/schema"
+)
 
 type Clusterer interface {
 	Cluster(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, error)
 }
 
-type LeidenClusterer struct{}
+type ConnectedComponentsClusterer struct{}
 
-func NewLeidenClusterer() *LeidenClusterer {
-	return &LeidenClusterer{}
+func NewConnectedComponentsClusterer() *ConnectedComponentsClusterer {
+	return &ConnectedComponentsClusterer{}
 }
 
-func (l *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, error) {
+func (c *ConnectedComponentsClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, error) {
+	// Build adjacency list
 	adj := make(map[string][]string, len(nodes))
 	for _, e := range edges {
 		adj[e.Source] = append(adj[e.Source], e.Target)
 		adj[e.Target] = append(adj[e.Target], e.Source)
+	}
+
+	// Build node index for O(1) lookup
+	nodeIdx := make(map[string]int, len(nodes))
+	result := make([]schema.Node, len(nodes))
+	for i, n := range nodes {
+		nodeIdx[n.ID] = i
+		result[i] = n
 	}
 
 	visited := make(map[string]bool, len(nodes))
@@ -43,31 +57,19 @@ func (l *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 			}
 		}
 
-		cid := itoa(communityID)
+		cid := strconv.Itoa(communityID)
 		for _, id := range members {
-			for i := range nodes {
-				if nodes[i].ID == id {
-					nodes[i].Community = cid
-					break
-				}
+			if idx, ok := nodeIdx[id]; ok {
+				result[idx].Community = cid
 			}
 		}
 		communityID++
 	}
 
-	return nodes, nil
-}
+	// Sort by node ID for deterministic output
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
 
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
+	return result, nil
 }
