@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -13,9 +14,9 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 		return nil, err
 	}
 
-	extSet := make(map[string]bool, len(extensions))
+	extSet := make(map[string]struct{}, len(extensions))
 	for _, e := range extensions {
-		extSet[e] = true
+		extSet[e] = struct{}{}
 	}
 
 	var files []string
@@ -23,25 +24,45 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(root, path)
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
 		for _, pat := range ignorePatterns {
-			matched, _ := filepath.Match(pat, rel)
-			if matched || strings.HasPrefix(rel, pat) {
+			matched, err := filepath.Match(pat, rel)
+			if err != nil {
+				return err
+			}
+			if matched {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}
 				return nil
 			}
+			// Handle directory prefix patterns like "vendor/"
+			if strings.HasSuffix(pat, "/") {
+				dirPat := strings.TrimSuffix(pat, "/")
+				if rel == dirPat || strings.HasPrefix(rel, dirPat+string(filepath.Separator)) {
+					if info.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+			}
 		}
 		if !info.IsDir() {
 			ext := filepath.Ext(path)
-			if extSet[ext] {
+			if _, ok := extSet[ext]; ok {
 				files = append(files, path)
 			}
 		}
 		return nil
 	})
-	return files, err
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 func loadIgnorePatterns(root string) ([]string, error) {
