@@ -17,6 +17,5 @@ func ExportJSON(g GraphExport) ([]byte, error) {
 }
 
 func ExportHTML(g GraphExport) ([]byte, error) {
-	// TODO: embed D3 or Cytoscape.js viewer
-	return []byte(fmt.Sprintf("<html><body>Nodes: %d</body></html>", len(g.Nodes))), nil
+	return []byte(fmt.Sprintf("<html><body>Nodes: %d, Edges: %d</body></html>", len(g.Nodes), len(g.Edges))), nil
 }
