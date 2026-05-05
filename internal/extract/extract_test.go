@@ -35,6 +35,9 @@ func TestGoExtractor(t *testing.T) {
 	if pkgNode.SourceFile == "" {
 		t.Fatal("expected package node to have SourceFile")
 	}
+	if err := pkgNode.Validate(); err != nil {
+		t.Fatalf("package node invalid: %v", err)
+	}
 
 	// Verify function nodes exist
 	funcLabels := make(map[string]bool)
@@ -67,12 +70,15 @@ func TestGoExtractor(t *testing.T) {
 	if importEdge.Source == "" {
 		t.Fatal("expected import edge to have Source")
 	}
+	if err := importEdge.Validate(); err != nil {
+		t.Fatalf("import edge invalid: %v", err)
+	}
 }
 
 func TestGoExtractorGroupedImports(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "grouped.go")
-	os.WriteFile(path, []byte(`package grouped
+	if err := os.WriteFile(path, []byte(`package grouped
 
 import (
 	"fmt"
@@ -80,7 +86,9 @@ import (
 )
 
 func run() {}
-`), 0644)
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	ex := &GoExtractor{}
 	result, err := ex.Extract(path)
@@ -99,5 +107,72 @@ func run() {}
 	}
 	if !importTargets["pkg:import:os"] {
 		t.Fatal("expected import edge for 'os'")
+	}
+}
+
+func TestGoExtractorNoImports(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "naked.go")
+	if err := os.WriteFile(path, []byte(`package naked
+
+func alone() {}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := &GoExtractor{}
+	result, err := ex.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes (pkg + func), got %d", len(result.Nodes))
+	}
+	if len(result.Edges) != 0 {
+		t.Fatalf("expected 0 edges, got %d", len(result.Edges))
+	}
+}
+
+func TestGoExtractorEmptyFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "empty.go")
+	if err := os.WriteFile(path, []byte(``), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := &GoExtractor{}
+	result, err := ex.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Nodes) != 0 {
+		t.Fatalf("expected 0 nodes, got %d", len(result.Nodes))
+	}
+	if len(result.Edges) != 0 {
+		t.Fatalf("expected 0 edges, got %d", len(result.Edges))
+	}
+}
+
+func TestGoExtractorPackageOnly(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "pkgonly.go")
+	if err := os.WriteFile(path, []byte(`package pkgonly
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := &GoExtractor{}
+	result, err := ex.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(result.Nodes))
+	}
+	if result.Nodes[0].Label != "pkgonly" {
+		t.Fatalf("expected package node 'pkgonly', got %s", result.Nodes[0].Label)
+	}
+	if len(result.Edges) != 0 {
+		t.Fatalf("expected 0 edges, got %d", len(result.Edges))
 	}
 }
