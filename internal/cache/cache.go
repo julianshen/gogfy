@@ -16,7 +16,14 @@ func NewCache(path string) *Cache {
 }
 
 func (c *Cache) ChangedFiles(files []string) ([]string, error) {
-	oldHashes, _ := c.load()
+	oldHashes, err := c.load()
+	if err != nil {
+		if os.IsNotExist(err) {
+			oldHashes = nil
+		} else {
+			return nil, err
+		}
+	}
 	var changed []string
 	for _, f := range files {
 		h, err := hashFile(f)
@@ -39,7 +46,10 @@ func (c *Cache) Save(files []string) error {
 		}
 		hashes[f] = h
 	}
-	data, _ := json.Marshal(hashes)
+	data, err := json.Marshal(hashes)
+	if err != nil {
+		return err
+	}
 	return os.WriteFile(c.path, data, 0644)
 }
 

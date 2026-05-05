@@ -32,3 +32,76 @@ func TestCacheSkipsUnchangedFiles(t *testing.T) {
 		t.Fatalf("expected 0 changed, got %d", len(changed))
 	}
 }
+
+func TestCacheDetectsModifiedFiles(t *testing.T) {
+	root := t.TempDir()
+	f := filepath.Join(root, "main.go")
+	os.WriteFile(f, []byte("package main"), 0644)
+
+	c := NewCache(filepath.Join(root, ".gographify-cache"))
+	if err := c.Save([]string{f}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Modify file
+	os.WriteFile(f, []byte("package main\n\nfunc main() {}"), 0644)
+
+	changed, err := c.ChangedFiles([]string{f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 1 {
+		t.Fatalf("expected 1 changed after modification, got %d", len(changed))
+	}
+}
+
+func TestCacheCorruptFile(t *testing.T) {
+	root := t.TempDir()
+	cachePath := filepath.Join(root, ".gographify-cache")
+	os.WriteFile(cachePath, []byte("not json"), 0644)
+
+	c := NewCache(cachePath)
+	_, err := c.ChangedFiles([]string{"/some/file.go"})
+	if err == nil {
+		t.Fatal("expected error for corrupt cache file")
+	}
+}
+
+func TestCacheEmptyFileList(t *testing.T) {
+	root := t.TempDir()
+	c := NewCache(filepath.Join(root, ".gographify-cache"))
+	changed, err := c.ChangedFiles([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 0 {
+		t.Fatalf("expected 0 changed for empty list, got %d", len(changed))
+	}
+}
+
+func TestCacheMultipleFiles(t *testing.T) {
+	root := t.TempDir()
+	f1 := filepath.Join(root, "a.go")
+	f2 := filepath.Join(root, "b.go")
+	os.WriteFile(f1, []byte("package a"), 0644)
+	os.WriteFile(f2, []byte("package b"), 0644)
+
+	c := NewCache(filepath.Join(root, ".gographify-cache"))
+	if err := c.Save([]string{f1, f2}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Modify only f1
+	os.WriteFile(f1, []byte("package a\n"), 0644)
+
+	changed, err := c.ChangedFiles([]string{f1, f2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 1 {
+		t.Fatalf("expected 1 changed, got %d", len(changed))
+	}
+	if changed[0] != f1 {
+		t.Fatalf("expected f1 changed, got %s", changed[0])
+	}
+}
