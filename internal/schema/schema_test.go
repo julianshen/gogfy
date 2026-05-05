@@ -1,57 +1,116 @@
 package schema
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestConfidenceEnum(t *testing.T) {
-	if Extracted != "EXTRACTED" {
-		t.Fatal("Extracted confidence mismatch")
+	cases := []struct {
+		name     string
+		value    Confidence
+		expected string
+	}{
+		{"Extracted", Extracted, "EXTRACTED"},
+		{"Inferred", Inferred, "INFERRED"},
+		{"Ambiguous", Ambiguous, "AMBIGUOUS"},
 	}
-	if Inferred != "INFERRED" {
-		t.Fatal("Inferred confidence mismatch")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if string(tc.value) != tc.expected {
+				t.Fatalf("expected %q, got %q", tc.expected, tc.value)
+			}
+		})
 	}
-	if Ambiguous != "AMBIGUOUS" {
-		t.Fatal("Ambiguous confidence mismatch")
+}
+
+func TestConfidenceValidate(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   Confidence
+		wantErr bool
+	}{
+		{"Extracted", Extracted, false},
+		{"Inferred", Inferred, false},
+		{"Ambiguous", Ambiguous, false},
+		{"empty", "", true},
+		{"invalid", "UNKNOWN", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.value.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if !strings.Contains(err.Error(), "invalid confidence") {
+					t.Fatalf("unexpected error message: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 
 func TestNodeValidation(t *testing.T) {
-	t.Run("empty ID returns error", func(t *testing.T) {
-		n := Node{ID: "", Label: "test"}
-		if err := n.Validate(); err == nil {
-			t.Fatal("expected error for empty ID")
-		}
-	})
-	t.Run("valid node returns no error", func(t *testing.T) {
-		n := Node{ID: "pkg:main", Label: "main"}
-		if err := n.Validate(); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	cases := []struct {
+		name    string
+		node    Node
+		wantErr string
+	}{
+		{"empty ID", Node{ID: "", Label: "test"}, "node ID required"},
+		{"empty label", Node{ID: "pkg:main", Label: ""}, "node label required"},
+		{"valid", Node{ID: "pkg:main", Label: "main"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.node.Validate()
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
 }
 
 func TestEdgeValidation(t *testing.T) {
-	t.Run("empty source returns error", func(t *testing.T) {
-		e := Edge{Source: "", Target: "b", Relation: "imports"}
-		if err := e.Validate(); err == nil {
-			t.Fatal("expected error for empty source")
-		}
-	})
-	t.Run("empty target returns error", func(t *testing.T) {
-		e := Edge{Source: "a", Target: "", Relation: "imports"}
-		if err := e.Validate(); err == nil {
-			t.Fatal("expected error for empty target")
-		}
-	})
-	t.Run("both empty returns error", func(t *testing.T) {
-		e := Edge{Source: "", Target: "", Relation: "imports"}
-		if err := e.Validate(); err == nil {
-			t.Fatal("expected error for empty source and target")
-		}
-	})
-	t.Run("valid edge returns no error", func(t *testing.T) {
-		e := Edge{Source: "a", Target: "b", Relation: "imports"}
-		if err := e.Validate(); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	cases := []struct {
+		name    string
+		edge    Edge
+		wantErr string
+	}{
+		{"empty source", Edge{Source: "", Target: "b", Relation: "imports", Confidence: Extracted}, "edge source required"},
+		{"empty target", Edge{Source: "a", Target: "", Relation: "imports", Confidence: Extracted}, "edge target required"},
+		{"empty relation", Edge{Source: "a", Target: "b", Relation: "", Confidence: Extracted}, "edge relation required"},
+		{"invalid confidence", Edge{Source: "a", Target: "b", Relation: "imports", Confidence: "INVALID"}, "invalid confidence"},
+		{"valid", Edge{Source: "a", Target: "b", Relation: "imports", Confidence: Extracted}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.edge.Validate()
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
 }
