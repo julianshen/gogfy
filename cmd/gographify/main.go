@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/julianshen/gogfy/internal/analyze"
+	"github.com/julianshen/gogfy/internal/cache"
 	"github.com/julianshen/gogfy/internal/cluster"
 	"github.com/julianshen/gogfy/internal/detect"
 	"github.com/julianshen/gogfy/internal/export"
@@ -37,6 +38,19 @@ func runPipeline(root, out string, update bool) error {
 	files, err := detect.CollectFiles(root, []string{".go"})
 	if err != nil {
 		return fmt.Errorf("detect: %w", err)
+	}
+
+	// Cache for incremental updates
+	if update {
+		c := cache.NewCache(filepath.Join(out, ".gographify-cache"))
+		changed, err := c.ChangedFiles(files)
+		if err != nil {
+			return fmt.Errorf("cache: %w", err)
+		}
+		files = changed
+		if len(files) == 0 {
+			fmt.Println("No files changed, skipping extraction")
+		}
 	}
 
 	builder := graph.NewBuilder()
@@ -100,6 +114,13 @@ func runPipeline(root, out string, update bool) error {
 		return fmt.Errorf("write graph.html: %w", err)
 	}
 
-	_ = update
+	// Save cache after successful run
+	if update {
+		c := cache.NewCache(filepath.Join(out, ".gographify-cache"))
+		if err := c.Save(files); err != nil {
+			return fmt.Errorf("cache save: %w", err)
+		}
+	}
+
 	return nil
 }
