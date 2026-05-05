@@ -68,21 +68,16 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, pkgName *strin
 			SourceFile:     filePath,
 			SourceLocation: fmt.Sprintf("%d:%d", node.StartPoint().Row+1, node.StartPoint().Column+1),
 		})
-	case "import_declaration":
-		for i := 0; i < int(node.ChildCount()); i++ {
-			child := node.Child(i)
-			if child.Type() == "import_spec" {
-				pathNode := child.ChildByFieldName("path")
-				if pathNode != nil {
-					imp := strings.Trim(pathNode.Content(src), `"`)
-					*edges = append(*edges, schema.Edge{
-						Source:     fmt.Sprintf("pkg:%s:%s", filePath, *pkgName),
-						Target:     fmt.Sprintf("pkg:import:%s", imp),
-						Relation:   "imports",
-						Confidence: schema.Extracted,
-					})
-				}
-			}
+	case "import_spec":
+		pathNode := node.ChildByFieldName("path")
+		if pathNode != nil {
+			imp := strings.Trim(pathNode.Content(src), `"`)
+			*edges = append(*edges, schema.Edge{
+				Source:     fmt.Sprintf("pkg:%s:%s", filePath, *pkgName),
+				Target:     fmt.Sprintf("pkg:import:%s", imp),
+				Relation:   "imports",
+				Confidence: schema.Extracted,
+			})
 		}
 	}
 
