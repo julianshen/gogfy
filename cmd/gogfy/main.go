@@ -36,7 +36,7 @@ func main() {
 }
 
 func runPipeline(root, out string, update bool) error {
-	files, err := detect.CollectFiles(root, []string{".go"})
+	files, err := detect.CollectFiles(root, []string{".go", ".py"})
 	if err != nil {
 		return fmt.Errorf("detect: %w", err)
 	}
@@ -56,10 +56,20 @@ func runPipeline(root, out string, update bool) error {
 	}
 
 	builder := graph.NewBuilder()
-	extractor := extract.GoExtractor{}
+	goExtractor := extract.GoExtractor{}
+	pyExtractor := extract.PythonExtractor{}
 
 	for _, f := range files {
-		res, err := extractor.Extract(f)
+		var res extract.Result
+		var err error
+		switch filepath.Ext(f) {
+		case ".go":
+			res, err = goExtractor.Extract(f)
+		case ".py":
+			res, err = pyExtractor.Extract(f)
+		default:
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("extract %s: %w", f, err)
 		}
@@ -79,7 +89,7 @@ func runPipeline(root, out string, update bool) error {
 	nodes := g.Nodes()
 	edges := g.Edges()
 
-	clusterer := cluster.NewConnectedComponentsClusterer()
+	clusterer := cluster.NewLeidenClusterer()
 	clusteredNodes, err := clusterer.Cluster(nodes, edges)
 	if err != nil {
 		return fmt.Errorf("cluster: %w", err)

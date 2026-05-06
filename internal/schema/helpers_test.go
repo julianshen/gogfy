@@ -29,6 +29,21 @@ func TestImportID(t *testing.T) {
 	}
 }
 
+func TestPythonHelpers(t *testing.T) {
+	if got := PythonModuleID("/a/b.py"); got != "py:module:/a/b.py" {
+		t.Fatalf("unexpected: %s", got)
+	}
+	if got := PythonFuncID("/a/b.py", "foo"); got != "py:fn:/a/b.py:foo" {
+		t.Fatalf("unexpected: %s", got)
+	}
+	if got := PythonClassID("/a/b.py", "Foo"); got != "py:class:/a/b.py:Foo" {
+		t.Fatalf("unexpected: %s", got)
+	}
+	if got := PythonImportID("os"); got != "py:import:os" {
+		t.Fatalf("unexpected: %s", got)
+	}
+}
+
 func TestSortNodesByID(t *testing.T) {
 	nodes := []Node{{ID: "c"}, {ID: "a"}, {ID: "b"}}
 	SortNodesByID(nodes)

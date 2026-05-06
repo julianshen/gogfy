@@ -96,6 +96,10 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 		pathNode := node.ChildByFieldName("path")
 		if pathNode != nil {
 			imp := strings.Trim(pathNode.Content(src), `"`)
+			state.nodes = append(state.nodes, schema.Node{
+				ID:    schema.ImportID(imp),
+				Label: imp,
+			})
 			state.edges = append(state.edges, schema.Edge{
 				Source:     schema.PackageID(filePath, state.pkgName),
 				Target:     schema.ImportID(imp),

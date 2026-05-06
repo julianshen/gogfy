@@ -11,8 +11,8 @@ func TestGraphBuilderDedupesNodes(t *testing.T) {
 	if err := b.AddNode(schema.Node{ID: "pkg:main", Label: "main"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.AddNode(schema.Node{ID: "pkg:main", Label: "main"}); err == nil {
-		t.Fatal("expected error for duplicate node ID")
+	if err := b.AddNode(schema.Node{ID: "pkg:main", Label: "main"}); err != nil {
+		t.Fatal(err)
 	}
 	g := b.Build()
 	if len(g.Nodes()) != 1 {
@@ -25,8 +25,8 @@ func TestGraphBuilderNodeOverwriteRejected(t *testing.T) {
 	if err := b.AddNode(schema.Node{ID: "pkg:main", Label: "main", SourceFile: "a.go"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.AddNode(schema.Node{ID: "pkg:main", Label: "updated", SourceFile: "b.go"}); err == nil {
-		t.Fatal("expected error for duplicate node ID")
+	if err := b.AddNode(schema.Node{ID: "pkg:main", Label: "updated", SourceFile: "b.go"}); err != nil {
+		t.Fatal(err)
 	}
 	g := b.Build()
 	if len(g.Nodes()) != 1 {

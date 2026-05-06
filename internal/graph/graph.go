@@ -48,13 +48,14 @@ func NewBuilder() *Builder {
 	}
 }
 
-// AddNode adds a node to the builder, returning an error if validation fails or the ID already exists.
+// AddNode adds a node to the builder, returning an error if validation fails.
+// Duplicate IDs are silently ignored (idempotent).
 func (b *Builder) AddNode(n schema.Node) error {
 	if err := n.Validate(); err != nil {
 		return err
 	}
 	if _, exists := b.nodes[n.ID]; exists {
-		return fmt.Errorf("node ID %q already exists", n.ID)
+		return nil
 	}
 	b.nodes[n.ID] = n
 	return nil

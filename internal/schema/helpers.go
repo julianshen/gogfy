@@ -26,6 +26,26 @@ func ImportID(imp string) string {
 	return fmt.Sprintf("pkg:import:%s", imp)
 }
 
+// PythonModuleID returns a deterministic node ID for a Python module.
+func PythonModuleID(filePath string) string {
+	return fmt.Sprintf("py:module:%s", filePath)
+}
+
+// PythonFuncID returns a deterministic node ID for a Python function.
+func PythonFuncID(filePath, funcName string) string {
+	return fmt.Sprintf("py:fn:%s:%s", filePath, funcName)
+}
+
+// PythonClassID returns a deterministic node ID for a Python class.
+func PythonClassID(filePath, className string) string {
+	return fmt.Sprintf("py:class:%s:%s", filePath, className)
+}
+
+// PythonImportID returns a deterministic node ID for a Python imported module.
+func PythonImportID(imp string) string {
+	return fmt.Sprintf("py:import:%s", imp)
+}
+
 // SortNodesByID sorts nodes in-place by ID for deterministic output.
 func SortNodesByID(nodes []Node) {
 	sort.Slice(nodes, func(i, j int) bool {

@@ -70,7 +70,9 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 		if label == "" {
 			label = gn.ID
 		}
-		questions = append(questions, "What is the role of "+label+"?")
+		if label != "" {
+			questions = append(questions, "What is the role of "+label+"?")
+		}
 	}
 	communityPairs := make(map[[2]string]struct{})
 	for _, e := range surprising {
