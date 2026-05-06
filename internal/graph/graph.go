@@ -45,9 +45,7 @@ func (b *Builder) Build() Graph {
 	for _, n := range b.nodes {
 		g.Nodes = append(g.Nodes, n)
 	}
-	sort.Slice(g.Nodes, func(i, j int) bool {
-		return g.Nodes[i].ID < g.Nodes[j].ID
-	})
+	schema.SortNodesByID(g.Nodes)
 	for _, e := range b.edges {
 		g.Edges = append(g.Edges, e)
 	}

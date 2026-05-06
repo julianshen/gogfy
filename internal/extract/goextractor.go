@@ -1,7 +1,6 @@
 package extract
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +20,7 @@ type extractState struct {
 	edges   []schema.Edge
 }
 
-func (g *GoExtractor) Extract(path string) (Result, error) {
+func (ge *GoExtractor) Extract(path string) (Result, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return Result{}, err
@@ -67,10 +66,10 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 		}
 		state.pkgName = nameNode.Content(src)
 		state.nodes = append(state.nodes, schema.Node{
-			ID:             fmt.Sprintf("pkg:%s:%s", filePath, state.pkgName),
+			ID:             schema.PackageID(filePath, state.pkgName),
 			Label:          state.pkgName,
 			SourceFile:     filePath,
-			SourceLocation: fmt.Sprintf("%d:%d", node.StartPoint().Row+1, node.StartPoint().Column+1),
+			SourceLocation: schema.FormatLocation(node.StartPoint().Row, node.StartPoint().Column),
 		})
 	case "function_declaration":
 		nameNode := node.ChildByFieldName("name")
@@ -83,10 +82,10 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 			label = "<anonymous>"
 		}
 		state.nodes = append(state.nodes, schema.Node{
-			ID:             fmt.Sprintf("fn:%s:%s.%s", filePath, state.pkgName, funcName),
+			ID:             schema.FuncID(filePath, state.pkgName, funcName),
 			Label:          label,
 			SourceFile:     filePath,
-			SourceLocation: fmt.Sprintf("%d:%d", node.StartPoint().Row+1, node.StartPoint().Column+1),
+			SourceLocation: schema.FormatLocation(node.StartPoint().Row, node.StartPoint().Column),
 		})
 	case "import_spec":
 		if state.pkgName == "" {
@@ -96,8 +95,8 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 		if pathNode != nil {
 			imp := strings.Trim(pathNode.Content(src), `"`)
 			state.edges = append(state.edges, schema.Edge{
-				Source:     fmt.Sprintf("pkg:%s:%s", filePath, state.pkgName),
-				Target:     fmt.Sprintf("pkg:import:%s", imp),
+				Source:     schema.PackageID(filePath, state.pkgName),
+				Target:     schema.ImportID(imp),
 				Relation:   "imports",
 				Confidence: schema.Extracted,
 			})
