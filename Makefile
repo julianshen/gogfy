@@ -7,4 +7,4 @@ lint:
 	golangci-lint run ./...
 
 build:
-	go build -o bin/gographify ./cmd/gographify
+	go build -o bin/gogfy ./cmd/gogfy

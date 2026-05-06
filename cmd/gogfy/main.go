@@ -24,7 +24,7 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 	if len(args) < 2 || args[0] != "run" {
-		fmt.Fprintln(os.Stderr, "usage: gographify run <root>")
+		fmt.Fprintln(os.Stderr, "usage: gogfy run <root>")
 		os.Exit(1)
 	}
 	root := args[1]
