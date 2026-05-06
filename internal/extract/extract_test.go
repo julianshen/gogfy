@@ -176,3 +176,32 @@ func TestGoExtractorPackageOnly(t *testing.T) {
 		t.Fatalf("expected 0 edges, got %d", len(result.Edges))
 	}
 }
+
+func TestGoExtractorNonExistentFile(t *testing.T) {
+	ex := &GoExtractor{}
+	_, err := ex.Extract("/nonexistent/path/file.go")
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestGoExtractorAnonymousFunction(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "anon.go")
+	if err := os.WriteFile(path, []byte(`package anon
+
+var _ = func() {}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := &GoExtractor{}
+	result, err := ex.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should have package node + 0 function_declaration nodes (lambda is different AST node)
+	if len(result.Nodes) != 1 {
+		t.Fatalf("expected 1 node (pkg only), got %d", len(result.Nodes))
+	}
+}

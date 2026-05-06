@@ -103,3 +103,72 @@ func TestCollectFilesEmptyExtensions(t *testing.T) {
 		t.Fatalf("expected 0 files, got %d", len(files))
 	}
 }
+
+func TestCollectFilesNonExistentRoot(t *testing.T) {
+	_, err := CollectFiles("/nonexistent/path/12345", []string{".go"})
+	if err == nil {
+		t.Fatal("expected error for nonexistent root")
+	}
+}
+
+func TestCollectFilesInvalidGlobPattern(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0644)
+	os.WriteFile(filepath.Join(root, ".graphifyignore"), []byte("[\n"), 0644)
+
+	_, err := CollectFiles(root, []string{".go"})
+	if err == nil {
+		t.Fatal("expected error for invalid glob pattern")
+	}
+}
+
+func TestCollectFilesNestedIgnore(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "keep.go"), []byte("package keep"), 0644)
+	sub := filepath.Join(root, "vendor", "nested")
+	os.MkdirAll(sub, 0755)
+	os.WriteFile(filepath.Join(sub, "skip.go"), []byte("package skip"), 0644)
+	os.WriteFile(filepath.Join(root, ".graphifyignore"), []byte("vendor/\n"), 0644)
+
+	files, err := CollectFiles(root, []string{".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	if filepath.Base(files[0]) != "keep.go" {
+		t.Fatalf("expected keep.go, got %s", files[0])
+	}
+}
+
+func TestCollectFilesGlobPatternMatch(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "keep.go"), []byte("package keep"), 0644)
+	os.WriteFile(filepath.Join(root, "skip_test.go"), []byte("package skip"), 0644)
+	os.WriteFile(filepath.Join(root, ".graphifyignore"), []byte("*_test.go\n"), 0644)
+
+	files, err := CollectFiles(root, []string{".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	if filepath.Base(files[0]) != "keep.go" {
+		t.Fatalf("expected keep.go, got %s", files[0])
+	}
+}
+
+func TestCollectFilesLoadIgnorePermissionError(t *testing.T) {
+	root := t.TempDir()
+	ignorePath := filepath.Join(root, ".graphifyignore")
+	os.WriteFile(ignorePath, []byte("vendor/\n"), 0644)
+	os.Chmod(ignorePath, 0000)
+	defer os.Chmod(ignorePath, 0644)
+
+	_, err := CollectFiles(root, []string{".go"})
+	if err == nil {
+		t.Fatal("expected error for unreadable ignore file")
+	}
+}

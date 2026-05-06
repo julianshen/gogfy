@@ -1,6 +1,9 @@
 package schema
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // FormatLocation formats a tree-sitter row:col into a human-readable location string.
 func FormatLocation(row, col uint32) string {
@@ -24,12 +27,7 @@ func ImportID(imp string) string {
 
 // SortNodesByID sorts nodes in-place by ID for deterministic output.
 func SortNodesByID(nodes []Node) {
-	// Use bubble sort for small slices to avoid import overhead
-	for i := 0; i < len(nodes); i++ {
-		for j := i + 1; j < len(nodes); j++ {
-			if nodes[j].ID < nodes[i].ID {
-				nodes[i], nodes[j] = nodes[j], nodes[i]
-			}
-		}
-	}
+	sort.Slice(nodes, func(i, j int) bool {
+		return nodes[i].ID < nodes[j].ID
+	})
 }

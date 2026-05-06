@@ -105,3 +105,10 @@ func TestCacheMultipleFiles(t *testing.T) {
 		t.Fatalf("expected f1 changed, got %s", changed[0])
 	}
 }
+
+func TestCacheHashFileError(t *testing.T) {
+	_, err := hashFile("/nonexistent/path/to/file.go")
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}

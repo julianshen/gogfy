@@ -26,7 +26,12 @@ This file applies to the entire repository.
 - Add or update tests with every functional change.
 - Keep I/O boundaries thin and core logic testable/pure where practical.
 
+## Coverage requirement
+- All packages must maintain >90% test coverage.
+- Run `go test -cover ./...` before opening/merging PRs.
+- If coverage drops below 90%, add tests before proceeding.
+
 ## Pull request expectations
 - Summarize behavior changes and impacted milestones from `PLAN.md`.
-- Include commands run for validation (e.g. `go test ./...`).
+- Include commands run for validation (e.g. `go test ./...`, `go test -cover ./...`).
 - Note any known gaps vs upstream `graphify` parity.

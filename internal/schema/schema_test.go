@@ -17,8 +17,8 @@ func TestConfidenceEnum(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if string(tc.value) != tc.expected {
-				t.Fatalf("expected %q, got %q", tc.expected, tc.value)
+			if tc.value.String() != tc.expected {
+				t.Fatalf("expected %q, got %q", tc.expected, tc.value.String())
 			}
 		})
 	}
@@ -33,8 +33,7 @@ func TestConfidenceValidate(t *testing.T) {
 		{"Extracted", Extracted, false},
 		{"Inferred", Inferred, false},
 		{"Ambiguous", Ambiguous, false},
-		{"empty", "", true},
-		{"invalid", "UNKNOWN", true},
+		{"invalid", Confidence(999), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,7 +92,7 @@ func TestEdgeValidation(t *testing.T) {
 		{"empty source", Edge{Source: "", Target: "b", Relation: "imports", Confidence: Extracted}, "edge source required"},
 		{"empty target", Edge{Source: "a", Target: "", Relation: "imports", Confidence: Extracted}, "edge target required"},
 		{"empty relation", Edge{Source: "a", Target: "b", Relation: "", Confidence: Extracted}, "edge relation required"},
-		{"invalid confidence", Edge{Source: "a", Target: "b", Relation: "imports", Confidence: "INVALID"}, "invalid confidence"},
+		{"invalid confidence", Edge{Source: "a", Target: "b", Relation: "imports", Confidence: Confidence(999)}, "invalid confidence"},
 		{"valid", Edge{Source: "a", Target: "b", Relation: "imports", Confidence: Extracted}, ""},
 	}
 	for _, tc := range cases {

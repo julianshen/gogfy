@@ -5,20 +5,33 @@ import (
 	"fmt"
 )
 
-type Confidence string
+type Confidence int
 
 const (
-	Extracted Confidence = "EXTRACTED"
-	Inferred  Confidence = "INFERRED"
-	Ambiguous Confidence = "AMBIGUOUS"
+	Extracted Confidence = iota
+	Inferred
+	Ambiguous
 )
+
+func (c Confidence) String() string {
+	switch c {
+	case Extracted:
+		return "EXTRACTED"
+	case Inferred:
+		return "INFERRED"
+	case Ambiguous:
+		return "AMBIGUOUS"
+	default:
+		return fmt.Sprintf("Confidence(%d)", c)
+	}
+}
 
 func (c Confidence) Validate() error {
 	switch c {
 	case Extracted, Inferred, Ambiguous:
 		return nil
 	default:
-		return fmt.Errorf("invalid confidence: %q", c)
+		return fmt.Errorf("invalid confidence: %s", c)
 	}
 }
 

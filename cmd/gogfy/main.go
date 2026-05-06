@@ -40,9 +40,10 @@ func runPipeline(root, out string, update bool) error {
 		return fmt.Errorf("detect: %w", err)
 	}
 
-	// Cache for incremental updates
+	cachePath := filepath.Join(out, ".gographify-cache")
+	var c *cache.Cache
 	if update {
-		c := cache.NewCache(filepath.Join(out, ".gographify-cache"))
+		c = cache.NewCache(cachePath)
 		changed, err := c.ChangedFiles(files)
 		if err != nil {
 			return fmt.Errorf("cache: %w", err)
@@ -62,23 +63,29 @@ func runPipeline(root, out string, update bool) error {
 			return fmt.Errorf("extract %s: %w", f, err)
 		}
 		for _, n := range res.Nodes {
-			builder.AddNode(n)
+			if err := builder.AddNode(n); err != nil {
+				return fmt.Errorf("add node: %w", err)
+			}
 		}
 		for _, e := range res.Edges {
-			builder.AddEdge(e)
+			if err := builder.AddEdge(e); err != nil {
+				return fmt.Errorf("add edge: %w", err)
+			}
 		}
 	}
 
 	g := builder.Build()
+	nodes := g.Nodes()
+	edges := g.Edges()
 
 	clusterer := cluster.NewConnectedComponentsClusterer()
-	clusteredNodes, err := clusterer.Cluster(g.Nodes, g.Edges)
+	clusteredNodes, err := clusterer.Cluster(nodes, edges)
 	if err != nil {
 		return fmt.Errorf("cluster: %w", err)
 	}
 
 	analyzer := analyze.NewAnalyzer()
-	reportData := analyzer.Analyze(clusteredNodes, g.Edges)
+	reportData := analyzer.Analyze(clusteredNodes, edges)
 
 	reportBytes, err := report.Render(reportData)
 	if err != nil {
@@ -87,7 +94,7 @@ func runPipeline(root, out string, update bool) error {
 
 	exportGraph := export.GraphExport{
 		Nodes: clusteredNodes,
-		Edges: g.Edges,
+		Edges: edges,
 	}
 
 	jsonBytes, err := export.ExportJSON(exportGraph)
@@ -116,7 +123,9 @@ func runPipeline(root, out string, update bool) error {
 
 	// Save cache after successful run
 	if update {
-		c := cache.NewCache(filepath.Join(out, ".gographify-cache"))
+		if c == nil {
+			c = cache.NewCache(cachePath)
+		}
 		if err := c.Save(files); err != nil {
 			return fmt.Errorf("cache save: %w", err)
 		}
