@@ -1,3 +1,4 @@
+// Package analyze provides graph analysis to identify notable nodes and cross-community edges.
 package analyze
 
 import (
@@ -6,6 +7,7 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
+// Report contains the findings of a graph analysis.
 type Report struct {
 	GodNodes             []schema.Node
 	SurprisingLinks      []schema.Edge
@@ -17,12 +19,15 @@ type nodeDegree struct {
 	degree int
 }
 
+// Analyzer performs analysis on a graph to produce a Report.
 type Analyzer struct{}
 
+// NewAnalyzer creates a new Analyzer.
 func NewAnalyzer() *Analyzer {
 	return &Analyzer{}
 }
 
+// Analyze examines the provided nodes and edges and returns a Report with insights.
 func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 	nodeMap := make(map[string]schema.Node, len(nodes))
 	for _, n := range nodes {

@@ -1,3 +1,4 @@
+// Command gogfy is the CLI entry point for the gogfy graph extraction pipeline.
 package main
 
 import (

@@ -1,3 +1,4 @@
+// Package cluster groups graph nodes into communities using connected components.
 package cluster
 
 import (
@@ -7,16 +8,20 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
+// Clusterer is the interface for algorithms that assign communities to nodes.
 type Clusterer interface {
 	Cluster(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, error)
 }
 
+// ConnectedComponentsClusterer assigns community IDs based on connected components in the graph.
 type ConnectedComponentsClusterer struct{}
 
+// NewConnectedComponentsClusterer creates a new ConnectedComponentsClusterer.
 func NewConnectedComponentsClusterer() *ConnectedComponentsClusterer {
 	return &ConnectedComponentsClusterer{}
 }
 
+// Cluster assigns each node a community ID based on its connected component.
 func (c *ConnectedComponentsClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, error) {
 	// Build adjacency list
 	adj := make(map[string][]string, len(nodes))

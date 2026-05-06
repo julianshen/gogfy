@@ -1,3 +1,4 @@
+// Package schema defines the core data types for the gogfy graph model.
 package schema
 
 import (

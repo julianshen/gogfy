@@ -1,3 +1,4 @@
+// Package detect discovers source files in a directory tree, respecting ignore patterns.
 package detect
 
 import (
@@ -8,6 +9,8 @@ import (
 	"strings"
 )
 
+// CollectFiles recursively collects files under root matching the given extensions,
+// skipping entries matched by .graphifyignore patterns.
 func CollectFiles(root string, extensions []string) ([]string, error) {
 	ignorePatterns, err := loadIgnorePatterns(root)
 	if err != nil {

@@ -1,3 +1,4 @@
+// Package graph provides an immutable graph data structure and a builder for constructing it.
 package graph
 
 import (
@@ -7,23 +8,27 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
+// Graph is an immutable collection of nodes and edges.
 type Graph struct {
 	nodes []schema.Node
 	edges []schema.Edge
 }
 
+// Nodes returns a copy of the graph's nodes.
 func (g Graph) Nodes() []schema.Node {
 	result := make([]schema.Node, len(g.nodes))
 	copy(result, g.nodes)
 	return result
 }
 
+// Edges returns a copy of the graph's edges.
 func (g Graph) Edges() []schema.Edge {
 	result := make([]schema.Edge, len(g.edges))
 	copy(result, g.edges)
 	return result
 }
 
+// Builder constructs a Graph incrementally, deduplicating nodes and edges.
 type Builder struct {
 	nodes map[string]schema.Node
 	edges map[edgeKey]schema.Edge
@@ -35,6 +40,7 @@ type edgeKey struct {
 	Relation string
 }
 
+// NewBuilder creates a new Builder ready to accept nodes and edges.
 func NewBuilder() *Builder {
 	return &Builder{
 		nodes: make(map[string]schema.Node),
@@ -42,6 +48,7 @@ func NewBuilder() *Builder {
 	}
 }
 
+// AddNode adds a node to the builder, returning an error if validation fails or the ID already exists.
 func (b *Builder) AddNode(n schema.Node) error {
 	if err := n.Validate(); err != nil {
 		return err
@@ -53,6 +60,7 @@ func (b *Builder) AddNode(n schema.Node) error {
 	return nil
 }
 
+// AddEdge adds an edge to the builder, returning an error if validation fails or the edge already exists.
 func (b *Builder) AddEdge(e schema.Edge) error {
 	if err := e.Validate(); err != nil {
 		return err
@@ -64,6 +72,7 @@ func (b *Builder) AddEdge(e schema.Edge) error {
 	return nil
 }
 
+// Build constructs an immutable Graph from the accumulated nodes and edges.
 func (b *Builder) Build() Graph {
 	g := Graph{
 		nodes: make([]schema.Node, 0, len(b.nodes)),

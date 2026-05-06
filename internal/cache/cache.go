@@ -1,3 +1,4 @@
+// Package cache provides incremental caching based on file content hashes.
 package cache
 
 import (
@@ -7,14 +8,17 @@ import (
 	"os"
 )
 
+// Cache tracks file content hashes to support incremental builds.
 type Cache struct {
 	path string
 }
 
+// NewCache creates a Cache that persists to the given path.
 func NewCache(path string) *Cache {
 	return &Cache{path: path}
 }
 
+// ChangedFiles returns the subset of files whose content has changed since the last save.
 func (c *Cache) ChangedFiles(files []string) ([]string, error) {
 	oldHashes, err := c.load()
 	if err != nil {
@@ -37,6 +41,7 @@ func (c *Cache) ChangedFiles(files []string) ([]string, error) {
 	return changed, nil
 }
 
+// Save stores the current content hashes for the given files.
 func (c *Cache) Save(files []string) error {
 	hashes := make(map[string]string, len(files))
 	for _, f := range files {

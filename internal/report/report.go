@@ -1,3 +1,4 @@
+// Package report renders analysis results as a Markdown report.
 package report
 
 import (
@@ -8,6 +9,7 @@ import (
 	"github.com/julianshen/gogfy/internal/analyze"
 )
 
+// Render produces a Markdown report from the analysis Report.
 func Render(r analyze.Report) ([]byte, error) {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "# Graph Report\n\n")
