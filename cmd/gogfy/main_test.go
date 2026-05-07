@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,12 +44,26 @@ func TestUpdateModeNoChangesPreservesOutputs(t *testing.T) {
 
 func TestDispatchRunSubcommand(t *testing.T) {
 	out := t.TempDir()
-	err := dispatch([]string{"--out", out, "run", "../../testdata/e2e/mini-corpus"}, os.Stderr)
+	err := dispatch([]string{"run", "--out", out, "../../testdata/e2e/mini-corpus"}, os.Stderr)
 	if err != nil {
 		t.Fatalf("dispatch run: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(out, "graph.json")); err != nil {
 		t.Fatalf("graph.json missing: %v", err)
+	}
+}
+
+func TestDispatchRunUpdateFlagAfterRoot(t *testing.T) {
+	// SPEC §8: `gogfy run <root> [--update] [--out dir]`. Flags after the
+	// positional must work; on a fresh out dir, --update should produce
+	// artifacts (no prior cache to compare against).
+	out := t.TempDir()
+	err := dispatch([]string{"run", "../../testdata/e2e/mini-corpus", "--update", "--out", out}, os.Stderr)
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, ".gographify-cache")); err != nil {
+		t.Fatalf("expected cache from --update run, got %v", err)
 	}
 }
 
@@ -109,6 +125,32 @@ func TestAtomicWriteSucceeds(t *testing.T) {
 	// .tmp sibling must not linger after a successful rename.
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("expected .tmp to be cleaned up, stat err=%v", err)
+	}
+}
+
+func TestDispatchFlagsAfterSubcommand(t *testing.T) {
+	// SPEC §8 documents `gogfy run <root> [--update] [--out dir]` — flags AFTER
+	// the subcommand. Per-subcommand FlagSets are required to honor that.
+	out := t.TempDir()
+	err := dispatch([]string{"run", "../../testdata/e2e/mini-corpus", "--out", out}, os.Stderr)
+	if err != nil {
+		t.Fatalf("dispatch run with trailing --out: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.json")); err != nil {
+		t.Fatalf("graph.json missing in --out dir: %v", err)
+	}
+}
+
+func TestUpdateModeFirstRunOnEmptyCorpusStillWritesArtifacts(t *testing.T) {
+	root := t.TempDir() // empty corpus
+	out := t.TempDir()
+	if err := runPipeline(root, out, true); err != nil {
+		t.Fatalf("pipeline: %v", err)
+	}
+	for _, f := range []string{"graph.json", "GRAPH_REPORT.md", "graph.html"} {
+		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
+			t.Fatalf("%s missing on first --update run with empty corpus: %v", f, err)
+		}
 	}
 }
 
@@ -231,8 +273,23 @@ func TestReportCommandRendersReport(t *testing.T) {
 	if err := runPipeline(root, out, false); err != nil {
 		t.Fatalf("pipeline: %v", err)
 	}
-	if err := reportCommand(filepath.Join(out, "graph.json")); err != nil {
+	if err := reportCommand(filepath.Join(out, "graph.json"), io.Discard); err != nil {
 		t.Fatalf("report: %v", err)
+	}
+}
+
+func TestReportCommandWritesToProvidedWriter(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := reportCommand(filepath.Join(out, "graph.json"), &buf); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("# Graph Report")) {
+		t.Fatalf("expected rendered report header, got %q", buf.String())
 	}
 }
 
@@ -242,7 +299,7 @@ func TestReportCommandRejectsBadJSON(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("not json"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := reportCommand(bad); err == nil {
+	if err := reportCommand(bad, io.Discard); err == nil {
 		t.Fatal("expected parse error")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/julianshen/gogfy/internal/analyze"
 	"github.com/julianshen/gogfy/internal/cache"
@@ -27,28 +28,47 @@ func main() {
 }
 
 func dispatch(args []string, stderr io.Writer) error {
-	fs := flag.NewFlagSet("gogfy", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	update := fs.Bool("update", false, "incremental update")
-	out := fs.String("out", "graphify-out", "output directory")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	rest := fs.Args()
-	if len(rest) < 2 {
+	if len(args) == 0 {
 		usage(stderr)
-		return fmt.Errorf("missing subcommand or argument")
+		return fmt.Errorf("missing subcommand")
 	}
-	switch rest[0] {
+	sub, rest := args[0], args[1:]
+	switch sub {
 	case "run":
-		return runPipeline(rest[1], *out, *update)
+		// Reorder so flags precede positionals before handing to flag.FlagSet.
+		// This lets `gogfy run <root> --update` work as documented in SPEC §8,
+		// since flag.Parse stops at the first non-flag token.
+		ordered, err := groupRunFlags(rest)
+		if err != nil {
+			return err
+		}
+		fs := flag.NewFlagSet("run", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		update := fs.Bool("update", false, "incremental update")
+		out := fs.String("out", "graphify-out", "output directory")
+		if err := fs.Parse(ordered); err != nil {
+			return err
+		}
+		if fs.NArg() < 1 {
+			usage(stderr)
+			return fmt.Errorf("run: missing <root>")
+		}
+		return runPipeline(fs.Arg(0), *out, *update)
 	case "validate":
-		return validateCommand(rest[1])
+		if len(rest) < 1 {
+			usage(stderr)
+			return fmt.Errorf("validate: missing <graph.json>")
+		}
+		return validateCommand(rest[0])
 	case "report":
-		return reportCommand(rest[1])
+		if len(rest) < 1 {
+			usage(stderr)
+			return fmt.Errorf("report: missing <graph.json>")
+		}
+		return reportCommand(rest[0], os.Stdout)
 	default:
 		usage(stderr)
-		return fmt.Errorf("unknown subcommand: %s", rest[0])
+		return fmt.Errorf("unknown subcommand: %s", sub)
 	}
 }
 
@@ -72,9 +92,10 @@ func runPipeline(root, out string, update bool) error {
 		if err != nil {
 			return fmt.Errorf("cache: %w", err)
 		}
-		// No-op --update must leave prior artifacts untouched; otherwise the
-		// pipeline below would overwrite them with empty-graph output.
-		if len(changed) == 0 {
+		// No-op --update must leave prior artifacts untouched, but only if they
+		// actually exist — on a first run (empty corpus or fresh out dir) we
+		// must still produce the standard artifacts.
+		if len(changed) == 0 && artifactsExist(out) {
 			fmt.Println("No files changed, skipping extraction")
 			return nil
 		}
@@ -176,13 +197,11 @@ func validateCommand(path string) error {
 	if err != nil {
 		return err
 	}
+	ids := make(map[string]struct{}, len(g.Nodes))
 	for _, n := range g.Nodes {
 		if err := n.Validate(); err != nil {
 			return fmt.Errorf("invalid node %q: %w", n.ID, err)
 		}
-	}
-	ids := make(map[string]struct{}, len(g.Nodes))
-	for _, n := range g.Nodes {
 		ids[n.ID] = struct{}{}
 	}
 	for _, e := range g.Edges {
@@ -200,7 +219,7 @@ func validateCommand(path string) error {
 	return nil
 }
 
-func reportCommand(path string) error {
+func reportCommand(path string, w io.Writer) error {
 	g, err := loadGraph(path)
 	if err != nil {
 		return err
@@ -210,8 +229,45 @@ func reportCommand(path string) error {
 	if err != nil {
 		return fmt.Errorf("report: %w", err)
 	}
-	_, err = os.Stdout.Write(out)
+	_, err = w.Write(out)
 	return err
+}
+
+// groupRunFlags reorders args for the `run` subcommand so all known flags
+// come before positional args. Required because flag.Parse stops at the first
+// non-flag, but SPEC §8 documents `run <root> [--update] [--out dir]`.
+func groupRunFlags(args []string) ([]string, error) {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--update", a == "-update":
+			flags = append(flags, a)
+		case a == "--out", a == "-out":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("flag %s requires a value", a)
+			}
+			flags = append(flags, a, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--out="), strings.HasPrefix(a, "-out="),
+			strings.HasPrefix(a, "--update="), strings.HasPrefix(a, "-update="):
+			flags = append(flags, a)
+		case strings.HasPrefix(a, "-"):
+			return nil, fmt.Errorf("unknown flag: %s", a)
+		default:
+			positional = append(positional, a)
+		}
+	}
+	return append(flags, positional...), nil
+}
+
+func artifactsExist(out string) bool {
+	for _, name := range []string{"graph.json", "GRAPH_REPORT.md", "graph.html"} {
+		if _, err := os.Stat(filepath.Join(out, name)); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func loadGraph(path string) (export.GraphExport, error) {
