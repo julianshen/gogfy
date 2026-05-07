@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/julianshen/gogfy/internal/schema"
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/python"
+	sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
 )
 
 // PythonExtractor uses tree-sitter-python to extract module/class/function nodes
@@ -33,12 +33,14 @@ func (pe *PythonExtractor) Extract(path string) (Result, error) {
 	}
 
 	parser := sitter.NewParser()
-	parser.SetLanguage(python.GetLanguage())
-	tree := parser.Parse(nil, src)
+	defer parser.Close()
+	if err := parser.SetLanguage(sitter.NewLanguage(tree_sitter_python.Language())); err != nil {
+		return Result{}, err
+	}
+	tree := parser.Parse(src, nil)
 	defer tree.Close()
 
-	root := tree.RootNode()
-	cursor := sitter.NewTreeCursor(root)
+	cursor := tree.Walk()
 	defer cursor.Close()
 
 	state := &pythonExtractState{moduleName: filepath.Base(absPath)}
@@ -48,86 +50,70 @@ func (pe *PythonExtractor) Extract(path string) (Result, error) {
 }
 
 func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *pythonExtractState) {
-	node := cursor.CurrentNode()
-	switch node.Type() {
+	node := cursor.Node()
+	switch node.Kind() {
 	case "module":
-		// Module node - add as a package-like node
 		state.nodes = append(state.nodes, schema.Node{
 			ID:             schema.PythonModuleID(filePath),
 			Label:          state.moduleName,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(node.StartPoint().Row, node.StartPoint().Column),
+			SourceLocation: nodeLocation(node),
 		})
 	case "import_statement":
-		// import x or import x as y
 		if state.moduleName == "" {
 			break
 		}
-		for i := 0; i < int(node.ChildCount()); i++ {
+		n := node.ChildCount()
+		for i := uint(0); i < n; i++ {
 			child := node.Child(i)
-			if child.Type() == "dotted_name" {
-				imp := child.Content(src)
-				state.nodes = append(state.nodes, schema.Node{
-					ID:    schema.PythonImportID(imp),
-					Label: imp,
-				})
-				state.edges = append(state.edges, schema.Edge{
-					Source:     schema.PythonModuleID(filePath),
-					Target:     schema.PythonImportID(imp),
-					Relation:   "imports",
-					Confidence: schema.Extracted,
-				})
-			} else if child.Type() == "aliased_import" {
-				// aliased_import contains a dotted_name child
-				for j := 0; j < int(child.ChildCount()); j++ {
+			switch child.Kind() {
+			case "dotted_name":
+				addPyImport(state, filePath, child.Utf8Text(src))
+			case "aliased_import":
+				m := child.ChildCount()
+				for j := uint(0); j < m; j++ {
 					grandchild := child.Child(j)
-					if grandchild.Type() == "dotted_name" {
-						imp := grandchild.Content(src)
-						state.nodes = append(state.nodes, schema.Node{
-							ID:    schema.PythonImportID(imp),
-							Label: imp,
-						})
-						state.edges = append(state.edges, schema.Edge{
-							Source:     schema.PythonModuleID(filePath),
-							Target:     schema.PythonImportID(imp),
-							Relation:   "imports",
-							Confidence: schema.Extracted,
-						})
+					if grandchild.Kind() == "dotted_name" {
+						addPyImport(state, filePath, grandchild.Utf8Text(src))
 						break
 					}
 				}
 			}
 		}
 	case "import_from_statement":
-		// from x import y
 		if state.moduleName == "" {
 			break
 		}
 		var moduleName string
-		for i := 0; i < int(node.ChildCount()); i++ {
+		n := node.ChildCount()
+		for i := uint(0); i < n; i++ {
 			child := node.Child(i)
-			if child.Type() == "dotted_name" && moduleName == "" {
-				moduleName = child.Content(src)
-			} else if child.Type() == "dotted_name" && moduleName != "" {
-				// This is the imported name
-				imp := moduleName + "." + child.Content(src)
-				state.nodes = append(state.nodes, schema.Node{
-					ID:    schema.PythonImportID(imp),
-					Label: imp,
-				})
-				state.edges = append(state.edges, schema.Edge{
-					Source:     schema.PythonModuleID(filePath),
-					Target:     schema.PythonImportID(imp),
-					Relation:   "imports",
-					Confidence: schema.Extracted,
-				})
+			switch child.Kind() {
+			case "dotted_name":
+				if moduleName == "" {
+					moduleName = child.Utf8Text(src)
+				} else {
+					addPyImport(state, filePath, moduleName+"."+child.Utf8Text(src))
+				}
+			case "aliased_import":
+				if moduleName == "" {
+					continue
+				}
+				m := child.ChildCount()
+				for j := uint(0); j < m; j++ {
+					grandchild := child.Child(j)
+					if grandchild.Kind() == "dotted_name" {
+						addPyImport(state, filePath, moduleName+"."+grandchild.Utf8Text(src))
+						break
+					}
+				}
 			}
 		}
 	case "function_definition":
 		nameNode := node.ChildByFieldName("name")
 		funcName := ""
 		if nameNode != nil {
-			funcName = nameNode.Content(src)
+			funcName = nameNode.Utf8Text(src)
 		}
 		label := funcName
 		if label == "" {
@@ -137,29 +123,34 @@ func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *p
 			ID:             schema.PythonFuncID(filePath, funcName),
 			Label:          label,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(node.StartPoint().Row, node.StartPoint().Column),
+			SourceLocation: nodeLocation(node),
 		})
 	case "class_definition":
 		nameNode := node.ChildByFieldName("name")
 		className := ""
 		if nameNode != nil {
-			className = nameNode.Content(src)
+			className = nameNode.Utf8Text(src)
 		}
 		state.nodes = append(state.nodes, schema.Node{
 			ID:             schema.PythonClassID(filePath, className),
 			Label:          className,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(node.StartPoint().Row, node.StartPoint().Column),
+			SourceLocation: nodeLocation(node),
 		})
 	}
 
-	if cursor.GoToFirstChild() {
-		for {
-			walkPython(cursor, src, filePath, state)
-			if !cursor.GoToNextSibling() {
-				break
-			}
-		}
-		cursor.GoToParent()
-	}
+	walkChildren(cursor, func() { walkPython(cursor, src, filePath, state) })
+}
+
+func addPyImport(state *pythonExtractState, filePath, imp string) {
+	state.nodes = append(state.nodes, schema.Node{
+		ID:    schema.PythonImportID(imp),
+		Label: imp,
+	})
+	state.edges = append(state.edges, schema.Edge{
+		Source:     schema.PythonModuleID(filePath),
+		Target:     schema.PythonImportID(imp),
+		Relation:   "imports",
+		Confidence: schema.Extracted,
+	})
 }

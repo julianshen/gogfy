@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/julianshen/gogfy/internal/schema"
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
+	sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
 )
 
 // GoExtractor uses tree-sitter-go to extract package/function nodes
@@ -34,12 +34,14 @@ func (ge *GoExtractor) Extract(path string) (Result, error) {
 	}
 
 	parser := sitter.NewParser()
-	parser.SetLanguage(golang.GetLanguage())
-	tree := parser.Parse(nil, src)
+	defer parser.Close()
+	if err := parser.SetLanguage(sitter.NewLanguage(tree_sitter_go.Language())); err != nil {
+		return Result{}, err
+	}
+	tree := parser.Parse(src, nil)
 	defer tree.Close()
 
-	root := tree.RootNode()
-	cursor := sitter.NewTreeCursor(root)
+	cursor := tree.Walk()
 	defer cursor.Close()
 
 	state := &extractState{}
@@ -49,15 +51,15 @@ func (ge *GoExtractor) Extract(path string) (Result, error) {
 }
 
 func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extractState) {
-	node := cursor.CurrentNode()
-	switch node.Type() {
+	node := cursor.Node()
+	switch node.Kind() {
 	case "package_clause":
 		nameNode := node.ChildByFieldName("name")
 		if nameNode == nil {
-			// Fallback: find package_identifier child
-			for i := 0; i < int(node.ChildCount()); i++ {
+			n := node.ChildCount()
+			for i := uint(0); i < n; i++ {
 				child := node.Child(i)
-				if child.Type() == "package_identifier" {
+				if child.Kind() == "package_identifier" {
 					nameNode = child
 					break
 				}
@@ -66,18 +68,18 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 		if nameNode == nil {
 			break
 		}
-		state.pkgName = nameNode.Content(src)
+		state.pkgName = nameNode.Utf8Text(src)
 		state.nodes = append(state.nodes, schema.Node{
 			ID:             schema.PackageID(filePath, state.pkgName),
 			Label:          state.pkgName,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(node.StartPoint().Row, node.StartPoint().Column),
+			SourceLocation: nodeLocation(node),
 		})
 	case "function_declaration":
 		nameNode := node.ChildByFieldName("name")
 		funcName := ""
 		if nameNode != nil {
-			funcName = nameNode.Content(src)
+			funcName = nameNode.Utf8Text(src)
 		}
 		label := funcName
 		if label == "" {
@@ -87,7 +89,7 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 			ID:             schema.FuncID(filePath, state.pkgName, funcName),
 			Label:          label,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(node.StartPoint().Row, node.StartPoint().Column),
+			SourceLocation: nodeLocation(node),
 		})
 	case "import_spec":
 		if state.pkgName == "" {
@@ -95,7 +97,7 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 		}
 		pathNode := node.ChildByFieldName("path")
 		if pathNode != nil {
-			imp := strings.Trim(pathNode.Content(src), `"`)
+			imp := strings.Trim(pathNode.Utf8Text(src), `"`)
 			state.nodes = append(state.nodes, schema.Node{
 				ID:    schema.ImportID(imp),
 				Label: imp,
@@ -109,13 +111,5 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 		}
 	}
 
-	if cursor.GoToFirstChild() {
-		for {
-			walk(cursor, src, filePath, state)
-			if !cursor.GoToNextSibling() {
-				break
-			}
-		}
-		cursor.GoToParent()
-	}
+	walkChildren(cursor, func() { walk(cursor, src, filePath, state) })
 }

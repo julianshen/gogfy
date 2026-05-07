@@ -177,6 +177,31 @@ import json
 	}
 }
 
+func TestPythonExtractorFromImportWithAlias(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "aliased.py")
+	if err := os.WriteFile(path, []byte("from collections import OrderedDict as OD, defaultdict\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ex := &PythonExtractor{}
+	result, err := ex.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := make(map[string]bool)
+	for _, e := range result.Edges {
+		if e.Relation == "imports" {
+			targets[e.Target] = true
+		}
+	}
+	if !targets["py:import:collections.OrderedDict"] {
+		t.Fatalf("aliased_import dropped: missing edge for collections.OrderedDict; got %v", targets)
+	}
+	if !targets["py:import:collections.defaultdict"] {
+		t.Fatalf("expected edge for collections.defaultdict; got %v", targets)
+	}
+}
+
 func TestPythonExtractorFromImportMultiple(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "from_multi.py")
