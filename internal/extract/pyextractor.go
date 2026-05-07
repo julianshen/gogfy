@@ -88,13 +88,25 @@ func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *p
 		n := node.ChildCount()
 		for i := uint(0); i < n; i++ {
 			child := node.Child(i)
-			if child.Kind() != "dotted_name" {
-				continue
-			}
-			if moduleName == "" {
-				moduleName = child.Utf8Text(src)
-			} else {
-				addPyImport(state, filePath, moduleName+"."+child.Utf8Text(src))
+			switch child.Kind() {
+			case "dotted_name":
+				if moduleName == "" {
+					moduleName = child.Utf8Text(src)
+				} else {
+					addPyImport(state, filePath, moduleName+"."+child.Utf8Text(src))
+				}
+			case "aliased_import":
+				if moduleName == "" {
+					continue
+				}
+				m := child.ChildCount()
+				for j := uint(0); j < m; j++ {
+					grandchild := child.Child(j)
+					if grandchild.Kind() == "dotted_name" {
+						addPyImport(state, filePath, moduleName+"."+grandchild.Utf8Text(src))
+						break
+					}
+				}
 			}
 		}
 	case "function_definition":
