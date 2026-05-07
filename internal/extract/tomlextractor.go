@@ -10,15 +10,7 @@ import (
 type TOMLExtractor struct{}
 
 func (TOMLExtractor) Extract(path string) (Result, error) {
-	pf, err := parseFile(path, tree_sitter_toml.Language())
-	if err != nil {
-		return Result{}, err
-	}
-	defer pf.cleanup()
-	state := &extractState{lang: "toml", filePath: pf.absPath}
-	state.emitModule(pf.cursor.Node())
-	walkTOML(pf.cursor, pf.src, state)
-	return Result{Nodes: state.nodes, Edges: state.edges}, nil
+	return runExtraction(path, tree_sitter_toml.Language(), "toml", walkTOML)
 }
 
 func walkTOML(cursor *sitter.TreeCursor, src []byte, state *extractState) {

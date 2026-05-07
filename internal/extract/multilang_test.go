@@ -161,6 +161,39 @@ trait Shape { fn area(&self) -> f64; }
 	})
 }
 
+func TestRustExtractorUseListAliasWildcard(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lib.rs")
+	source := `use std::collections::{HashMap, HashSet};
+use foo as bar;
+use crate::lib::*;
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RustExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			targets[e.Target] = true
+		}
+	}
+	wants := []string{
+		"rust:import:std::collections::HashMap",
+		"rust:import:std::collections::HashSet",
+		"rust:import:foo",
+		"rust:import:crate::lib",
+	}
+	for _, w := range wants {
+		if !targets[w] {
+			t.Fatalf("missing edge target %q (got %v)", w, targets)
+		}
+	}
+}
+
 func TestRubyExtractor(t *testing.T) {
 	runExtractorCase(t, extractorCase{
 		name:     "ruby basic",

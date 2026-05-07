@@ -13,15 +13,8 @@ import (
 type YAMLExtractor struct{}
 
 func (YAMLExtractor) Extract(path string) (Result, error) {
-	pf, err := parseFile(path, tree_sitter_yaml.Language())
-	if err != nil {
-		return Result{}, err
-	}
-	defer pf.cleanup()
-	state := &extractState{lang: "yaml", filePath: pf.absPath}
-	state.emitModule(pf.cursor.Node())
-	walkYAML(pf.cursor, pf.src, state, 0)
-	return Result{Nodes: state.nodes, Edges: state.edges}, nil
+	return runExtraction(path, tree_sitter_yaml.Language(), "yaml",
+		func(c *sitter.TreeCursor, src []byte, s *extractState) { walkYAML(c, src, s, 0) })
 }
 
 // walkYAML emits "key" nodes only for top-level mapping pairs (mappingDepth==1).

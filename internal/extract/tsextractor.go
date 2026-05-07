@@ -17,15 +17,7 @@ func (e TypeScriptExtractor) Extract(path string) (Result, error) {
 	if e.TSX {
 		lang = tree_sitter_typescript.LanguageTSX()
 	}
-	pf, err := parseFile(path, lang)
-	if err != nil {
-		return Result{}, err
-	}
-	defer pf.cleanup()
-	state := &extractState{lang: "ts", filePath: pf.absPath}
-	state.emitModule(pf.cursor.Node())
-	walkTS(pf.cursor, pf.src, state)
-	return Result{Nodes: state.nodes, Edges: state.edges}, nil
+	return runExtraction(path, lang, "ts", walkTS)
 }
 
 func walkTS(cursor *sitter.TreeCursor, src []byte, state *extractState) {

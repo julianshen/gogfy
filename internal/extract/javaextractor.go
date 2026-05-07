@@ -10,15 +10,7 @@ import (
 type JavaExtractor struct{}
 
 func (JavaExtractor) Extract(path string) (Result, error) {
-	pf, err := parseFile(path, tree_sitter_java.Language())
-	if err != nil {
-		return Result{}, err
-	}
-	defer pf.cleanup()
-	state := &extractState{lang: "java", filePath: pf.absPath}
-	state.emitModule(pf.cursor.Node())
-	walkJava(pf.cursor, pf.src, state)
-	return Result{Nodes: state.nodes, Edges: state.edges}, nil
+	return runExtraction(path, tree_sitter_java.Language(), "java", walkJava)
 }
 
 func walkJava(cursor *sitter.TreeCursor, src []byte, state *extractState) {

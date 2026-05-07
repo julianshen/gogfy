@@ -12,15 +12,7 @@ import (
 type RubyExtractor struct{}
 
 func (RubyExtractor) Extract(path string) (Result, error) {
-	pf, err := parseFile(path, tree_sitter_ruby.Language())
-	if err != nil {
-		return Result{}, err
-	}
-	defer pf.cleanup()
-	state := &extractState{lang: "ruby", filePath: pf.absPath}
-	state.emitModule(pf.cursor.Node())
-	walkRuby(pf.cursor, pf.src, state)
-	return Result{Nodes: state.nodes, Edges: state.edges}, nil
+	return runExtraction(path, tree_sitter_ruby.Language(), "ruby", walkRuby)
 }
 
 func walkRuby(cursor *sitter.TreeCursor, src []byte, state *extractState) {
@@ -48,9 +40,7 @@ func rubyRequireTarget(call *sitter.Node, src []byte) string {
 	if method == nil {
 		return ""
 	}
-	switch method.Utf8Text(src) {
-	case "require", "require_relative":
-	default:
+	if name := method.Utf8Text(src); name != "require" && name != "require_relative" {
 		return ""
 	}
 	args := call.ChildByFieldName("arguments")

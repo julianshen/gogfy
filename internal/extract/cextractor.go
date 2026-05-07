@@ -12,15 +12,7 @@ import (
 type CExtractor struct{}
 
 func (CExtractor) Extract(path string) (Result, error) {
-	pf, err := parseFile(path, tree_sitter_c.Language())
-	if err != nil {
-		return Result{}, err
-	}
-	defer pf.cleanup()
-	state := &extractState{lang: "c", filePath: pf.absPath}
-	state.emitModule(pf.cursor.Node())
-	walkC(pf.cursor, pf.src, state)
-	return Result{Nodes: state.nodes, Edges: state.edges}, nil
+	return runExtraction(path, tree_sitter_c.Language(), "c", walkC)
 }
 
 func walkC(cursor *sitter.TreeCursor, src []byte, state *extractState) {

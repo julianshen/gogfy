@@ -10,15 +10,7 @@ import (
 type JavaScriptExtractor struct{}
 
 func (JavaScriptExtractor) Extract(path string) (Result, error) {
-	pf, err := parseFile(path, tree_sitter_javascript.Language())
-	if err != nil {
-		return Result{}, err
-	}
-	defer pf.cleanup()
-	state := &extractState{lang: "js", filePath: pf.absPath}
-	state.emitModule(pf.cursor.Node())
-	walkJS(pf.cursor, pf.src, state)
-	return Result{Nodes: state.nodes, Edges: state.edges}, nil
+	return runExtraction(path, tree_sitter_javascript.Language(), "js", walkJS)
 }
 
 func walkJS(cursor *sitter.TreeCursor, src []byte, state *extractState) {

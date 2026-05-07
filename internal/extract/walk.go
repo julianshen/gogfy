@@ -18,6 +18,22 @@ type parsedFile struct {
 	cleanup func()
 }
 
+// runExtraction is the shared scaffold every simple extractor follows: parse
+// the file, emit the file-as-module node, run the per-language walker, return
+// the accumulated Result. Languages with extra walker arguments (e.g., YAML's
+// mappingDepth) wrap walk in a closure.
+func runExtraction(path string, lang unsafe.Pointer, langID string, walk func(*sitter.TreeCursor, []byte, *extractState)) (Result, error) {
+	pf, err := parseFile(path, lang)
+	if err != nil {
+		return Result{}, err
+	}
+	defer pf.cleanup()
+	state := &extractState{lang: langID, filePath: pf.absPath}
+	state.emitModule(pf.cursor.Node())
+	walk(pf.cursor, pf.src, state)
+	return Result{Nodes: state.nodes, Edges: state.edges}, nil
+}
+
 // parseFile reads path, parses with the given grammar, and returns a parsedFile
 // the caller must Close via cleanup.
 func parseFile(path string, lang unsafe.Pointer) (*parsedFile, error) {
