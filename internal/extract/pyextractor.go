@@ -57,19 +57,21 @@ func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *p
 			ID:             schema.PythonModuleID(filePath),
 			Label:          state.moduleName,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(uint32(node.StartPosition().Row), uint32(node.StartPosition().Column)),
+			SourceLocation: nodeLocation(node),
 		})
 	case "import_statement":
 		if state.moduleName == "" {
 			break
 		}
-		for i := uint(0); i < node.ChildCount(); i++ {
+		n := node.ChildCount()
+		for i := uint(0); i < n; i++ {
 			child := node.Child(i)
 			switch child.Kind() {
 			case "dotted_name":
 				addPyImport(state, filePath, child.Utf8Text(src))
 			case "aliased_import":
-				for j := uint(0); j < child.ChildCount(); j++ {
+				m := child.ChildCount()
+				for j := uint(0); j < m; j++ {
 					grandchild := child.Child(j)
 					if grandchild.Kind() == "dotted_name" {
 						addPyImport(state, filePath, grandchild.Utf8Text(src))
@@ -83,7 +85,8 @@ func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *p
 			break
 		}
 		var moduleName string
-		for i := uint(0); i < node.ChildCount(); i++ {
+		n := node.ChildCount()
+		for i := uint(0); i < n; i++ {
 			child := node.Child(i)
 			if child.Kind() != "dotted_name" {
 				continue
@@ -108,7 +111,7 @@ func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *p
 			ID:             schema.PythonFuncID(filePath, funcName),
 			Label:          label,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(uint32(node.StartPosition().Row), uint32(node.StartPosition().Column)),
+			SourceLocation: nodeLocation(node),
 		})
 	case "class_definition":
 		nameNode := node.ChildByFieldName("name")
@@ -120,19 +123,11 @@ func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *p
 			ID:             schema.PythonClassID(filePath, className),
 			Label:          className,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(uint32(node.StartPosition().Row), uint32(node.StartPosition().Column)),
+			SourceLocation: nodeLocation(node),
 		})
 	}
 
-	if cursor.GotoFirstChild() {
-		for {
-			walkPython(cursor, src, filePath, state)
-			if !cursor.GotoNextSibling() {
-				break
-			}
-		}
-		cursor.GotoParent()
-	}
+	walkChildren(cursor, func() { walkPython(cursor, src, filePath, state) })
 }
 
 func addPyImport(state *pythonExtractState, filePath, imp string) {

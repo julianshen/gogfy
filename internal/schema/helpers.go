@@ -6,8 +6,8 @@ import (
 	"sort"
 )
 
-// FormatLocation formats a tree-sitter row:col into a human-readable location string.
-func FormatLocation(row, col uint32) string {
+// FormatLocation formats a tree-sitter row:col (zero-based) into a 1-based "row:col" string.
+func FormatLocation(row, col uint) string {
 	return fmt.Sprintf("%d:%d", row+1, col+1)
 }
 

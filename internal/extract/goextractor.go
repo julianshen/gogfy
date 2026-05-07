@@ -56,7 +56,8 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 	case "package_clause":
 		nameNode := node.ChildByFieldName("name")
 		if nameNode == nil {
-			for i := uint(0); i < node.ChildCount(); i++ {
+			n := node.ChildCount()
+			for i := uint(0); i < n; i++ {
 				child := node.Child(i)
 				if child.Kind() == "package_identifier" {
 					nameNode = child
@@ -72,7 +73,7 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 			ID:             schema.PackageID(filePath, state.pkgName),
 			Label:          state.pkgName,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(uint32(node.StartPosition().Row), uint32(node.StartPosition().Column)),
+			SourceLocation: nodeLocation(node),
 		})
 	case "function_declaration":
 		nameNode := node.ChildByFieldName("name")
@@ -88,7 +89,7 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 			ID:             schema.FuncID(filePath, state.pkgName, funcName),
 			Label:          label,
 			SourceFile:     filePath,
-			SourceLocation: schema.FormatLocation(uint32(node.StartPosition().Row), uint32(node.StartPosition().Column)),
+			SourceLocation: nodeLocation(node),
 		})
 	case "import_spec":
 		if state.pkgName == "" {
@@ -110,13 +111,5 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extract
 		}
 	}
 
-	if cursor.GotoFirstChild() {
-		for {
-			walk(cursor, src, filePath, state)
-			if !cursor.GotoNextSibling() {
-				break
-			}
-		}
-		cursor.GotoParent()
-	}
+	walkChildren(cursor, func() { walk(cursor, src, filePath, state) })
 }
