@@ -26,8 +26,6 @@ func TestUpdateModeNoChangesPreservesOutputs(t *testing.T) {
 		originals[f] = b
 	}
 
-	// Second --update run with zero changed files must NOT overwrite outputs
-	// with empty-graph artifacts (regression: main.go used to fall through).
 	if err := runPipeline(root, out, true); err != nil {
 		t.Fatalf("no-op update run failed: %v", err)
 	}

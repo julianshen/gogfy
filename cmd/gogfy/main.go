@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -25,9 +26,7 @@ func main() {
 	}
 }
 
-// dispatch parses args and routes to the appropriate subcommand. It returns an
-// error (rather than calling os.Exit) so it can be unit-tested.
-func dispatch(args []string, stderr *os.File) error {
+func dispatch(args []string, stderr io.Writer) error {
 	fs := flag.NewFlagSet("gogfy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	update := fs.Bool("update", false, "incremental update")
@@ -53,7 +52,7 @@ func dispatch(args []string, stderr *os.File) error {
 	}
 }
 
-func usage(w *os.File) {
+func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir]")
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
@@ -66,7 +65,6 @@ func runPipeline(root, out string, update bool) error {
 	}
 
 	cachePath := filepath.Join(out, ".gographify-cache")
-	allFiles := files
 	var c *cache.Cache
 	if update {
 		c = cache.NewCache(cachePath)
@@ -74,8 +72,8 @@ func runPipeline(root, out string, update bool) error {
 		if err != nil {
 			return fmt.Errorf("cache: %w", err)
 		}
-		// On a no-op --update run, leave existing artifacts untouched rather than
-		// overwriting them with empty-graph output.
+		// No-op --update must leave prior artifacts untouched; otherwise the
+		// pipeline below would overwrite them with empty-graph output.
 		if len(changed) == 0 {
 			fmt.Println("No files changed, skipping extraction")
 			return nil
@@ -150,25 +148,22 @@ func runPipeline(root, out string, update bool) error {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	// Atomic writes: stage to .tmp then rename, so a mid-write failure can't
-	// leave half-stale artifacts on disk.
-	if err := atomicWrite(filepath.Join(out, "graph.json"), jsonBytes); err != nil {
-		return fmt.Errorf("write graph.json: %w", err)
+	artifacts := []struct {
+		name string
+		data []byte
+	}{
+		{"graph.json", jsonBytes},
+		{"GRAPH_REPORT.md", reportBytes},
+		{"graph.html", htmlBytes},
 	}
-	if err := atomicWrite(filepath.Join(out, "GRAPH_REPORT.md"), reportBytes); err != nil {
-		return fmt.Errorf("write GRAPH_REPORT.md: %w", err)
-	}
-	if err := atomicWrite(filepath.Join(out, "graph.html"), htmlBytes); err != nil {
-		return fmt.Errorf("write graph.html: %w", err)
+	for _, a := range artifacts {
+		if err := atomicWrite(filepath.Join(out, a.name), a.data); err != nil {
+			return fmt.Errorf("write %s: %w", a.name, err)
+		}
 	}
 
 	if update {
-		if c == nil {
-			c = cache.NewCache(cachePath)
-		}
-		// Save against the full collected file list (not the changed subset),
-		// so unchanged files retain hashes and aren't reported "changed" next run.
-		if err := c.Save(allFiles); err != nil {
+		if err := c.Save(files); err != nil {
 			return fmt.Errorf("cache save: %w", err)
 		}
 	}
