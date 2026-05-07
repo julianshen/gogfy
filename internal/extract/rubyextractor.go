@@ -3,7 +3,6 @@ package extract
 import (
 	"strings"
 
-	"github.com/julianshen/gogfy/internal/schema"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_ruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
 )
@@ -12,64 +11,54 @@ import (
 // Ruby sources.
 type RubyExtractor struct{}
 
-type rubyState struct {
-	filePath string
-	nodes    []schema.Node
-	edges    []schema.Edge
-}
-
 func (RubyExtractor) Extract(path string) (Result, error) {
 	pf, err := parseFile(path, tree_sitter_ruby.Language())
 	if err != nil {
 		return Result{}, err
 	}
 	defer pf.cleanup()
-	state := &rubyState{filePath: pf.absPath}
-	emitModule(&state.nodes, "ruby", state.filePath, pf.cursor.Node())
+	state := &extractState{lang: "ruby", filePath: pf.absPath}
+	state.emitModule(pf.cursor.Node())
 	walkRuby(pf.cursor, pf.src, state)
 	return Result{Nodes: state.nodes, Edges: state.edges}, nil
 }
 
-func walkRuby(cursor *sitter.TreeCursor, src []byte, state *rubyState) {
+func walkRuby(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	node := cursor.Node()
 	switch node.Kind() {
 	case "module":
-		emitDecl(&state.nodes, "ruby", "module", state.filePath, rubyName(node), node, src)
+		state.emitDecl("module", node, firstChildOfKind(node, "constant"), src)
 	case "class":
-		emitDecl(&state.nodes, "ruby", "class", state.filePath, rubyName(node), node, src)
+		state.emitDecl("class", node, firstChildOfKind(node, "constant"), src)
 	case "method":
-		emitDecl(&state.nodes, "ruby", "method", state.filePath, node.ChildByFieldName("name"), node, src)
+		state.emitDecl("method", node, node.ChildByFieldName("name"), src)
 	case "call":
-		// `require 'x'` and `require_relative 'x'` are method calls in Ruby's grammar.
-		method := node.ChildByFieldName("method")
-		if method == nil {
-			break
-		}
-		name := method.Utf8Text(src)
-		if name != "require" && name != "require_relative" {
-			break
-		}
-		args := node.ChildByFieldName("arguments")
-		if args == nil {
-			break
-		}
-		for i := uint(0); i < args.ChildCount(); i++ {
-			c := args.Child(i)
-			if c.Kind() == "string" {
-				addImportEdge(&state.nodes, &state.edges, "ruby", state.filePath, strings.Trim(c.Utf8Text(src), `"'`))
-			}
+		if target := rubyRequireTarget(node, src); target != "" {
+			state.addImport(target)
 		}
 	}
 	walkChildren(cursor, func() { walkRuby(cursor, src, state) })
 }
 
-// rubyName returns the constant child of a module/class node (the type name).
-func rubyName(node *sitter.Node) *sitter.Node {
-	for i := uint(0); i < node.ChildCount(); i++ {
-		c := node.Child(i)
-		if c.Kind() == "constant" {
-			return c
-		}
+// rubyRequireTarget returns the string argument of a `require`/`require_relative`
+// call expression, or "" for any other call. Ruby's grammar represents requires
+// as plain method calls rather than dedicated import statements.
+func rubyRequireTarget(call *sitter.Node, src []byte) string {
+	method := call.ChildByFieldName("method")
+	if method == nil {
+		return ""
 	}
-	return nil
+	switch method.Utf8Text(src) {
+	case "require", "require_relative":
+	default:
+		return ""
+	}
+	args := call.ChildByFieldName("arguments")
+	if args == nil {
+		return ""
+	}
+	if str := firstChildOfKind(args, "string"); str != nil {
+		return strings.Trim(str.Utf8Text(src), `"'`)
+	}
+	return ""
 }

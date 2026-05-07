@@ -15,7 +15,7 @@ import (
 // and import/call edges.
 type GoExtractor struct{}
 
-type extractState struct {
+type goExtractState struct {
 	pkgName string
 	nodes   []schema.Node
 	edges   []schema.Edge
@@ -44,13 +44,13 @@ func (GoExtractor) Extract(path string) (Result, error) {
 	cursor := tree.Walk()
 	defer cursor.Close()
 
-	state := &extractState{}
+	state := &goExtractState{}
 	walk(cursor, src, absPath, state)
 
 	return Result{Nodes: state.nodes, Edges: state.edges}, nil
 }
 
-func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *extractState) {
+func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *goExtractState) {
 	node := cursor.Node()
 	switch node.Kind() {
 	case "package_clause":
