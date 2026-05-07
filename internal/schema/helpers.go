@@ -46,6 +46,12 @@ func PythonImportID(imp string) string {
 	return fmt.Sprintf("py:import:%s", imp)
 }
 
+// LangID composes a deterministic node ID under a language prefix. Used by
+// per-language extractors that share a common scheme: "<lang>:<kind>:<key>".
+func LangID(lang, kind, key string) string {
+	return fmt.Sprintf("%s:%s:%s", lang, kind, key)
+}
+
 // SortNodesByID sorts nodes in-place by ID for deterministic output.
 func SortNodesByID(nodes []Node) {
 	sort.Slice(nodes, func(i, j int) bool {

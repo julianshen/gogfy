@@ -21,7 +21,7 @@ type pythonExtractState struct {
 }
 
 // Extract parses the Python source file at path and returns the extracted graph Result.
-func (pe *PythonExtractor) Extract(path string) (Result, error) {
+func (PythonExtractor) Extract(path string) (Result, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return Result{}, err
