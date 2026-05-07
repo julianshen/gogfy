@@ -38,13 +38,13 @@ func TestGraphBuilderNodeOverwriteRejected(t *testing.T) {
 	}
 }
 
-func TestGraphBuilderMergesEdges(t *testing.T) {
+func TestGraphBuilderDedupesEdges(t *testing.T) {
 	b := NewBuilder()
 	if err := b.AddEdge(schema.Edge{Source: "a", Target: "b", Relation: "imports", Confidence: schema.Extracted}); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.AddEdge(schema.Edge{Source: "a", Target: "b", Relation: "imports", Confidence: schema.Extracted}); err == nil {
-		t.Fatal("expected error for duplicate edge")
+	if err := b.AddEdge(schema.Edge{Source: "a", Target: "b", Relation: "imports", Confidence: schema.Extracted}); err != nil {
+		t.Fatalf("duplicate edge should be silently deduped, got %v", err)
 	}
 	g := b.Build()
 	if len(g.Edges()) != 1 {
@@ -52,13 +52,13 @@ func TestGraphBuilderMergesEdges(t *testing.T) {
 	}
 }
 
-func TestGraphBuilderEdgeOverwriteRejected(t *testing.T) {
+func TestGraphBuilderEdgeFirstWriteWins(t *testing.T) {
 	b := NewBuilder()
 	if err := b.AddEdge(schema.Edge{Source: "a", Target: "b", Relation: "imports", Confidence: schema.Inferred}); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.AddEdge(schema.Edge{Source: "a", Target: "b", Relation: "imports", Confidence: schema.Extracted}); err == nil {
-		t.Fatal("expected error for duplicate edge")
+	if err := b.AddEdge(schema.Edge{Source: "a", Target: "b", Relation: "imports", Confidence: schema.Extracted}); err != nil {
+		t.Fatalf("duplicate edge should be silently deduped, got %v", err)
 	}
 	g := b.Build()
 	if len(g.Edges()) != 1 {
@@ -66,7 +66,7 @@ func TestGraphBuilderEdgeOverwriteRejected(t *testing.T) {
 	}
 	edges := g.Edges()
 	if edges[0].Confidence != schema.Inferred {
-		t.Fatalf("expected confidence INFERRED, got %s", edges[0].Confidence)
+		t.Fatalf("expected first-write-wins confidence INFERRED, got %v", edges[0].Confidence)
 	}
 }
 

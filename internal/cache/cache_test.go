@@ -106,6 +106,38 @@ func TestCacheMultipleFiles(t *testing.T) {
 	}
 }
 
+func TestCacheSaveMergesPriorHashes(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a.go")
+	b := filepath.Join(root, "b.go")
+	os.WriteFile(a, []byte("package a"), 0644)
+	os.WriteFile(b, []byte("package b"), 0644)
+
+	c := NewCache(filepath.Join(root, ".gographify-cache"))
+
+	// Initial save with both files (full run).
+	if err := c.Save([]string{a, b}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Subsequent --update run only re-saves the changed subset (just `a`).
+	os.WriteFile(a, []byte("package a\n"), 0644)
+	if err := c.Save([]string{a}); err != nil {
+		t.Fatal(err)
+	}
+
+	// `b` was unchanged and should still be remembered: querying both files
+	// must report only `a` as changed (after another modification to a).
+	os.WriteFile(a, []byte("package a\nvar X = 1"), 0644)
+	changed, err := c.ChangedFiles([]string{a, b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 1 || changed[0] != a {
+		t.Fatalf("Save({a}) lost prior hash for b; ChangedFiles returned %v, want [a]", changed)
+	}
+}
+
 func TestCacheHashFileError(t *testing.T) {
 	_, err := hashFile("/nonexistent/path/to/file.go")
 	if err == nil {

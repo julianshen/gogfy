@@ -41,9 +41,17 @@ func (c *Cache) ChangedFiles(files []string) ([]string, error) {
 	return changed, nil
 }
 
-// Save stores the current content hashes for the given files.
+// Save stores content hashes for the given files, merging with any previously cached
+// entries. Files not in the input list retain their prior hash so that incremental
+// (--update) runs which pass only the changed-file subset don't drop unchanged entries.
 func (c *Cache) Save(files []string) error {
-	hashes := make(map[string]string, len(files))
+	hashes, err := c.load()
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		hashes = make(map[string]string, len(files))
+	}
 	for _, f := range files {
 		h, err := hashFile(f)
 		if err != nil {

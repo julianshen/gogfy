@@ -2,7 +2,6 @@
 package graph
 
 import (
-	"fmt"
 	"sort"
 
 	"github.com/julianshen/gogfy/internal/schema"
@@ -61,15 +60,18 @@ func (b *Builder) AddNode(n schema.Node) error {
 	return nil
 }
 
-// AddEdge adds an edge to the builder, returning an error if validation fails or the edge already exists.
+// AddEdge adds an edge to the builder, returning an error if validation fails.
+// Duplicate (source, target, relation) tuples are silently deduped (first write wins),
+// matching AddNode's idempotency and SPEC §4.3 ("merges all extraction outputs ... with de-duplication").
 func (b *Builder) AddEdge(e schema.Edge) error {
 	if err := e.Validate(); err != nil {
 		return err
 	}
-	if _, exists := b.edges[edgeKey{e.Source, e.Target, e.Relation}]; exists {
-		return fmt.Errorf("edge %s-%s-%s already exists", e.Source, e.Target, e.Relation)
+	key := edgeKey{e.Source, e.Target, e.Relation}
+	if _, exists := b.edges[key]; exists {
+		return nil
 	}
-	b.edges[edgeKey{e.Source, e.Target, e.Relation}] = e
+	b.edges[key] = e
 	return nil
 }
 

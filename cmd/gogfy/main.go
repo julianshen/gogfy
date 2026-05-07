@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -18,21 +19,44 @@ import (
 )
 
 func main() {
-	var (
-		update = flag.Bool("update", false, "incremental update")
-		out    = flag.String("out", "graphify-out", "output directory")
-	)
-	flag.Parse()
-	args := flag.Args()
-	if len(args) < 2 || args[0] != "run" {
-		fmt.Fprintln(os.Stderr, "usage: gogfy run <root>")
-		os.Exit(1)
-	}
-	root := args[1]
-	if err := runPipeline(root, *out, *update); err != nil {
+	if err := dispatch(os.Args[1:], os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// dispatch parses args and routes to the appropriate subcommand. It returns an
+// error (rather than calling os.Exit) so it can be unit-tested.
+func dispatch(args []string, stderr *os.File) error {
+	fs := flag.NewFlagSet("gogfy", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	update := fs.Bool("update", false, "incremental update")
+	out := fs.String("out", "graphify-out", "output directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	rest := fs.Args()
+	if len(rest) < 2 {
+		usage(stderr)
+		return fmt.Errorf("missing subcommand or argument")
+	}
+	switch rest[0] {
+	case "run":
+		return runPipeline(rest[1], *out, *update)
+	case "validate":
+		return validateCommand(rest[1])
+	case "report":
+		return reportCommand(rest[1])
+	default:
+		usage(stderr)
+		return fmt.Errorf("unknown subcommand: %s", rest[0])
+	}
+}
+
+func usage(w *os.File) {
+	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir]")
+	fmt.Fprintln(w, "       gogfy validate <graph.json>")
+	fmt.Fprintln(w, "       gogfy report <graph.json>")
 }
 
 func runPipeline(root, out string, update bool) error {
@@ -42,6 +66,7 @@ func runPipeline(root, out string, update bool) error {
 	}
 
 	cachePath := filepath.Join(out, ".gographify-cache")
+	allFiles := files
 	var c *cache.Cache
 	if update {
 		c = cache.NewCache(cachePath)
@@ -49,10 +74,13 @@ func runPipeline(root, out string, update bool) error {
 		if err != nil {
 			return fmt.Errorf("cache: %w", err)
 		}
-		files = changed
-		if len(files) == 0 {
+		// On a no-op --update run, leave existing artifacts untouched rather than
+		// overwriting them with empty-graph output.
+		if len(changed) == 0 {
 			fmt.Println("No files changed, skipping extraction")
+			return nil
 		}
+		files = changed
 	}
 
 	builder := graph.NewBuilder()
@@ -122,25 +150,98 @@ func runPipeline(root, out string, update bool) error {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(out, "graph.json"), jsonBytes, 0644); err != nil {
+	// Atomic writes: stage to .tmp then rename, so a mid-write failure can't
+	// leave half-stale artifacts on disk.
+	if err := atomicWrite(filepath.Join(out, "graph.json"), jsonBytes); err != nil {
 		return fmt.Errorf("write graph.json: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(out, "GRAPH_REPORT.md"), reportBytes, 0644); err != nil {
+	if err := atomicWrite(filepath.Join(out, "GRAPH_REPORT.md"), reportBytes); err != nil {
 		return fmt.Errorf("write GRAPH_REPORT.md: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(out, "graph.html"), htmlBytes, 0644); err != nil {
+	if err := atomicWrite(filepath.Join(out, "graph.html"), htmlBytes); err != nil {
 		return fmt.Errorf("write graph.html: %w", err)
 	}
 
-	// Save cache after successful run
 	if update {
 		if c == nil {
 			c = cache.NewCache(cachePath)
 		}
-		if err := c.Save(files); err != nil {
+		// Save against the full collected file list (not the changed subset),
+		// so unchanged files retain hashes and aren't reported "changed" next run.
+		if err := c.Save(allFiles); err != nil {
 			return fmt.Errorf("cache save: %w", err)
 		}
 	}
 
 	return nil
 }
+
+func validateCommand(path string) error {
+	g, err := loadGraph(path)
+	if err != nil {
+		return err
+	}
+	for _, n := range g.Nodes {
+		if err := n.Validate(); err != nil {
+			return fmt.Errorf("invalid node %q: %w", n.ID, err)
+		}
+	}
+	ids := make(map[string]struct{}, len(g.Nodes))
+	for _, n := range g.Nodes {
+		ids[n.ID] = struct{}{}
+	}
+	for _, e := range g.Edges {
+		if err := e.Validate(); err != nil {
+			return fmt.Errorf("invalid edge %s->%s (%s): %w", e.Source, e.Target, e.Relation, err)
+		}
+		if _, ok := ids[e.Source]; !ok {
+			return fmt.Errorf("edge source %q not present in nodes", e.Source)
+		}
+		if _, ok := ids[e.Target]; !ok {
+			return fmt.Errorf("edge target %q not present in nodes", e.Target)
+		}
+	}
+	fmt.Printf("OK: %d nodes, %d edges\n", len(g.Nodes), len(g.Edges))
+	return nil
+}
+
+func reportCommand(path string) error {
+	g, err := loadGraph(path)
+	if err != nil {
+		return err
+	}
+	r := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
+	out, err := report.Render(r)
+	if err != nil {
+		return fmt.Errorf("report: %w", err)
+	}
+	_, err = os.Stdout.Write(out)
+	return err
+}
+
+func loadGraph(path string) (export.GraphExport, error) {
+	var g export.GraphExport
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return g, fmt.Errorf("read %s: %w", path, err)
+	}
+	if err := json.Unmarshal(data, &g); err != nil {
+		return g, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return g, nil
+}
+
+// atomicWrite writes data to path via a sibling .tmp file followed by rename,
+// so a partial write cannot replace a previously-good file with a truncated one.
+func atomicWrite(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
