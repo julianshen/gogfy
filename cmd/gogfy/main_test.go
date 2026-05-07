@@ -1,27 +1,163 @@
 package main
 
 import (
-	"fmt"
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestMainFunc(t *testing.T) {
-	// Save and restore original args
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
+func TestUpdateModeNoChangesPreservesOutputs(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
 
-	// Test missing args
-	os.Args = []string{"gogfy"}
-	// main() calls os.Exit, so we can't directly test it without a subprocess
-	// Instead, test the logic inline
-	if len(os.Args) < 3 {
-		// This simulates the error path
-		fmt.Fprintln(os.Stderr, "usage: gogfy run <root>")
-		return
+	// First run produces real outputs.
+	if err := runPipeline(root, out, true); err != nil {
+		t.Fatalf("first run failed: %v", err)
 	}
-	t.Fatal("should have returned early")
+	originals := map[string][]byte{}
+	for _, f := range []string{"graph.json", "GRAPH_REPORT.md", "graph.html"} {
+		b, err := os.ReadFile(filepath.Join(out, f))
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		if len(b) == 0 {
+			t.Fatalf("%s empty after first run", f)
+		}
+		originals[f] = b
+	}
+
+	if err := runPipeline(root, out, true); err != nil {
+		t.Fatalf("no-op update run failed: %v", err)
+	}
+	for f, want := range originals {
+		got, err := os.ReadFile(filepath.Join(out, f))
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("%s was overwritten by no-op --update run", f)
+		}
+	}
+}
+
+func TestDispatchRunSubcommand(t *testing.T) {
+	out := t.TempDir()
+	err := dispatch([]string{"run", "--out", out, "../../testdata/e2e/mini-corpus"}, os.Stderr)
+	if err != nil {
+		t.Fatalf("dispatch run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.json")); err != nil {
+		t.Fatalf("graph.json missing: %v", err)
+	}
+}
+
+func TestDispatchRunUpdateFlagAfterRoot(t *testing.T) {
+	// SPEC §8: `gogfy run <root> [--update] [--out dir]`. Flags after the
+	// positional must work; on a fresh out dir, --update should produce
+	// artifacts (no prior cache to compare against).
+	out := t.TempDir()
+	err := dispatch([]string{"run", "../../testdata/e2e/mini-corpus", "--update", "--out", out}, os.Stderr)
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, ".gographify-cache")); err != nil {
+		t.Fatalf("expected cache from --update run, got %v", err)
+	}
+}
+
+func TestDispatchValidateSubcommand(t *testing.T) {
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"validate", filepath.Join(out, "graph.json")}, os.Stderr); err != nil {
+		t.Fatalf("dispatch validate: %v", err)
+	}
+}
+
+func TestDispatchReportSubcommand(t *testing.T) {
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"report", filepath.Join(out, "graph.json")}, os.Stderr); err != nil {
+		t.Fatalf("dispatch report: %v", err)
+	}
+}
+
+func TestDispatchUnknownSubcommand(t *testing.T) {
+	if err := dispatch([]string{"bogus", "x"}, os.Stderr); err == nil {
+		t.Fatal("expected error for unknown subcommand")
+	}
+}
+
+func TestDispatchMissingArgs(t *testing.T) {
+	if err := dispatch([]string{"run"}, os.Stderr); err == nil {
+		t.Fatal("expected error for missing arg to run")
+	}
+	if err := dispatch([]string{}, os.Stderr); err == nil {
+		t.Fatal("expected error for empty args")
+	}
+}
+
+func TestAtomicWriteFailsOnUnwritablePath(t *testing.T) {
+	// Parent directory does not exist; the staging WriteFile must fail.
+	if err := atomicWrite("/nonexistent/dir/abc/graph.json", []byte("x")); err == nil {
+		t.Fatal("expected error writing to missing directory")
+	}
+}
+
+func TestAtomicWriteSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.txt")
+	if err := atomicWrite(path, []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hello" {
+		t.Fatalf("got %q, want hello", got)
+	}
+	// .tmp sibling must not linger after a successful rename.
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("expected .tmp to be cleaned up, stat err=%v", err)
+	}
+}
+
+func TestDispatchFlagsAfterSubcommand(t *testing.T) {
+	// SPEC §8 documents `gogfy run <root> [--update] [--out dir]` — flags AFTER
+	// the subcommand. Per-subcommand FlagSets are required to honor that.
+	out := t.TempDir()
+	err := dispatch([]string{"run", "../../testdata/e2e/mini-corpus", "--out", out}, os.Stderr)
+	if err != nil {
+		t.Fatalf("dispatch run with trailing --out: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.json")); err != nil {
+		t.Fatalf("graph.json missing in --out dir: %v", err)
+	}
+}
+
+func TestUpdateModeFirstRunOnEmptyCorpusStillWritesArtifacts(t *testing.T) {
+	root := t.TempDir() // empty corpus
+	out := t.TempDir()
+	if err := runPipeline(root, out, true); err != nil {
+		t.Fatalf("pipeline: %v", err)
+	}
+	for _, f := range []string{"graph.json", "GRAPH_REPORT.md", "graph.html"} {
+		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
+			t.Fatalf("%s missing on first --update run with empty corpus: %v", f, err)
+		}
+	}
+}
+
+func TestDispatchBadFlag(t *testing.T) {
+	if err := dispatch([]string{"--nope"}, os.Stderr); err == nil {
+		t.Fatal("expected flag parse error")
+	}
 }
 
 func TestRunPipeline(t *testing.T) {
@@ -99,6 +235,72 @@ func TestRunPipelineEmptyCorpus(t *testing.T) {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			t.Fatalf("%s not created for empty corpus", file)
 		}
+	}
+}
+
+func TestValidateCommandAcceptsValidGraph(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false); err != nil {
+		t.Fatalf("pipeline: %v", err)
+	}
+	if err := validateCommand(filepath.Join(out, "graph.json")); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+}
+
+func TestValidateCommandRejectsDanglingEdge(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "graph.json")
+	const body = `{"nodes":[{"ID":"a","Label":"A"}],"edges":[{"Source":"a","Target":"missing","Relation":"calls","Confidence":0}]}`
+	if err := os.WriteFile(bad, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCommand(bad); err == nil {
+		t.Fatal("expected error for dangling edge target")
+	}
+}
+
+func TestValidateCommandRejectsMissingFile(t *testing.T) {
+	if err := validateCommand("/nonexistent/path/graph.json"); err == nil {
+		t.Fatal("expected error for missing graph file")
+	}
+}
+
+func TestReportCommandRendersReport(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false); err != nil {
+		t.Fatalf("pipeline: %v", err)
+	}
+	if err := reportCommand(filepath.Join(out, "graph.json"), io.Discard); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+}
+
+func TestReportCommandWritesToProvidedWriter(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := reportCommand(filepath.Join(out, "graph.json"), &buf); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("# Graph Report")) {
+		t.Fatalf("expected rendered report header, got %q", buf.String())
+	}
+}
+
+func TestReportCommandRejectsBadJSON(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "graph.json")
+	if err := os.WriteFile(bad, []byte("not json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := reportCommand(bad, io.Discard); err == nil {
+		t.Fatal("expected parse error")
 	}
 }
 
