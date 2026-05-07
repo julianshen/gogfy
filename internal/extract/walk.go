@@ -1,9 +1,52 @@
 package extract
 
 import (
+	"os"
+	"path/filepath"
+	"unsafe"
+
 	"github.com/julianshen/gogfy/internal/schema"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
+
+// parsedFile bundles the tree-sitter parse output and source bytes for one file,
+// along with a single cleanup func that closes the parser/tree/cursor.
+type parsedFile struct {
+	src     []byte
+	absPath string
+	cursor  *sitter.TreeCursor
+	cleanup func()
+}
+
+// parseFile reads path, parses with the given grammar, and returns a parsedFile
+// the caller must Close via cleanup.
+func parseFile(path string, lang unsafe.Pointer) (*parsedFile, error) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	parser := sitter.NewParser()
+	if err := parser.SetLanguage(sitter.NewLanguage(lang)); err != nil {
+		parser.Close()
+		return nil, err
+	}
+	tree := parser.Parse(src, nil)
+	cursor := tree.Walk()
+	return &parsedFile{
+		src:     src,
+		absPath: abs,
+		cursor:  cursor,
+		cleanup: func() {
+			cursor.Close()
+			tree.Close()
+			parser.Close()
+		},
+	}, nil
+}
 
 // nodeLocation formats a node's start position, calling StartPosition only once.
 func nodeLocation(n *sitter.Node) string {

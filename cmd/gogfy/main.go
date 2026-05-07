@@ -78,8 +78,44 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
 }
 
+// supportedExtensions maps source file extensions to the extractor that
+// handles them. Adding a new language means: (1) implement an Extractor in
+// internal/extract, (2) register its extension(s) here.
+var supportedExtensions = map[string]extract.Extractor{
+	".go":    extract.GoExtractor{},
+	".py":    extract.PythonExtractor{},
+	".js":    extract.JavaScriptExtractor{},
+	".jsx":   extract.JavaScriptExtractor{},
+	".mjs":   extract.JavaScriptExtractor{},
+	".cjs":   extract.JavaScriptExtractor{},
+	".ts":    extract.TypeScriptExtractor{},
+	".tsx":   extract.TypeScriptExtractor{TSX: true},
+	".java":  extract.JavaExtractor{},
+	".c":     extract.CExtractor{},
+	".h":     extract.CExtractor{},
+	".cpp":   extract.CppExtractor{},
+	".cc":    extract.CppExtractor{},
+	".cxx":   extract.CppExtractor{},
+	".hpp":   extract.CppExtractor{},
+	".hxx":   extract.CppExtractor{},
+	".hh":    extract.CppExtractor{},
+	".rs":    extract.RustExtractor{},
+	".rb":    extract.RubyExtractor{},
+	".yaml":  extract.YAMLExtractor{},
+	".yml":   extract.YAMLExtractor{},
+	".toml":  extract.TOMLExtractor{},
+}
+
+func supportedExtensionsList() []string {
+	exts := make([]string, 0, len(supportedExtensions))
+	for ext := range supportedExtensions {
+		exts = append(exts, ext)
+	}
+	return exts
+}
+
 func runPipeline(root, out string, update bool) error {
-	files, err := detect.CollectFiles(root, []string{".go", ".py"})
+	files, err := detect.CollectFiles(root, supportedExtensionsList())
 	if err != nil {
 		return fmt.Errorf("detect: %w", err)
 	}
@@ -103,20 +139,13 @@ func runPipeline(root, out string, update bool) error {
 	}
 
 	builder := graph.NewBuilder()
-	goExtractor := extract.GoExtractor{}
-	pyExtractor := extract.PythonExtractor{}
 
 	for _, f := range files {
-		var res extract.Result
-		var err error
-		switch filepath.Ext(f) {
-		case ".go":
-			res, err = goExtractor.Extract(f)
-		case ".py":
-			res, err = pyExtractor.Extract(f)
-		default:
+		ex, ok := supportedExtensions[filepath.Ext(f)]
+		if !ok {
 			continue
 		}
+		res, err := ex.Extract(f)
 		if err != nil {
 			return fmt.Errorf("extract %s: %w", f, err)
 		}

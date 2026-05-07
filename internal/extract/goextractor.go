@@ -22,7 +22,7 @@ type extractState struct {
 }
 
 // Extract parses the Go source file at path and returns the extracted graph Result.
-func (ge *GoExtractor) Extract(path string) (Result, error) {
+func (GoExtractor) Extract(path string) (Result, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return Result{}, err

@@ -11,7 +11,7 @@ func TestE2EPipeline(t *testing.T) {
 	root := "testdata/e2e/mini-corpus"
 	out := t.TempDir()
 
-	cmd := exec.Command("go", "run", "./cmd/gogfy", "--out", out, "run", root)
+	cmd := exec.Command("go", "run", "./cmd/gogfy", "run", root, "--out", out)
 	cmd.Dir = ".."
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -35,7 +35,7 @@ func TestE2EUpdateMode(t *testing.T) {
 	out := t.TempDir()
 
 	// First run
-	cmd := exec.Command("go", "run", "./cmd/gogfy", "--out", out, "--update", "run", root)
+	cmd := exec.Command("go", "run", "./cmd/gogfy", "run", root, "--out", out, "--update")
 	cmd.Dir = ".."
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -43,7 +43,7 @@ func TestE2EUpdateMode(t *testing.T) {
 	}
 
 	// Second run with --update should skip unchanged files
-	cmd = exec.Command("go", "run", "./cmd/gogfy", "--out", out, "--update", "run", root)
+	cmd = exec.Command("go", "run", "./cmd/gogfy", "run", root, "--out", out, "--update")
 	cmd.Dir = ".."
 	output, err = cmd.CombinedOutput()
 	if err != nil {
