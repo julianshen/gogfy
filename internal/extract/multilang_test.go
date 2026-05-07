@@ -60,6 +60,13 @@ func TestExtractorsMissingFile(t *testing.T) {
 		RubyExtractor{},
 		YAMLExtractor{},
 		TOMLExtractor{},
+		KotlinExtractor{},
+		ScalaExtractor{},
+		PHPExtractor{},
+		LuaExtractor{},
+		ZigExtractor{},
+		JuliaExtractor{},
+		BashExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -228,6 +235,121 @@ config:
 		extractor: YAMLExtractor{}.Extract,
 		wantNodes: []string{"config.yaml", "name", "version", "deps", "config"},
 		wantEdges: []string{},
+	})
+}
+
+func TestKotlinExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:      "kotlin basic",
+		filename:  "Hello.kt",
+		extractor: KotlinExtractor{}.Extract,
+		source: `package com.example
+import kotlin.collections.List
+class Foo { fun bar() {} }
+object Singleton
+fun greet() {}
+`,
+		wantNodes: []string{"Hello.kt", "Foo", "Singleton", "greet"},
+		wantEdges: []string{"kotlin:import:kotlin.collections.List"},
+	})
+}
+
+func TestScalaExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:      "scala basic",
+		filename:  "Hello.scala",
+		extractor: ScalaExtractor{}.Extract,
+		source: `package com.example
+import scala.collection.mutable.Map
+class Foo { def bar(): Unit = {} }
+object Bar { def baz(): Int = 0 }
+trait T
+`,
+		wantNodes: []string{"Hello.scala", "Foo", "Bar", "T", "bar", "baz"},
+		wantEdges: []string{"scala:import:scala.collection.mutable.Map"},
+	})
+}
+
+func TestPHPExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:      "php basic",
+		filename:  "main.php",
+		extractor: PHPExtractor{}.Extract,
+		source: `<?php
+namespace App;
+use App\Lib\Foo;
+class Bar { public function method() {} }
+function greet() {}
+interface I {}
+trait T {}
+enum Status { case Active; case Inactive; }
+`,
+		wantNodes: []string{"main.php", "Bar", "method", "greet", "I", "T", "Status"},
+		wantEdges: []string{`php:import:App\Lib\Foo`},
+	})
+}
+
+func TestLuaExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:      "lua basic",
+		filename:  "main.lua",
+		extractor: LuaExtractor{}.Extract,
+		source: `local M = require("module")
+local m2 = require "other"
+function M.hello() end
+local function priv() end
+`,
+		wantNodes: []string{"main.lua", "hello", "priv"},
+		wantEdges: []string{"lua:import:module", "lua:import:other"},
+	})
+}
+
+func TestZigExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:      "zig basic",
+		filename:  "main.zig",
+		extractor: ZigExtractor{}.Extract,
+		source: `const std = @import("std");
+pub fn add(a: i32, b: i32) i32 { return a + b; }
+const Point = struct { x: i32, y: i32 };
+const E = enum { A, B };
+const U = union { i: i32, f: f32 };
+`,
+		wantNodes: []string{"main.zig", "add", "Point", "E", "U"},
+		wantEdges: []string{"zig:import:std"},
+	})
+}
+
+func TestJuliaExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:      "julia basic",
+		filename:  "main.jl",
+		extractor: JuliaExtractor{}.Extract,
+		source: `using LinearAlgebra
+import Base
+module Foo
+struct Point x; y end
+function bar(a, b) return a+b end
+end
+`,
+		wantNodes: []string{"main.jl", "Foo", "bar", "Point"},
+		wantEdges: []string{"julia:import:LinearAlgebra", "julia:import:Base"},
+	})
+}
+
+func TestBashExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:      "bash basic",
+		filename:  "build.sh",
+		extractor: BashExtractor{}.Extract,
+		source: `#!/bin/bash
+source ./lib.sh
+. ./other.sh
+greet() { echo hi; }
+function bye { echo bye; }
+`,
+		wantNodes: []string{"build.sh", "greet", "bye"},
+		wantEdges: []string{"bash:import:./lib.sh", "bash:import:./other.sh"},
 	})
 }
 

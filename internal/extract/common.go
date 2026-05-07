@@ -118,6 +118,29 @@ func firstChildOfKind(node *sitter.Node, kinds ...string) *sitter.Node {
 	return nil
 }
 
+// firstDescendantIdentifier does a BFS through node's descendants and returns
+// the first `identifier` (or `type_identifier`) it finds. Used by grammars
+// that wrap declaration names inside intermediate `signature`/`call_expression`
+// subtrees rather than as direct children.
+func firstDescendantIdentifier(node *sitter.Node) *sitter.Node {
+	queue := []*sitter.Node{node}
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		if n != node {
+			k := n.Kind()
+			if k == "identifier" || k == "type_identifier" {
+				return n
+			}
+		}
+		c := n.ChildCount()
+		for i := uint(0); i < c; i++ {
+			queue = append(queue, n.Child(i))
+		}
+	}
+	return nil
+}
+
 // lastChildOfKind is firstChildOfKind's right-leaning cousin — returns the
 // last matching child rather than the first. Java import_declaration uses it
 // to pick the trailing scoped_identifier (skipping the `static` modifier).
