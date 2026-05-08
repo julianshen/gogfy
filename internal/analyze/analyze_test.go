@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/julianshen/gogfy/internal/schema"
@@ -225,6 +226,10 @@ func TestSurprisingLinksRankedByInverseExpectedness(t *testing.T) {
 	if first.Source != "leafA" || first.Target != "leafB" {
 		t.Fatalf("expected leafA->leafB ranked first, got %s->%s", first.Source, first.Target)
 	}
+	last := report.SurprisingLinks[len(report.SurprisingLinks)-1]
+	if last.Source != "hub" || last.Target != "hubX" {
+		t.Fatalf("expected hub->hubX ranked last (lowest surprise), got %s->%s", last.Source, last.Target)
+	}
 }
 
 func TestSurprisingLinksCappedAtMax(t *testing.T) {
@@ -232,13 +237,13 @@ func TestSurprisingLinksCappedAtMax(t *testing.T) {
 	edges := []schema.Edge{}
 	// 25 cross-community edges; cap should limit to 10.
 	for i := 0; i < 25; i++ {
-		idA := "a" + string(rune('A'+i%26))
-		idB := "b" + string(rune('A'+i%26))
+		src := fmt.Sprintf("src%d", i)
+		dst := fmt.Sprintf("dst%d", i)
 		nodes = append(nodes,
-			schema.Node{ID: idA + "_src", Community: "A"},
-			schema.Node{ID: idB + "_dst", Community: "B"},
+			schema.Node{ID: src, Community: "A"},
+			schema.Node{ID: dst, Community: "B"},
 		)
-		edges = append(edges, schema.Edge{Source: idA + "_src", Target: idB + "_dst"})
+		edges = append(edges, schema.Edge{Source: src, Target: dst})
 	}
 	report := NewAnalyzer().Analyze(nodes, edges)
 	if got := len(report.SurprisingLinks); got > 10 {

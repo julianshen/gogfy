@@ -49,9 +49,11 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 	}
 
 	degree := make(map[string]int, len(nodes))
+	confidence := map[schema.Confidence]int{}
 	for _, e := range edges {
 		degree[e.Source]++
 		degree[e.Target]++
+		confidence[e.Confidence]++
 	}
 
 	nd := make([]nodeDegree, 0, len(nodes))
@@ -75,11 +77,6 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 	surprising := rankSurprising(edges, nodeMap, degree)
 	if len(surprising) > MaxSurprisingLinks {
 		surprising = surprising[:MaxSurprisingLinks]
-	}
-
-	confidence := map[schema.Confidence]int{}
-	for _, e := range edges {
-		confidence[e.Confidence]++
 	}
 
 	questions := []string{}
@@ -128,14 +125,13 @@ func rankSurprising(edges []schema.Edge, nodeMap map[string]schema.Node, degree 
 		score float64
 		idx   int
 	}
-	var ranked []scored
+	ranked := make([]scored, 0, len(edges))
 	for i, e := range edges {
 		src := nodeMap[e.Source]
 		dst := nodeMap[e.Target]
 		if src.Community == "" || dst.Community == "" || src.Community == dst.Community {
 			continue
 		}
-		// log2(d+2) is always ≥1, so the product is ≥1 and the score ≤1.
 		ds := math.Log2(float64(degree[e.Source]) + 2)
 		dt := math.Log2(float64(degree[e.Target]) + 2)
 		ranked = append(ranked, scored{edge: e, score: 1.0 / (ds * dt), idx: i})
