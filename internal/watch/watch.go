@@ -69,10 +69,16 @@ func Run(root string, opts Options, stop <-chan struct{}, rebuild RebuildFunc) e
 	pending := map[string]struct{}{}
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
-	armed := false
+	// rebuilding=true while a rebuild goroutine is in flight; events keep
+	// queueing into pending and the next flush picks them up after the
+	// rebuild returns. Without this, a rebuild that runs longer than the
+	// debounce window would block the event loop and overflow fsnotify's
+	// internal buffer.
+	rebuilding := false
+	rebuildDone := make(chan struct{}, 1)
 
 	flush := func() {
-		if len(pending) == 0 {
+		if rebuilding || len(pending) == 0 {
 			return
 		}
 		paths := make([]string, 0, len(pending))
@@ -81,9 +87,13 @@ func Run(root string, opts Options, stop <-chan struct{}, rebuild RebuildFunc) e
 		}
 		pending = map[string]struct{}{}
 		fmt.Fprintf(opts.Logger, "gogfy: %d file(s) changed, rebuilding\n", len(paths))
-		if err := rebuild(paths); err != nil {
-			fmt.Fprintf(opts.Logger, "gogfy: rebuild failed: %v\n", err)
-		}
+		rebuilding = true
+		go func() {
+			if err := rebuild(paths); err != nil {
+				fmt.Fprintf(opts.Logger, "gogfy: rebuild failed: %v\n", err)
+			}
+			rebuildDone <- struct{}{}
+		}()
 	}
 
 	for {
@@ -104,18 +114,22 @@ func Run(root string, opts Options, stop <-chan struct{}, rebuild RebuildFunc) e
 				continue
 			}
 			pending[ev.Name] = struct{}{}
-			if !armed {
-				timer.Reset(opts.Debounce)
-				armed = true
-			}
+			// Reset on every event so the debounce window is always relative
+			// to the most-recent change ("trailing edge" semantics).
+			timer.Reset(opts.Debounce)
 		case err, ok := <-w.Errors:
 			if !ok {
 				return errors.New("watcher closed")
 			}
 			fmt.Fprintf(opts.Logger, "gogfy: watch error: %v\n", err)
 		case <-timer.C:
-			armed = false
 			flush()
+		case <-rebuildDone:
+			rebuilding = false
+			// Drain any events queued during the rebuild on the next flush.
+			if len(pending) > 0 {
+				timer.Reset(opts.Debounce)
+			}
 		}
 	}
 }
@@ -136,9 +150,20 @@ func shouldNotify(ev fsnotify.Event, extSet map[string]struct{}) bool {
 	return ok
 }
 
+// heavyDirs are directory names that almost always contain machine-generated
+// content unrelated to the corpus and that, on real-world repos, easily blow
+// past the OS's inotify limit if we hand each subdirectory to fsnotify.
+// Listed verbatim because .graphifyignore is a per-corpus convention while
+// these are project-type conventions worth defaulting on.
+var heavyDirs = map[string]struct{}{
+	"node_modules": {}, "vendor": {}, "target": {}, "build": {}, "dist": {},
+	".venv": {}, "venv": {}, "__pycache__": {}, ".gradle": {}, ".tox": {},
+}
+
 // addRecursive registers root and every directory beneath it with the
-// watcher. Hidden directories (starting with `.`) are skipped to avoid
-// VCS bookkeeping noise (.git, etc.) drowning the event queue.
+// watcher. Hidden directories (starting with `.`) and well-known heavy
+// directories (node_modules, vendor, target, …) are skipped to avoid
+// drowning the OS inotify queue and quickly tripping the per-process limit.
 func addRecursive(w *fsnotify.Watcher, root string) error {
 	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -147,8 +172,14 @@ func addRecursive(w *fsnotify.Watcher, root string) error {
 		if !info.IsDir() {
 			return nil
 		}
-		if path != root && strings.HasPrefix(filepath.Base(path), ".") {
-			return filepath.SkipDir
+		if path != root {
+			base := filepath.Base(path)
+			if strings.HasPrefix(base, ".") {
+				return filepath.SkipDir
+			}
+			if _, heavy := heavyDirs[base]; heavy {
+				return filepath.SkipDir
+			}
 		}
 		return w.Add(path)
 	})

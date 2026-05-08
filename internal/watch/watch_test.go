@@ -142,6 +142,39 @@ func TestRunSkipsHiddenDirectoriesAtSetup(t *testing.T) {
 	}
 }
 
+func TestRunSkipsHeavyDirsAtSetup(t *testing.T) {
+	// node_modules/ + vendor/ etc. are project-scale machine-generated trees
+	// that easily exceed the OS inotify limit. Setup must skip them.
+	root := t.TempDir()
+	for _, d := range []string{"node_modules", "vendor", "target"} {
+		if err := os.MkdirAll(filepath.Join(root, d, "deep"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, d, "deep", "noisy.go"), []byte("package x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	rebuildC := make(chan struct{}, 1)
+	go func() {
+		_ = Run(root, Options{Extensions: []string{".go"}, Debounce: 30 * time.Millisecond, Logger: &bytes.Buffer{}}, stop, func([]string) error {
+			rebuildC <- struct{}{}
+			return nil
+		})
+	}()
+	time.Sleep(100 * time.Millisecond)
+	// Modify a file inside node_modules — should NOT trigger rebuild.
+	if err := os.WriteFile(filepath.Join(root, "node_modules", "deep", "noisy.go"), []byte("package x // updated"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-rebuildC:
+		t.Fatal("rebuild fired on a node_modules change despite heavy-dir skip")
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
 func TestRunErrorsOnMissingRoot(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 	stop := make(chan struct{})

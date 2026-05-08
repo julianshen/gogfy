@@ -2,7 +2,6 @@
 package extract
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -78,9 +77,7 @@ func (PythonExtractor) Extract(path string) (Result, error) {
 	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
-	if tree.RootNode().HasError() {
-		fmt.Fprintf(ParseErrorLogger, "gogfy: parse warning: %s contains syntax errors; extraction may be incomplete\n", absPath)
-	}
+	warnIfParseError(absPath, tree)
 
 	cursor := tree.Walk()
 	defer cursor.Close()

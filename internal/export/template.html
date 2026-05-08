@@ -168,8 +168,18 @@ function step() {
 }
 function paint() {
   for (const e of edges) {
+    let x2 = e.target.x, y2 = e.target.y;
+    if (DIRECTED) {
+      // Shorten the line by the target node's radius (plus a small marker
+      // offset) so the arrowhead lands on the rim, not inside the circle.
+      const dx = e.target.x - e.source.x, dy = e.target.y - e.source.y;
+      const d = Math.sqrt(dx*dx + dy*dy) || 1;
+      const back = (e.target.r || 6) + 4;
+      x2 -= (dx/d) * back;
+      y2 -= (dy/d) * back;
+    }
     e.el.setAttribute("x1", e.source.x); e.el.setAttribute("y1", e.source.y);
-    e.el.setAttribute("x2", e.target.x); e.el.setAttribute("y2", e.target.y);
+    e.el.setAttribute("x2", x2); e.el.setAttribute("y2", y2);
   }
   for (const n of nodes) n.el.setAttribute("transform", `translate(${n.x},${n.y})`);
 }
