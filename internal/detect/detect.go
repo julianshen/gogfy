@@ -3,11 +3,13 @@ package detect
 
 import (
 	"bufio"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/julianshen/gogfy/internal/security"
 	gitignore "github.com/sabhiram/go-gitignore"
 )
 
@@ -71,9 +73,26 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 		}
 		if !info.IsDir() {
 			ext := filepath.Ext(path)
-			if _, ok := extSet[ext]; ok {
-				files = append(files, path)
+			if _, ok := extSet[ext]; !ok {
+				return nil
 			}
+			// Reject files that resolve outside the corpus root (e.g., a
+			// symlink to /etc/passwd) and skip pathologically large files.
+			// Both errors are non-fatal: an adversarial file shouldn't kill
+			// the whole walk.
+			if _, err := security.SafeJoin(root, path); err != nil {
+				if errors.Is(err, security.ErrPathOutsideRoot) {
+					return nil
+				}
+				return err
+			}
+			if err := security.CheckFileSize(path, security.DefaultMaxFileSize); err != nil {
+				if errors.Is(err, security.ErrFileTooLarge) {
+					return nil
+				}
+				return err
+			}
+			files = append(files, path)
 		}
 		return nil
 	})

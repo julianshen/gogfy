@@ -302,6 +302,35 @@ func TestCollectFilesCharClassPattern(t *testing.T) {
 	}
 }
 
+func TestCollectFilesSkipsSymlinkEscapingRoot(t *testing.T) {
+	// A symlink inside the corpus root pointing at a file outside the root
+	// must not appear in the result; otherwise an attacker who controls a
+	// repo could redirect a Go-source read to /etc/passwd.
+	root := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secret.go")
+	os.WriteFile(target, []byte("package secret"), 0644)
+
+	link := filepath.Join(root, "evil.go")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	os.WriteFile(filepath.Join(root, "ok.go"), []byte("package ok"), 0644)
+
+	files, err := CollectFiles(root, []string{".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if filepath.Base(f) == "evil.go" {
+			t.Fatalf("symlink escaping root must be filtered out; got %v", files)
+		}
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "ok.go" {
+		t.Fatalf("expected only ok.go, got %v", files)
+	}
+}
+
 func TestCollectFilesLoadIgnorePermissionError(t *testing.T) {
 	root := t.TempDir()
 	ignorePath := filepath.Join(root, ".graphifyignore")
