@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>gogfy graph</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: ui-sans-serif, system-ui, sans-serif; }
+  #app { display: grid; grid-template-columns: 260px 1fr 280px; height: 100vh; }
+  aside { padding: 12px; overflow-y: auto; border-right: 1px solid #ccc4; box-sizing: border-box; }
+  aside.right { border-right: none; border-left: 1px solid #ccc4; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #888; margin: 12px 0 6px; }
+  h2:first-child { margin-top: 0; }
+  input[type=text] { width: 100%; padding: 6px 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { padding: 2px 0; font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  li:hover { background: #80808022; }
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  main { position: relative; overflow: hidden; }
+  svg { width: 100%; height: 100%; cursor: grab; display: block; }
+  svg:active { cursor: grabbing; }
+  .node circle { stroke: #fff; stroke-width: 1.5; cursor: pointer; }
+  .node text { font-size: 10px; pointer-events: none; user-select: none; }
+  .edge { stroke: #999; stroke-width: 1; stroke-opacity: .5; fill: none; }
+  .edge.inferred { stroke-dasharray: 4 3; stroke-opacity: .65; }
+  .edge.ambiguous { stroke-dasharray: 1 3; stroke-opacity: .8; }
+  .selected circle { stroke: #ff7a00; stroke-width: 3; }
+  .dim { opacity: .12; }
+  .meta { font-size: 12px; color: #666; }
+  .meta b { color: inherit; font-weight: 600; }
+  .panel-row { margin-bottom: 6px; word-break: break-all; }
+  footer { padding: 8px 12px; font-size: 11px; color: #888; border-top: 1px solid #ccc4; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1a1a1a; color: #ddd; }
+    input[type=text] { background: #222; color: #ddd; border-color: #444; }
+    .meta { color: #aaa; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside class="left">
+    <h2>Search</h2>
+    <input id="search" type="text" placeholder="filter by label…">
+    <h2>Communities</h2>
+    <ul id="communities"></ul>
+    <footer>nodes: <span id="ncount">0</span> · edges: <span id="ecount">0</span></footer>
+  </aside>
+  <main>
+    <svg id="svg" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet">
+      <g id="viewport">
+        <g id="edges"></g>
+        <g id="nodes"></g>
+      </g>
+    </svg>
+  </main>
+  <aside class="right">
+    <h2>Selected</h2>
+    <div id="panel" class="meta">Click a node to inspect.</div>
+  </aside>
+</div>
+<script>
+const DATA = /*__DATA__*/null;
+const W = 1000, H = 700;
+const nodes = DATA.nodes.map((n, i) => ({...n, x: W/2 + (Math.random()-.5)*200, y: H/2 + (Math.random()-.5)*200, vx: 0, vy: 0, idx: i}));
+const idIndex = Object.fromEntries(nodes.map(n => [n.ID, n]));
+const edges = DATA.edges
+  .map(e => ({...e, source: idIndex[e.Source], target: idIndex[e.Target]}))
+  .filter(e => e.source && e.target);
+
+const palette = ["#4e79a7","#f28e2b","#e15759","#76b7b2","#59a14f","#edc948","#b07aa1","#ff9da7","#9c755f","#bab0ac","#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"];
+const communities = [...new Set(nodes.map(n => n.Community || "_"))].sort();
+const commColor = c => palette[Math.abs(hash(c)) % palette.length];
+function hash(s) { let h = 0; for (const c of s) h = (h*31 + c.charCodeAt(0))|0; return h; }
+
+const deg = {};
+for (const e of edges) { deg[e.source.ID] = (deg[e.source.ID]||0)+1; deg[e.target.ID] = (deg[e.target.ID]||0)+1; }
+
+const svgNS = "http://www.w3.org/2000/svg";
+const edgesG = document.getElementById("edges");
+const nodesG = document.getElementById("nodes");
+for (const e of edges) {
+  const line = document.createElementNS(svgNS, "line");
+  line.setAttribute("class", "edge " + (e.Confidence === 1 ? "inferred" : e.Confidence === 2 ? "ambiguous" : ""));
+  line.setAttribute("data-source", e.source.ID);
+  line.setAttribute("data-target", e.target.ID);
+  e.el = line;
+  edgesG.appendChild(line);
+}
+for (const n of nodes) {
+  const g = document.createElementNS(svgNS, "g");
+  g.setAttribute("class", "node");
+  g.setAttribute("data-id", n.ID);
+  g.setAttribute("data-community", n.Community || "_");
+  const r = 4 + Math.min(8, Math.sqrt(deg[n.ID] || 1) * 2);
+  const c = document.createElementNS(svgNS, "circle");
+  c.setAttribute("r", r);
+  c.setAttribute("fill", commColor(n.Community || "_"));
+  const t = document.createElementNS(svgNS, "text");
+  t.setAttribute("dx", r + 3);
+  t.setAttribute("dy", "0.32em");
+  t.textContent = n.Label;
+  g.appendChild(c); g.appendChild(t);
+  g.addEventListener("click", () => select(n));
+  n.el = g;
+  n.r = r;
+  nodesG.appendChild(g);
+}
+
+// Spatial grid: cap pairwise repulsion to nodes within ±1 cell. Average
+// O(N) per frame vs the all-pairs O(N²) walk, which keeps the simulation
+// responsive for graphs of a few thousand nodes. Beyond that a Barnes-Hut
+// quadtree would scale further.
+const GRID = 80;
+const grid = new Map();
+function gridKey(x, y) { return ((x / GRID) | 0) + "," + ((y / GRID) | 0); }
+function rebuildGrid() {
+  grid.clear();
+  for (const n of nodes) {
+    const k = gridKey(n.x, n.y);
+    let bucket = grid.get(k);
+    if (!bucket) { bucket = []; grid.set(k, bucket); }
+    bucket.push(n);
+  }
+}
+
+function step() {
+  const k = 30, repel = 1500, center = 0.01, damping = 0.85;
+  for (const n of nodes) { n.fx = (W/2 - n.x) * center; n.fy = (H/2 - n.y) * center; }
+  rebuildGrid();
+  for (const a of nodes) {
+    const cx = (a.x / GRID) | 0, cy = (a.y / GRID) | 0;
+    for (let gx = -1; gx <= 1; gx++) {
+      for (let gy = -1; gy <= 1; gy++) {
+        const bucket = grid.get((cx + gx) + "," + (cy + gy));
+        if (!bucket) continue;
+        for (const b of bucket) {
+          if (b === a) continue;
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const d2 = dx*dx + dy*dy + 0.01;
+          const f = repel / d2;
+          const d = Math.sqrt(d2);
+          a.fx += (dx/d)*f; a.fy += (dy/d)*f;
+        }
+      }
+    }
+  }
+  for (const e of edges) {
+    const dx = e.target.x - e.source.x, dy = e.target.y - e.source.y;
+    const d = Math.sqrt(dx*dx + dy*dy) + 0.01;
+    const f = (d - k) * 0.05;
+    e.source.fx += (dx/d)*f; e.source.fy += (dy/d)*f;
+    e.target.fx -= (dx/d)*f; e.target.fy -= (dy/d)*f;
+  }
+  for (const n of nodes) {
+    n.vx = (n.vx + n.fx) * damping;
+    n.vy = (n.vy + n.fy) * damping;
+    n.x += n.vx; n.y += n.vy;
+  }
+  paint();
+}
+function paint() {
+  for (const e of edges) {
+    e.el.setAttribute("x1", e.source.x); e.el.setAttribute("y1", e.source.y);
+    e.el.setAttribute("x2", e.target.x); e.el.setAttribute("y2", e.target.y);
+  }
+  for (const n of nodes) n.el.setAttribute("transform", `translate(${n.x},${n.y})`);
+}
+let frame = 0;
+function tick() { if (frame++ < 400) { step(); requestAnimationFrame(tick); } }
+tick();
+
+const svg = document.getElementById("svg");
+const viewport = document.getElementById("viewport");
+let tx = 0, ty = 0, scale = 1;
+function applyTransform() { viewport.setAttribute("transform", `translate(${tx},${ty}) scale(${scale})`); }
+let dragging = false, dragStartX = 0, dragStartY = 0;
+svg.addEventListener("mousedown", e => { dragging = true; dragStartX = e.clientX - tx; dragStartY = e.clientY - ty; });
+window.addEventListener("mousemove", e => { if (!dragging) return; tx = e.clientX - dragStartX; ty = e.clientY - dragStartY; applyTransform(); });
+window.addEventListener("mouseup", () => dragging = false);
+// Zoom-to-mouse: anchor the zoom on the cursor's SVG-local point so the
+// graph doesn't drift away under the pointer.
+svg.addEventListener("wheel", e => {
+  e.preventDefault();
+  const factor = Math.exp(-e.deltaY * 0.001);
+  const newScale = Math.max(0.2, Math.min(5, scale * factor));
+  const rect = svg.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  tx = x - (x - tx) * (newScale / scale);
+  ty = y - (y - ty) * (newScale / scale);
+  scale = newScale;
+  applyTransform();
+}, { passive: false });
+
+const search = document.getElementById("search");
+search.addEventListener("input", () => {
+  const q = search.value.trim().toLowerCase();
+  for (const n of nodes) n.el.classList.toggle("dim", q !== "" && !n.Label.toLowerCase().includes(q));
+  for (const e of edges) {
+    const dim = q !== "" && !(e.source.Label.toLowerCase().includes(q) || e.target.Label.toLowerCase().includes(q));
+    e.el.classList.toggle("dim", dim);
+  }
+});
+
+const legend = document.getElementById("communities");
+const enabled = new Set(communities);
+for (const c of communities) {
+  const li = document.createElement("li");
+  const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = true;
+  const sw = document.createElement("span"); sw.className = "swatch"; sw.style.background = commColor(c);
+  const label = document.createElement("span"); label.textContent = c === "_" ? "(none)" : "community " + c;
+  cb.addEventListener("change", () => {
+    if (cb.checked) enabled.add(c); else enabled.delete(c);
+    refreshVisibility();
+  });
+  li.appendChild(cb); li.appendChild(sw); li.appendChild(label);
+  legend.appendChild(li);
+}
+function refreshVisibility() {
+  for (const n of nodes) n.el.style.display = enabled.has(n.Community || "_") ? "" : "none";
+  for (const e of edges) {
+    const visible = enabled.has(e.source.Community || "_") && enabled.has(e.target.Community || "_");
+    e.el.style.display = visible ? "" : "none";
+  }
+}
+
+const panel = document.getElementById("panel");
+function select(n) {
+  for (const m of nodes) m.el.classList.toggle("selected", m.ID === n.ID);
+  panel.replaceChildren();
+  panel.appendChild(panelRow("", n.Label, true));
+  panel.appendChild(panelRow("meta", n.ID));
+  if (n.SourceFile) {
+    const loc = n.SourceLocation ? n.SourceFile + ":" + n.SourceLocation : n.SourceFile;
+    panel.appendChild(panelRow("meta", loc));
+  }
+  panel.appendChild(panelMetaPair("community", n.Community || "—", "degree", String(deg[n.ID] || 0)));
+  const incoming = edges.filter(e => e.target.ID === n.ID);
+  const outgoing = edges.filter(e => e.source.ID === n.ID);
+  panel.appendChild(panelHeading("Incoming (" + incoming.length + ")"));
+  panel.appendChild(panelEdgeList(incoming, "in"));
+  panel.appendChild(panelHeading("Outgoing (" + outgoing.length + ")"));
+  panel.appendChild(panelEdgeList(outgoing, "out"));
+}
+function panelRow(klass, text, bold) {
+  const d = document.createElement("div");
+  d.className = "panel-row" + (klass ? " " + klass : "");
+  if (bold) {
+    const b = document.createElement("b"); b.textContent = text; d.appendChild(b);
+  } else {
+    d.textContent = text;
+  }
+  return d;
+}
+function panelHeading(text) { const h = document.createElement("h2"); h.textContent = text; return h; }
+function panelMetaPair(k1, v1, k2, v2) {
+  const d = document.createElement("div"); d.className = "panel-row meta";
+  d.append(k1 + ": "); const b1 = document.createElement("b"); b1.textContent = v1; d.appendChild(b1);
+  d.append(" · " + k2 + ": "); const b2 = document.createElement("b"); b2.textContent = v2; d.appendChild(b2);
+  return d;
+}
+function panelEdgeList(arr, dir) {
+  if (arr.length === 0) {
+    const i = document.createElement("i"); i.textContent = "none"; return i;
+  }
+  const frag = document.createDocumentFragment();
+  for (const e of arr) {
+    const d = document.createElement("div"); d.className = "panel-row";
+    d.append(dir === "in" ? e.source.Label : e.target.Label, " ");
+    const m = document.createElement("span"); m.className = "meta"; m.textContent = "(" + e.Relation + ")";
+    d.appendChild(m);
+    frag.appendChild(d);
+  }
+  return frag;
+}
+
+document.getElementById("ncount").textContent = nodes.length;
+document.getElementById("ecount").textContent = edges.length;
+</script>
+</body>
+</html>
