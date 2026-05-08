@@ -47,8 +47,8 @@ func bar() { fmt.Println("hi"); foo(1) }
 func foo(x int) int { return x }
 `,
 			wantCalls: [][3]string{
-				{"main.bar", "go:call:Println", ""},
-				{"main.bar", "go:call:foo", ""},
+				{":bar", "go:call:Println", ""},
+				{":bar", "go:call:foo", ""},
 			},
 		},
 		{
@@ -291,7 +291,7 @@ func helper() {}
 	}
 	for _, e := range res.Edges {
 		if e.Relation == "calls" && e.Target == "go:call:helper" {
-			if !strings.HasSuffix(e.Source, ".Run") {
+			if !strings.HasSuffix(e.Source, ":Run") {
 				t.Fatalf("call should source from method Run, got %q", e.Source)
 			}
 			return

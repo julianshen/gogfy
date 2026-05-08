@@ -2,218 +2,86 @@
 package extract
 
 import (
-	"os"
-	"path/filepath"
-
-	"github.com/julianshen/gogfy/internal/schema"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
 )
 
-// PythonExtractor uses tree-sitter-python to extract module/class/function nodes
-// and import edges.
+// PythonExtractor uses tree-sitter-python to extract module/class/function
+// nodes, import edges, and call edges from Python sources.
 type PythonExtractor struct{}
 
-type pythonExtractState struct {
-	moduleName  string
-	nodes       []schema.Node
-	edges       []schema.Edge
-	fnStack     []string
-	callTargets map[string]struct{}
-}
-
-func (s *pythonExtractState) pushFn(id string) { s.fnStack = append(s.fnStack, id) }
-func (s *pythonExtractState) popFn() {
-	if len(s.fnStack) > 0 {
-		s.fnStack = s.fnStack[:len(s.fnStack)-1]
-	}
-}
-
-// callSource returns the innermost enclosing function ID, or the module
-// node when the call is at top-level.
-func (s *pythonExtractState) callSource(filePath string) string {
-	if n := len(s.fnStack); n > 0 {
-		return s.fnStack[n-1]
-	}
-	return schema.PythonModuleID(filePath)
-}
-
-func (s *pythonExtractState) addCall(filePath, callee string) {
-	if callee == "" || s.moduleName == "" {
-		return
-	}
-	target := schema.LangID("py", "call", callee)
-	if s.callTargets == nil {
-		s.callTargets = map[string]struct{}{}
-	}
-	if _, seen := s.callTargets[target]; !seen {
-		s.callTargets[target] = struct{}{}
-		s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
-	}
-	s.edges = append(s.edges, schema.Edge{
-		Source:     s.callSource(filePath),
-		Target:     target,
-		Relation:   "calls",
-		Confidence: schema.Extracted,
-	})
-}
-
-// Extract parses the Python source file at path and returns the extracted graph Result.
 func (PythonExtractor) Extract(path string) (Result, error) {
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return Result{}, err
-	}
-
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return Result{}, err
-	}
-
-	parser := sitter.NewParser()
-	defer parser.Close()
-	if err := parser.SetLanguage(sitter.NewLanguage(tree_sitter_python.Language())); err != nil {
-		return Result{}, err
-	}
-	tree := parser.Parse(src, nil)
-	defer tree.Close()
-	warnIfParseError(absPath, tree)
-
-	cursor := tree.Walk()
-	defer cursor.Close()
-
-	state := &pythonExtractState{moduleName: filepath.Base(absPath)}
-	walkPython(cursor, src, absPath, state)
-
-	return Result{Nodes: state.nodes, Edges: state.edges}, nil
+	return runExtraction(path, tree_sitter_python.Language(), "py", walkPython)
 }
 
-func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *pythonExtractState) {
+// walkPython emits one module node per file (label is the file's basename),
+// function/class nodes for each definition, import edges from the module
+// to each imported name, and call edges from the innermost enclosing
+// function/lambda (or the module for top-level calls) to a synthetic
+// `py:call:<callee>` target.
+func walkPython(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	node := cursor.Node()
 	switch node.Kind() {
-	case "module":
-		state.nodes = append(state.nodes, schema.Node{
-			ID:             schema.PythonModuleID(filePath),
-			Label:          state.moduleName,
-			SourceFile:     filePath,
-			SourceLocation: nodeLocation(node),
-		})
 	case "import_statement":
-		if state.moduleName == "" {
-			break
-		}
-		n := node.ChildCount()
-		for i := uint(0); i < n; i++ {
-			child := node.Child(i)
-			switch child.Kind() {
-			case "dotted_name":
-				addPyImport(state, filePath, child.Utf8Text(src))
-			case "aliased_import":
-				m := child.ChildCount()
-				for j := uint(0); j < m; j++ {
-					grandchild := child.Child(j)
-					if grandchild.Kind() == "dotted_name" {
-						addPyImport(state, filePath, grandchild.Utf8Text(src))
-						break
-					}
-				}
-			}
-		}
+		emitPyImports(state, node, src)
 	case "import_from_statement":
-		if state.moduleName == "" {
-			break
-		}
-		var moduleName string
-		n := node.ChildCount()
-		for i := uint(0); i < n; i++ {
-			child := node.Child(i)
-			switch child.Kind() {
-			case "dotted_name":
-				if moduleName == "" {
-					moduleName = child.Utf8Text(src)
-				} else {
-					addPyImport(state, filePath, moduleName+"."+child.Utf8Text(src))
-				}
-			case "aliased_import":
-				if moduleName == "" {
-					continue
-				}
-				m := child.ChildCount()
-				for j := uint(0); j < m; j++ {
-					grandchild := child.Child(j)
-					if grandchild.Kind() == "dotted_name" {
-						addPyImport(state, filePath, moduleName+"."+grandchild.Utf8Text(src))
-						break
-					}
-				}
-			}
-		}
+		emitPyFromImports(state, node, src)
 	case "function_definition":
 		nameNode := node.ChildByFieldName("name")
-		funcName := ""
-		if nameNode != nil {
-			funcName = nameNode.Utf8Text(src)
-		}
-		label := funcName
-		if label == "" {
-			label = "<anonymous>"
-		}
-		funcID := schema.PythonFuncID(filePath, funcName)
-		state.nodes = append(state.nodes, schema.Node{
-			ID:             funcID,
-			Label:          label,
-			SourceFile:     filePath,
-			SourceLocation: nodeLocation(node),
-		})
-		state.pushFn(funcID)
-		walkChildren(cursor, func() { walkPython(cursor, src, filePath, state) })
-		state.popFn()
+		state.emitDecl("function", node, nameNode, src)
+		state.walkFnScope("function", nameNode, src, cursor, walkPython)
 		return
 	case "lambda":
-		// Anonymous-by-construction; synthesize a position-keyed scope so
-		// calls inside source from the lambda rather than the enclosing
-		// def/class. Mirrors the JS arrow_function handling.
-		anonID := schema.LangID("py", "function",
-			filePath+":anon@"+nodeLocation(node))
-		state.nodes = append(state.nodes, schema.Node{
-			ID:             anonID,
-			Label:          "<lambda>",
-			SourceFile:     filePath,
-			SourceLocation: nodeLocation(node),
-		})
-		state.pushFn(anonID)
-		walkChildren(cursor, func() { walkPython(cursor, src, filePath, state) })
-		state.popFn()
+		state.walkAnonFnScope("function", node, src, cursor, walkPython)
 		return
 	case "call":
-		fn := node.ChildByFieldName("function")
-		state.addCall(filePath, callTargetName(fn, src))
+		state.addCall(callTargetName(node.ChildByFieldName("function"), src))
 	case "class_definition":
-		nameNode := node.ChildByFieldName("name")
-		className := ""
-		if nameNode != nil {
-			className = nameNode.Utf8Text(src)
-		}
-		state.nodes = append(state.nodes, schema.Node{
-			ID:             schema.PythonClassID(filePath, className),
-			Label:          className,
-			SourceFile:     filePath,
-			SourceLocation: nodeLocation(node),
-		})
+		state.emitDecl("class", node, node.ChildByFieldName("name"), src)
 	}
-
-	walkChildren(cursor, func() { walkPython(cursor, src, filePath, state) })
+	walkChildren(cursor, func() { walkPython(cursor, src, state) })
 }
 
-func addPyImport(state *pythonExtractState, filePath, imp string) {
-	state.nodes = append(state.nodes, schema.Node{
-		ID:    schema.PythonImportID(imp),
-		Label: imp,
-	})
-	state.edges = append(state.edges, schema.Edge{
-		Source:     schema.PythonModuleID(filePath),
-		Target:     schema.PythonImportID(imp),
-		Relation:   "imports",
-		Confidence: schema.Extracted,
-	})
+// emitPyImports handles `import a` / `import a as b` / `import a, b`
+// statements. Each top-level identifier (or aliased_import's wrapped name)
+// becomes one import edge.
+func emitPyImports(state *extractState, node *sitter.Node, src []byte) {
+	n := node.ChildCount()
+	for i := uint(0); i < n; i++ {
+		child := node.Child(i)
+		switch child.Kind() {
+		case "dotted_name":
+			state.addImport(child.Utf8Text(src))
+		case "aliased_import":
+			if d := firstChildOfKind(child, "dotted_name"); d != nil {
+				state.addImport(d.Utf8Text(src))
+			}
+		}
+	}
+}
+
+// emitPyFromImports handles `from M import a, b as c, ...` shapes. The first
+// dotted_name is the module; subsequent ones (or aliased_import wrappers)
+// each emit a `M.name` edge.
+func emitPyFromImports(state *extractState, node *sitter.Node, src []byte) {
+	var moduleName string
+	n := node.ChildCount()
+	for i := uint(0); i < n; i++ {
+		child := node.Child(i)
+		switch child.Kind() {
+		case "dotted_name":
+			if moduleName == "" {
+				moduleName = child.Utf8Text(src)
+			} else {
+				state.addImport(moduleName + "." + child.Utf8Text(src))
+			}
+		case "aliased_import":
+			if moduleName == "" {
+				continue
+			}
+			if d := firstChildOfKind(child, "dotted_name"); d != nil {
+				state.addImport(moduleName + "." + d.Utf8Text(src))
+			}
+		}
+	}
 }

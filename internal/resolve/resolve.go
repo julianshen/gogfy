@@ -117,25 +117,11 @@ func buildFunctionIndex(nodes []schema.Node) map[langLabel][]string {
 	return idx
 }
 
-// Legacy ID-prefix constants for the Go and Python extractors, which predate
-// the shared LangID scheme. Centralizing them here means a scheme change
-// breaks compilation rather than silently mis-resolving in functionNodeLang.
-const (
-	legacyGoFnPrefix = "fn:"
-	legacyPyFnPrefix = "py:fn:"
-)
-
 // functionNodeLang returns the language prefix and true if id refers to a
-// function or method node, otherwise ("", false). Handles the legacy Go and
-// Python ID schemes plus the shared "<lang>:function:..." / "<lang>:method:..."
-// form (every other language).
+// function or method node, otherwise ("", false). All extractors now use
+// the shared "<lang>:function:..." / "<lang>:method:..." LangID scheme so
+// no per-language special cases are needed.
 func functionNodeLang(id string) (string, bool) {
-	switch {
-	case hasPrefix(id, legacyPyFnPrefix):
-		return "py", true
-	case hasPrefix(id, legacyGoFnPrefix):
-		return "go", true
-	}
 	lang, kind, _, ok := schema.ParseLangID(id)
 	if !ok {
 		return "", false
@@ -163,8 +149,3 @@ func isSyntheticCallTarget(id string) bool {
 	return ok
 }
 
-// hasPrefix is a tiny helper so functionNodeLang's prefix table reads cleanly
-// and we don't pull strings just for that one call site.
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
-}

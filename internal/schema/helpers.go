@@ -12,41 +12,6 @@ func FormatLocation(row, col uint) string {
 	return fmt.Sprintf("%d:%d", row+1, col+1)
 }
 
-// PackageID returns a deterministic node ID for a package.
-func PackageID(filePath, pkgName string) string {
-	return fmt.Sprintf("pkg:%s:%s", filePath, pkgName)
-}
-
-// FuncID returns a deterministic node ID for a function.
-func FuncID(filePath, pkgName, funcName string) string {
-	return fmt.Sprintf("fn:%s:%s.%s", filePath, pkgName, funcName)
-}
-
-// ImportID returns a deterministic node ID for an imported package.
-func ImportID(imp string) string {
-	return fmt.Sprintf("pkg:import:%s", imp)
-}
-
-// PythonModuleID returns a deterministic node ID for a Python module.
-func PythonModuleID(filePath string) string {
-	return fmt.Sprintf("py:module:%s", filePath)
-}
-
-// PythonFuncID returns a deterministic node ID for a Python function.
-func PythonFuncID(filePath, funcName string) string {
-	return fmt.Sprintf("py:fn:%s:%s", filePath, funcName)
-}
-
-// PythonClassID returns a deterministic node ID for a Python class.
-func PythonClassID(filePath, className string) string {
-	return fmt.Sprintf("py:class:%s:%s", filePath, className)
-}
-
-// PythonImportID returns a deterministic node ID for a Python imported module.
-func PythonImportID(imp string) string {
-	return fmt.Sprintf("py:import:%s", imp)
-}
-
 // LangID composes a deterministic node ID under a language prefix. Used by
 // per-language extractors that share a common scheme: "<lang>:<kind>:<key>".
 func LangID(lang, kind, key string) string {
