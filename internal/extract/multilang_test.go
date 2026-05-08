@@ -316,6 +316,55 @@ use A\B, A\C;
 	}
 }
 
+func TestJuliaMultiUsing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "m.jl")
+	if err := os.WriteFile(path, []byte("using LinearAlgebra, Statistics\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := JuliaExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{"julia:import:LinearAlgebra", "julia:import:Statistics"} {
+		if !targets[want] {
+			t.Fatalf("missing %q (got %v)", want, targets)
+		}
+	}
+}
+
+func TestBashSourceQuoted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "q.sh")
+	body := `source "lib.sh"
+. 'other.sh'
+`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := BashExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{"bash:import:lib.sh", "bash:import:other.sh"} {
+		if !targets[want] {
+			t.Fatalf("missing %q (got %v)", want, targets)
+		}
+	}
+}
+
 func TestJuliaSelectedImport(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "s.jl")

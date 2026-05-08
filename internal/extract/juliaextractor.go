@@ -30,23 +30,30 @@ func walkJulia(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	walkChildren(cursor, func() { walkJulia(cursor, src, state) })
 }
 
-// emitJuliaImports handles Julia's three import shapes:
+// emitJuliaImports handles Julia's import shapes:
 //
-//	using LinearAlgebra            // identifier child of using_statement
-//	import Base                    // identifier child of import_statement
+//	using LinearAlgebra            // single identifier child
+//	using LinearAlgebra, Stats     // multiple identifier children (siblings)
+//	import Base                    // single identifier child
 //	import Foo: a, b               // selected_import wraps module + selected names
 //
-// For selected_import, the first identifier is the module and any
-// subsequent identifiers are emitted as `Module.name` edges.
+// All identifier children of the statement are treated as imported modules;
+// selected_import children expand into one `Module.name` edge per selector
+// while still emitting the module itself.
 func emitJuliaImports(state *extractState, node *sitter.Node, src []byte) {
-	if id := firstChildOfKind(node, "identifier"); id != nil {
-		state.addImport(id.Utf8Text(src))
-		return
+	n := node.ChildCount()
+	for i := uint(0); i < n; i++ {
+		c := node.Child(i)
+		switch c.Kind() {
+		case "identifier":
+			state.addImport(c.Utf8Text(src))
+		case "selected_import":
+			emitJuliaSelectedImport(state, c, src)
+		}
 	}
-	sel := firstChildOfKind(node, "selected_import")
-	if sel == nil {
-		return
-	}
+}
+
+func emitJuliaSelectedImport(state *extractState, sel *sitter.Node, src []byte) {
 	var module string
 	n := sel.ChildCount()
 	for i := uint(0); i < n; i++ {
