@@ -17,56 +17,89 @@ import (
 // structural value relative to the parse cost.
 const DefaultMaxFileSize int64 = 10 << 20
 
-// ErrPathOutsideRoot is returned by SafeJoin when the resolved (post-symlink)
-// path would escape the user-specified corpus root.
+// ErrPathOutsideRoot is returned by SafeJoin/RootGuard.Check when the
+// resolved (post-symlink) path would escape the user-specified corpus root.
 var ErrPathOutsideRoot = errors.New("path resolves outside root")
 
-// ErrFileTooLarge is returned by CheckFileSize when a file exceeds the cap.
+// ErrFileTooLarge is returned by the size-check helpers when a file exceeds
+// the cap.
 var ErrFileTooLarge = errors.New("file exceeds size cap")
 
-// SafeJoin returns the absolute, fully symlink-resolved form of path and
-// errors if the resolved path would escape root. Use this at the boundary
-// between filesystem walk results and "we're about to read this file" so a
-// hostile symlink inside the corpus can't redirect a read to /etc/passwd.
-func SafeJoin(root, path string) (string, error) {
-	rootAbs, err := filepath.Abs(root)
+// IsSkippable reports whether err is a non-fatal security violation that
+// callers should treat as "drop this file from the corpus" rather than "abort
+// the whole walk". Centralizing the predicate alongside the sentinels means
+// adding a future skip-class error updates one place, not every caller.
+func IsSkippable(err error) bool {
+	return errors.Is(err, ErrPathOutsideRoot) || errors.Is(err, ErrFileTooLarge)
+}
+
+// RootGuard caches the resolved (symlink-followed) form of the corpus root
+// so SafeJoin-style checks don't re-stat the root for every candidate path.
+type RootGuard struct {
+	resolved string
+}
+
+// NewRootGuard resolves root once. Returns an error if root can't be made
+// absolute or its symlinks can't be followed — callers should treat that
+// as "refuse to walk" rather than silently drop every file.
+func NewRootGuard(root string) (*RootGuard, error) {
+	abs, err := filepath.Abs(root)
 	if err != nil {
-		return "", fmt.Errorf("resolve root: %w", err)
+		return nil, fmt.Errorf("resolve root: %w", err)
 	}
-	rootResolved, err := filepath.EvalSymlinks(rootAbs)
+	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		// If root itself doesn't resolve cleanly, fall back to the abs form;
-		// callers surface non-existent-root errors at a higher layer.
-		rootResolved = rootAbs
+		return nil, fmt.Errorf("resolve root: %w", err)
 	}
+	return &RootGuard{resolved: resolved}, nil
+}
+
+// Check resolves path through filepath.EvalSymlinks and verifies that the
+// resolved form is the guard's root or a descendant of it. Returns the
+// resolved path on success so callers can read through that (sidestepping
+// any symlink swap between check and open).
+func (g *RootGuard) Check(path string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
-	if !withinRoot(rootResolved, resolved) {
+	if !withinRoot(g.resolved, resolved) {
 		return "", fmt.Errorf("%w: %q -> %q", ErrPathOutsideRoot, path, resolved)
 	}
 	return resolved, nil
 }
 
-// withinRoot reports whether resolved is root or a descendant of root.
-// Both arguments must be cleaned absolute paths.
+// SafeJoin is a one-shot convenience over NewRootGuard + Check. Prefer the
+// guard form when checking many paths against the same root.
+func SafeJoin(root, path string) (string, error) {
+	g, err := NewRootGuard(root)
+	if err != nil {
+		return "", err
+	}
+	return g.Check(path)
+}
+
 func withinRoot(root, resolved string) bool {
 	if root == resolved {
 		return true
 	}
-	rootSep := root + string(filepath.Separator)
-	return strings.HasPrefix(resolved, rootSep)
+	return strings.HasPrefix(resolved, root+string(filepath.Separator))
 }
 
-// CheckFileSize returns nil if the file at path is at or under max bytes,
-// ErrFileTooLarge if it exceeds the cap, or the underlying I/O error if the
-// file can't be stat'd.
+// CheckFileSize stats path and reports ErrFileTooLarge if the file exceeds
+// max bytes. Prefer CheckFileInfoSize when an os.FileInfo is already in hand
+// (e.g., from a filepath.Walk callback) to avoid the extra syscall.
 func CheckFileSize(path string, max int64) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
+	return CheckFileInfoSize(path, info, max)
+}
+
+// CheckFileInfoSize is the FileInfo variant of CheckFileSize: no syscall,
+// just a comparison against the existing stat result.
+func CheckFileInfoSize(path string, info os.FileInfo, max int64) error {
 	if info.Size() > max {
 		return fmt.Errorf("%w: %s is %d bytes (cap %d)", ErrFileTooLarge, path, info.Size(), max)
 	}

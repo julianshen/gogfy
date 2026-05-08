@@ -117,14 +117,44 @@ func TestSafeJoinErrorsOnMissingPath(t *testing.T) {
 	}
 }
 
-func TestSafeJoinFallsBackWhenRootUnresolvable(t *testing.T) {
-	// Non-existent root: EvalSymlinks fails on the root itself; SafeJoin
-	// falls back to the abs form so an under-it path can still be checked.
+func TestIsSkippable(t *testing.T) {
+	if !IsSkippable(ErrPathOutsideRoot) {
+		t.Fatal("ErrPathOutsideRoot should be skippable")
+	}
+	if !IsSkippable(ErrFileTooLarge) {
+		t.Fatal("ErrFileTooLarge should be skippable")
+	}
+	if IsSkippable(errors.New("random error")) {
+		t.Fatal("unrelated error should not be skippable")
+	}
+	if IsSkippable(nil) {
+		t.Fatal("nil should not be skippable")
+	}
+}
+
+func TestRootGuardAcceptsRootItself(t *testing.T) {
+	// withinRoot's exact-equal special case: passing root as the path under
+	// check resolves to root itself, which must be accepted (not rejected
+	// by the prefix-with-separator check, which would reject "/foo" against
+	// prefix "/foo/").
+	root := t.TempDir()
+	g, err := NewRootGuard(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Check(root); err != nil {
+		t.Fatalf("root path should be accepted by its own guard: %v", err)
+	}
+}
+
+func TestSafeJoinErrorsOnUnresolvableRoot(t *testing.T) {
+	// Non-existent root: don't silently fall back to the unresolved form.
+	// Doing so would make every path under a path-resolved location (e.g.,
+	// macOS /var → /private/var) appear to escape the root, producing
+	// wholesale false rejects. Returning the error forces callers to
+	// surface the misconfiguration.
 	missingRoot := filepath.Join(t.TempDir(), "does-not-exist")
-	// Path under that missing root also doesn't exist → resolve-path errors.
-	// We just want to exercise the root fallback branch without crashing.
-	_, err := SafeJoin(missingRoot, filepath.Join(missingRoot, "x"))
-	if err == nil {
-		t.Fatal("expected an error for unresolvable path")
+	if _, err := NewRootGuard(missingRoot); err == nil {
+		t.Fatal("expected error from NewRootGuard on missing root")
 	}
 }

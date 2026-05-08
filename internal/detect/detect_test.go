@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -233,9 +234,21 @@ func TestCollectFilesLeadingSlashAnchorsToRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// CollectFiles returns symlink-resolved absolute paths (so a hostile
+	// symlink can't redirect the eventual read); compute the rel form
+	// against the resolved root so the assertions don't depend on macOS's
+	// /var → /private/var resolution.
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bases := make([]string, len(files))
 	for i, f := range files {
-		bases[i] = filepath.ToSlash(f[len(root)+1:])
+		rel, err := filepath.Rel(resolvedRoot, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bases[i] = filepath.ToSlash(rel)
 	}
 	for _, b := range bases {
 		if b == "foo.go" {
@@ -328,6 +341,62 @@ func TestCollectFilesSkipsSymlinkEscapingRoot(t *testing.T) {
 	}
 	if len(files) != 1 || filepath.Base(files[0]) != "ok.go" {
 		t.Fatalf("expected only ok.go, got %v", files)
+	}
+}
+
+func TestCollectFilesWarnsOnSecuritySkip(t *testing.T) {
+	// Symlink-escape skips should produce a stderr warning so users notice
+	// missing files. Capture SkipLogger to assert the message.
+	root := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secret.go")
+	os.WriteFile(target, []byte("package x"), 0644)
+	link := filepath.Join(root, "evil.go")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var buf strings.Builder
+	old := SkipLogger
+	SkipLogger = &buf
+	defer func() { SkipLogger = old }()
+
+	if _, err := CollectFiles(root, []string{".go"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "evil.go") {
+		t.Fatalf("expected skip warning to mention evil.go; got %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "outside root") {
+		t.Fatalf("expected skip warning to mention reason; got %q", buf.String())
+	}
+}
+
+func TestCollectFilesSkipsOversizeFile(t *testing.T) {
+	// Files above security.DefaultMaxFileSize must be silently dropped (with
+	// a stderr warning) rather than aborting the walk. Use a tiny cap by
+	// abusing a 12 MiB synthetic file that exceeds the 10 MiB default.
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "ok.go"), []byte("package ok"), 0644)
+	big := filepath.Join(root, "big.go")
+	if err := os.WriteFile(big, make([]byte, 12<<20), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf strings.Builder
+	old := SkipLogger
+	SkipLogger = &buf
+	defer func() { SkipLogger = old }()
+
+	files, err := CollectFiles(root, []string{".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "ok.go" {
+		t.Fatalf("expected only ok.go, got %v", files)
+	}
+	if !strings.Contains(buf.String(), "big.go") {
+		t.Fatalf("expected size-cap warning to mention big.go; got %q", buf.String())
 	}
 }
 
