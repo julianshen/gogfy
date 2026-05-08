@@ -64,7 +64,7 @@ func TestExportHTMLEmbedsGraphPayload(t *testing.T) {
 		Nodes: []schema.Node{{ID: "a", Label: "Alpha"}, {ID: "b", Label: "Beta"}},
 		Edges: []schema.Edge{{Source: "a", Target: "b", Relation: "calls", Confidence: schema.Extracted}},
 	}
-	data, err := ExportHTML(g)
+	data, err := ExportHTML(g, HTMLOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestExportHTMLEmbedsGraphPayload(t *testing.T) {
 }
 
 func TestExportHTMLContainsInteractiveFeatures(t *testing.T) {
-	data, err := ExportHTML(GraphExport{})
+	data, err := ExportHTML(GraphExport{}, HTMLOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestExportHTMLEmptyGraphDoesNotCrashViewer(t *testing.T) {
 	// them as `null`, which would make the viewer's `DATA.nodes.map(...)`
 	// throw `TypeError: Cannot read properties of null` and the page would
 	// fail to render at all. Output must contain `[]`, not `null`.
-	data, err := ExportHTML(GraphExport{})
+	data, err := ExportHTML(GraphExport{}, HTMLOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,13 +116,34 @@ func TestExportHTMLEmptyGraphDoesNotCrashViewer(t *testing.T) {
 	}
 }
 
+func TestExportHTMLDirectedFlagAddsArrowMarker(t *testing.T) {
+	g := GraphExport{
+		Nodes: []schema.Node{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}},
+		Edges: []schema.Edge{{Source: "a", Target: "b", Relation: "calls", Confidence: schema.Extracted}},
+	}
+	off, err := ExportHTML(g, HTMLOptions{Directed: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	on, err := ExportHTML(g, HTMLOptions{Directed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(on), "DIRECTED = true") {
+		t.Fatalf("expected DIRECTED = true in output when opts.Directed=true")
+	}
+	if !strings.Contains(string(off), "DIRECTED = false") {
+		t.Fatalf("expected DIRECTED = false default")
+	}
+}
+
 func TestExportHTMLEscapesPayloadSafely(t *testing.T) {
 	// Adversarial labels should not be able to break out of the JS string
 	// literal that the JSON payload is interpolated into.
 	g := GraphExport{
 		Nodes: []schema.Node{{ID: "x", Label: "</script><script>alert(1)</script>"}},
 	}
-	data, err := ExportHTML(g)
+	data, err := ExportHTML(g, HTMLOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

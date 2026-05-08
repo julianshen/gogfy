@@ -48,6 +48,11 @@
   </aside>
   <main>
     <svg id="svg" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="arrow" viewBox="0 -3 6 6" refX="6" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,-3L6,0L0,3" fill="#888"/>
+        </marker>
+      </defs>
       <g id="viewport">
         <g id="edges"></g>
         <g id="nodes"></g>
@@ -61,6 +66,7 @@
 </div>
 <script>
 const DATA = /*__DATA__*/null;
+const DIRECTED = /*__DIRECTED__*/false;
 const W = 1000, H = 700;
 const nodes = DATA.nodes.map((n, i) => ({...n, x: W/2 + (Math.random()-.5)*200, y: H/2 + (Math.random()-.5)*200, vx: 0, vy: 0, idx: i}));
 const idIndex = Object.fromEntries(nodes.map(n => [n.ID, n]));
@@ -84,6 +90,7 @@ for (const e of edges) {
   line.setAttribute("class", "edge " + (e.Confidence === 1 ? "inferred" : e.Confidence === 2 ? "ambiguous" : ""));
   line.setAttribute("data-source", e.source.ID);
   line.setAttribute("data-target", e.target.ID);
+  if (DIRECTED) line.setAttribute("marker-end", "url(#arrow)");
   e.el = line;
   edgesG.appendChild(line);
 }

@@ -13,7 +13,7 @@ func TestUpdateModeNoChangesPreservesOutputs(t *testing.T) {
 	out := t.TempDir()
 
 	// First run produces real outputs.
-	if err := runPipeline(root, out, true); err != nil {
+	if err := runPipeline(root, out, true, false); err != nil {
 		t.Fatalf("first run failed: %v", err)
 	}
 	originals := map[string][]byte{}
@@ -28,7 +28,7 @@ func TestUpdateModeNoChangesPreservesOutputs(t *testing.T) {
 		originals[f] = b
 	}
 
-	if err := runPipeline(root, out, true); err != nil {
+	if err := runPipeline(root, out, true, false); err != nil {
 		t.Fatalf("no-op update run failed: %v", err)
 	}
 	for f, want := range originals {
@@ -69,7 +69,7 @@ func TestDispatchRunUpdateFlagAfterRoot(t *testing.T) {
 
 func TestDispatchValidateSubcommand(t *testing.T) {
 	out := t.TempDir()
-	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false); err != nil {
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := dispatch([]string{"validate", filepath.Join(out, "graph.json")}, os.Stderr); err != nil {
@@ -79,7 +79,7 @@ func TestDispatchValidateSubcommand(t *testing.T) {
 
 func TestDispatchReportSubcommand(t *testing.T) {
 	out := t.TempDir()
-	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false); err != nil {
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := dispatch([]string{"report", filepath.Join(out, "graph.json")}, os.Stderr); err != nil {
@@ -144,7 +144,7 @@ func TestDispatchFlagsAfterSubcommand(t *testing.T) {
 func TestUpdateModeFirstRunOnEmptyCorpusStillWritesArtifacts(t *testing.T) {
 	root := t.TempDir() // empty corpus
 	out := t.TempDir()
-	if err := runPipeline(root, out, true); err != nil {
+	if err := runPipeline(root, out, true, false); err != nil {
 		t.Fatalf("pipeline: %v", err)
 	}
 	for _, f := range []string{"graph.json", "GRAPH_REPORT.md", "graph.html"} {
@@ -164,7 +164,7 @@ func TestRunPipeline(t *testing.T) {
 	root := "../../testdata/e2e/mini-corpus"
 	out := t.TempDir()
 
-	if err := runPipeline(root, out, false); err != nil {
+	if err := runPipeline(root, out, false, false); err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}
 
@@ -185,12 +185,12 @@ func TestRunPipelineUpdateMode(t *testing.T) {
 	out := t.TempDir()
 
 	// First run
-	if err := runPipeline(root, out, true); err != nil {
+	if err := runPipeline(root, out, true, false); err != nil {
 		t.Fatalf("first run failed: %v", err)
 	}
 
 	// Second run with update should skip unchanged files
-	if err := runPipeline(root, out, true); err != nil {
+	if err := runPipeline(root, out, true, false); err != nil {
 		t.Fatalf("second run failed: %v", err)
 	}
 
@@ -205,19 +205,19 @@ func TestRunPipelineUpdateModeNoChanges(t *testing.T) {
 	out := t.TempDir()
 
 	// First run
-	if err := runPipeline(root, out, true); err != nil {
+	if err := runPipeline(root, out, true, false); err != nil {
 		t.Fatalf("first run failed: %v", err)
 	}
 
 	// Second run with update and no file changes
-	if err := runPipeline(root, out, true); err != nil {
+	if err := runPipeline(root, out, true, false); err != nil {
 		t.Fatalf("second run failed: %v", err)
 	}
 }
 
 func TestRunPipelineInvalidRoot(t *testing.T) {
 	out := t.TempDir()
-	if err := runPipeline("/nonexistent/path/12345", out, false); err == nil {
+	if err := runPipeline("/nonexistent/path/12345", out, false, false); err == nil {
 		t.Fatal("expected error for invalid root")
 	}
 }
@@ -226,7 +226,7 @@ func TestRunPipelineEmptyCorpus(t *testing.T) {
 	root := t.TempDir()
 	out := t.TempDir()
 
-	if err := runPipeline(root, out, false); err != nil {
+	if err := runPipeline(root, out, false, false); err != nil {
 		t.Fatalf("pipeline failed on empty corpus: %v", err)
 	}
 
@@ -241,7 +241,7 @@ func TestRunPipelineEmptyCorpus(t *testing.T) {
 func TestValidateCommandAcceptsValidGraph(t *testing.T) {
 	root := "../../testdata/e2e/mini-corpus"
 	out := t.TempDir()
-	if err := runPipeline(root, out, false); err != nil {
+	if err := runPipeline(root, out, false, false); err != nil {
 		t.Fatalf("pipeline: %v", err)
 	}
 	if err := validateCommand(filepath.Join(out, "graph.json")); err != nil {
@@ -270,7 +270,7 @@ func TestValidateCommandRejectsMissingFile(t *testing.T) {
 func TestReportCommandRendersReport(t *testing.T) {
 	root := "../../testdata/e2e/mini-corpus"
 	out := t.TempDir()
-	if err := runPipeline(root, out, false); err != nil {
+	if err := runPipeline(root, out, false, false); err != nil {
 		t.Fatalf("pipeline: %v", err)
 	}
 	if err := reportCommand(filepath.Join(out, "graph.json"), io.Discard); err != nil {
@@ -281,7 +281,7 @@ func TestReportCommandRendersReport(t *testing.T) {
 func TestReportCommandWritesToProvidedWriter(t *testing.T) {
 	root := "../../testdata/e2e/mini-corpus"
 	out := t.TempDir()
-	if err := runPipeline(root, out, false); err != nil {
+	if err := runPipeline(root, out, false, false); err != nil {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
@@ -310,7 +310,7 @@ func TestRunPipelineReadOnlyOut(t *testing.T) {
 	os.Chmod(out, 0555)
 	defer os.Chmod(out, 0755)
 
-	if err := runPipeline(root, out, false); err == nil {
+	if err := runPipeline(root, out, false, false); err == nil {
 		t.Fatal("expected error for read-only output directory")
 	}
 }

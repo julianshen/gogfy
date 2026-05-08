@@ -23,10 +23,19 @@ func ExportJSON(g GraphExport) ([]byte, error) {
 //go:embed template.html
 var htmlTemplate string
 
-// htmlPlaceholder is the marker the template reserves for the embedded graph
-// payload. The HTML interpolates the JSON literal directly into a JS const,
-// which is why the marker lives inside a JS comment.
-const htmlPlaceholder = "/*__DATA__*/null"
+// Template placeholders the embedded HTML reserves for runtime interpolation.
+// Both live inside JS comments so the unsubstituted template still parses.
+const (
+	htmlPlaceholder     = "/*__DATA__*/null"
+	directedPlaceholder = "/*__DIRECTED__*/false"
+)
+
+// HTMLOptions controls optional rendering behavior of the interactive viewer.
+type HTMLOptions struct {
+	// Directed, when true, renders arrowheads on every edge so the viewer
+	// reflects the source→target direction encoded in the graph.
+	Directed bool
+}
 
 // ExportHTML returns a self-contained interactive HTML viewer with the graph
 // payload inlined as a JS literal. Opens in any modern browser; no external
@@ -36,7 +45,7 @@ const htmlPlaceholder = "/*__DATA__*/null"
 // Nil Nodes/Edges are normalized to empty slices before marshaling so the
 // viewer's `DATA.nodes.map(...)` doesn't throw `TypeError: null` for
 // otherwise-valid empty graphs.
-func ExportHTML(g GraphExport) ([]byte, error) {
+func ExportHTML(g GraphExport, opts HTMLOptions) ([]byte, error) {
 	if g.Nodes == nil {
 		g.Nodes = []schema.Node{}
 	}
@@ -47,5 +56,11 @@ func ExportHTML(g GraphExport) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []byte(strings.Replace(htmlTemplate, htmlPlaceholder, string(payload), 1)), nil
+	directed := "false"
+	if opts.Directed {
+		directed = "true"
+	}
+	out := strings.Replace(htmlTemplate, htmlPlaceholder, string(payload), 1)
+	out = strings.Replace(out, directedPlaceholder, directed, 1)
+	return []byte(out), nil
 }

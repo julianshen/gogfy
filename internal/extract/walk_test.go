@@ -1,6 +1,10 @@
 package extract
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -19,6 +23,32 @@ func parseGo(t *testing.T, src string) (*sitter.Tree, *sitter.TreeCursor, func()
 		cursor.Close()
 		tree.Close()
 		parser.Close()
+	}
+}
+
+func TestParseErrorWarningOnMalformedSource(t *testing.T) {
+	// Tree-sitter recovers from syntax errors by inserting ERROR nodes.
+	// Previously the extractor surfaced no signal; users got partial graphs
+	// with no hint that input was malformed. ParseErrorLogger now warns.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "broken.go")
+	if err := os.WriteFile(path, []byte("package main\nfunc broken( { foo()\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	old := ParseErrorLogger
+	ParseErrorLogger = &buf
+	defer func() { ParseErrorLogger = old }()
+
+	if _, err := (GoExtractor{}).Extract(path); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "broken.go") {
+		t.Fatalf("expected parse warning to mention broken.go; got %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "syntax errors") {
+		t.Fatalf("expected warning to mention syntax errors; got %q", buf.String())
 	}
 }
 
