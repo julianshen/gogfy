@@ -63,6 +63,29 @@ func TestExportGraphMLEscapesXMLSpecials(t *testing.T) {
 	}
 }
 
+func TestExportGraphMLEscapesIDsInAttributes(t *testing.T) {
+	// Regression: previously used %q (Go-quoted), which doesn't produce
+	// XML-attribute-safe escaping for `<`, `&`, etc. — a hostile ID would
+	// produce a malformed document.
+	g := GraphExport{
+		Nodes: []schema.Node{{ID: `bad<id>&"`, Label: "ok"}},
+	}
+	data, err := ExportGraphML(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	for {
+		_, err := dec.Token()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			t.Fatalf("hostile ID broke XML well-formedness: %v\n%s", err, data)
+		}
+	}
+}
+
 func TestExportGraphMLEmpty(t *testing.T) {
 	data, err := ExportGraphML(GraphExport{})
 	if err != nil {

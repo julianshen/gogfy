@@ -57,6 +57,15 @@ func TestExportCypherRelTypeNormalization(t *testing.T) {
 	}
 }
 
+func TestQuoteCypherEscapesControlChars(t *testing.T) {
+	// Control bytes (< 0x20) need \u#### escapes; leaving them literal in
+	// a "..."-quoted Cypher string would make cypher-shell -f choke.
+	got := quoteCypher("a\x00b\x01c")
+	if !strings.Contains(got, `\u0000`) || !strings.Contains(got, `\u0001`) {
+		t.Fatalf("control chars not \\u-escaped: %q", got)
+	}
+}
+
 func TestExportCypherEmptyRelTypeFallsBack(t *testing.T) {
 	if got := cypherRelType(""); got != "RELATED" {
 		t.Fatalf("empty rel type should fall back to RELATED, got %q", got)

@@ -2,7 +2,6 @@ package export
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/julianshen/gogfy/internal/schema"
@@ -50,15 +49,7 @@ func ExportCypher(g GraphExport) ([]byte, error) {
 	}
 
 	edges := append([]schema.Edge(nil), g.Edges...)
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].Source != edges[j].Source {
-			return edges[i].Source < edges[j].Source
-		}
-		if edges[i].Target != edges[j].Target {
-			return edges[i].Target < edges[j].Target
-		}
-		return edges[i].Relation < edges[j].Relation
-	})
+	sortEdges(edges)
 	for _, e := range edges {
 		fmt.Fprintf(&b,
 			"MATCH (a:Node {id: %s}), (b:Node {id: %s}) MERGE (a)-[r:%s]->(b) SET r.confidence = %s;\n",
@@ -70,7 +61,9 @@ func ExportCypher(g GraphExport) ([]byte, error) {
 
 // quoteCypher returns a Cypher string literal with `\` and `"` escaped. We
 // intentionally use double quotes so labels containing `'` (common in
-// natural-language text) don't need extra escaping.
+// natural-language text) don't need extra escaping. Control characters
+// below 0x20 (other than the named ones below) get the openCypher \u####
+// escape so a stray NUL/SOH/etc. doesn't make cypher-shell choke.
 func quoteCypher(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')
@@ -87,7 +80,11 @@ func quoteCypher(s string) string {
 		case '\t':
 			b.WriteString(`\t`)
 		default:
-			b.WriteRune(r)
+			if r < 0x20 {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			} else {
+				b.WriteRune(r)
+			}
 		}
 	}
 	b.WriteByte('"')
