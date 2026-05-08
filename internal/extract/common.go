@@ -10,11 +10,79 @@ import (
 // extractState is the per-file accumulator shared across all language
 // extractors. The `lang` prefix is woven into every emitted ID so different
 // languages don't collide on identical names.
+//
+// fnStack tracks the IDs of nested enclosing function/method nodes so call
+// edges can be sourced from the innermost caller. Walkers push when entering
+// a function-decl node and pop after walking its children.
 type extractState struct {
 	lang     string
 	filePath string
 	nodes    []schema.Node
 	edges    []schema.Edge
+	fnStack  []string
+}
+
+// pushFn records that subsequent walk steps are inside the function with id.
+func (s *extractState) pushFn(id string) { s.fnStack = append(s.fnStack, id) }
+
+// popFn unwinds one level of function nesting. Safe on an empty stack so a
+// malformed AST doesn't panic the walker.
+func (s *extractState) popFn() {
+	if len(s.fnStack) > 0 {
+		s.fnStack = s.fnStack[:len(s.fnStack)-1]
+	}
+}
+
+// callSource returns the ID a call edge should originate from: the innermost
+// enclosing function if any, otherwise the file's module node.
+func (s *extractState) callSource() string {
+	if n := len(s.fnStack); n > 0 {
+		return s.fnStack[n-1]
+	}
+	return schema.LangID(s.lang, "module", s.filePath)
+}
+
+// addCall appends a "call:<callee>" target node and a `calls` edge from the
+// current scope (enclosing function or module). Cross-file resolution of the
+// callee to a concrete function node is the next phase's job; for now every
+// emitted edge is EXTRACTED — we observed the call in source.
+func (s *extractState) addCall(callee string) {
+	if callee == "" {
+		return
+	}
+	target := schema.LangID(s.lang, "call", callee)
+	s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
+	s.edges = append(s.edges, schema.Edge{
+		Source:     s.callSource(),
+		Target:     target,
+		Relation:   "calls",
+		Confidence: schema.Extracted,
+	})
+}
+
+// callTargetName returns the human-readable callee identifier from a call
+// expression's `function` (or equivalent) child. Handles the three shapes
+// most grammars share: a bare `identifier`, a member-access wrapper
+// (selector_expression / member_expression / attribute / scoped_identifier)
+// where we use the last identifier, and unknown shapes which we fall back
+// to printing verbatim.
+func callTargetName(fn *sitter.Node, src []byte) string {
+	if fn == nil {
+		return ""
+	}
+	switch fn.Kind() {
+	case "identifier", "field_identifier":
+		return fn.Utf8Text(src)
+	case "selector_expression", "member_expression", "attribute",
+		"scoped_identifier", "field_access":
+		// The last identifier-bearing child is the called name (the
+		// receiver/qualifier comes first).
+		if id := lastChildOfKind(fn, "identifier", "field_identifier", "property_identifier"); id != nil {
+			return id.Utf8Text(src)
+		}
+	}
+	// Fallback: best-effort literal text.
+	return fn.Utf8Text(src)
 }
 
 // fileBase returns the file's basename, used as the default module-node label.
@@ -30,6 +98,22 @@ func (s *extractState) emitModule(root *sitter.Node) {
 		SourceFile:     s.filePath,
 		SourceLocation: nodeLocation(root),
 	})
+}
+
+// declID returns the deterministic ID emitDecl would assign without actually
+// emitting a node. Used by walkers that need to know the ID of a function/
+// method they're about to descend into (so they can pushFn before children
+// are walked) without duplicating the ID-format string.
+func declID(lang, kind, filePath string, nameNode *sitter.Node, src []byte) string {
+	return schema.LangID(lang, kind, filePath+":"+nodeNameOrEmpty(nameNode, src))
+}
+
+// nodeNameOrEmpty returns nameNode.Utf8Text(src), or "" if nameNode is nil.
+func nodeNameOrEmpty(nameNode *sitter.Node, src []byte) string {
+	if nameNode == nil {
+		return ""
+	}
+	return nameNode.Utf8Text(src)
 }
 
 // emitDecl appends a "<lang>:<kind>:<filePath:name>" declaration node. Empty

@@ -19,7 +19,21 @@ func walkRust(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "use_declaration":
 		emitRustUseTargets(state, node, src)
 	case "function_item":
-		state.emitDecl("function", node, node.ChildByFieldName("name"), src)
+		nameNode := node.ChildByFieldName("name")
+		state.emitDecl("function", node, nameNode, src)
+		state.pushFn(declID(state.lang, "function", state.filePath, nameNode, src))
+		walkChildren(cursor, func() { walkRust(cursor, src, state) })
+		state.popFn()
+		return
+	case "call_expression":
+		state.addCall(callTargetName(node.ChildByFieldName("function"), src))
+	case "macro_invocation":
+		// Macros like `println!("...")` are very common; treat them as calls
+		// so they show up in the graph. The macro name is the first
+		// identifier or scoped_identifier child.
+		if id := firstChildOfKind(node, "identifier", "scoped_identifier"); id != nil {
+			state.addCall(id.Utf8Text(src) + "!")
+		}
 	case "struct_item":
 		state.emitDecl("struct", node, node.ChildByFieldName("name"), src)
 	case "enum_item":

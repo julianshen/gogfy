@@ -18,6 +18,37 @@ type pythonExtractState struct {
 	moduleName string
 	nodes      []schema.Node
 	edges      []schema.Edge
+	fnStack    []string
+}
+
+func (s *pythonExtractState) pushFn(id string) { s.fnStack = append(s.fnStack, id) }
+func (s *pythonExtractState) popFn() {
+	if len(s.fnStack) > 0 {
+		s.fnStack = s.fnStack[:len(s.fnStack)-1]
+	}
+}
+
+// callSource returns the innermost enclosing function ID, or the module
+// node when the call is at top-level.
+func (s *pythonExtractState) callSource(filePath string) string {
+	if n := len(s.fnStack); n > 0 {
+		return s.fnStack[n-1]
+	}
+	return schema.PythonModuleID(filePath)
+}
+
+func (s *pythonExtractState) addCall(filePath, callee string) {
+	if callee == "" || s.moduleName == "" {
+		return
+	}
+	target := schema.LangID("py", "call", callee)
+	s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
+	s.edges = append(s.edges, schema.Edge{
+		Source:     s.callSource(filePath),
+		Target:     target,
+		Relation:   "calls",
+		Confidence: schema.Extracted,
+	})
 }
 
 // Extract parses the Python source file at path and returns the extracted graph Result.
@@ -119,12 +150,20 @@ func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *p
 		if label == "" {
 			label = "<anonymous>"
 		}
+		funcID := schema.PythonFuncID(filePath, funcName)
 		state.nodes = append(state.nodes, schema.Node{
-			ID:             schema.PythonFuncID(filePath, funcName),
+			ID:             funcID,
 			Label:          label,
 			SourceFile:     filePath,
 			SourceLocation: nodeLocation(node),
 		})
+		state.pushFn(funcID)
+		walkChildren(cursor, func() { walkPython(cursor, src, filePath, state) })
+		state.popFn()
+		return
+	case "call":
+		fn := node.ChildByFieldName("function")
+		state.addCall(filePath, callTargetName(fn, src))
 	case "class_definition":
 		nameNode := node.ChildByFieldName("name")
 		className := ""
