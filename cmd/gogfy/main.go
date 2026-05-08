@@ -18,6 +18,7 @@ import (
 	"github.com/julianshen/gogfy/internal/extract"
 	"github.com/julianshen/gogfy/internal/graph"
 	"github.com/julianshen/gogfy/internal/report"
+	"github.com/julianshen/gogfy/internal/resolve"
 )
 
 func main() {
@@ -172,8 +173,11 @@ func runPipeline(root, out string, update bool) error {
 	}
 
 	g := builder.Build()
-	nodes := g.Nodes()
-	edges := g.Edges()
+	// Resolve `<lang>:call:<name>` synthetic targets into INFERRED edges
+	// pointing at real function nodes (or AMBIGUOUS edges fanned out across
+	// multiple candidates). Cross-file calls otherwise stay EXTRACTED with
+	// the synthetic target preserved.
+	nodes, edges := resolve.Calls(g.Nodes(), g.Edges())
 
 	clusterer := cluster.NewLeidenClusterer()
 	clusteredNodes, err := clusterer.Cluster(nodes, edges)
