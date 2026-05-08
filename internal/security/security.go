@@ -54,12 +54,18 @@ func NewRootGuard(root string) (*RootGuard, error) {
 	return &RootGuard{resolved: resolved}, nil
 }
 
-// Check resolves path through filepath.EvalSymlinks and verifies that the
-// resolved form is the guard's root or a descendant of it. Returns the
-// resolved path on success so callers can read through that (sidestepping
-// any symlink swap between check and open).
+// Check resolves path through filepath.EvalSymlinks (after first making it
+// absolute, so callers like `gogfy run .` don't get the cwd-relative form
+// compared against an absolute root) and verifies that the resolved form is
+// the guard's root or a descendant of it. Returns the resolved path on
+// success so callers can read through that (sidestepping any symlink swap
+// between check and open).
 func (g *RootGuard) Check(path string) (string, error) {
-	resolved, err := filepath.EvalSymlinks(path)
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
@@ -79,11 +85,20 @@ func SafeJoin(root, path string) (string, error) {
 	return g.Check(path)
 }
 
+// withinRoot reports whether resolved is root or a descendant of root.
+// Uses filepath.Rel rather than a HasPrefix check so it handles edge cases
+// the latter mishandles — notably root == "/" (where "/"+"/" produces "//"
+// and rejects every concrete descendant) and case-insensitive filesystems
+// where the prefix's casing might not match the descendant's.
 func withinRoot(root, resolved string) bool {
-	if root == resolved {
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
 		return true
 	}
-	return strings.HasPrefix(resolved, root+string(filepath.Separator))
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // CheckFileSize stats path and reports ErrFileTooLarge if the file exceeds

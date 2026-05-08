@@ -98,11 +98,16 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 				}
 				return err
 			}
-			if err := security.CheckFileInfoSize(path, info, security.DefaultMaxFileSize); err != nil {
-				// CheckFileInfoSize's only error is ErrFileTooLarge, which is
-				// skippable by definition.
-				fmt.Fprintf(SkipLogger, "gogfy: skipping %s: %v\n", path, err)
-				return nil
+			// Size cap must be enforced against the resolved target, not
+			// the walk-time FileInfo: filepath.Walk uses Lstat, so for
+			// symlinks `info.Size()` is the link size (~tens of bytes),
+			// trivially evading the cap. Re-stat the resolved path.
+			if err := security.CheckFileSize(resolved, security.DefaultMaxFileSize); err != nil {
+				if security.IsSkippable(err) {
+					fmt.Fprintf(SkipLogger, "gogfy: skipping %s: %v\n", path, err)
+					return nil
+				}
+				return err
 			}
 			files = append(files, resolved)
 		}

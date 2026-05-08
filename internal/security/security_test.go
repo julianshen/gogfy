@@ -101,7 +101,8 @@ func TestCheckFileSizeOverLimit(t *testing.T) {
 }
 
 func TestCheckFileSizeMissingFile(t *testing.T) {
-	if err := CheckFileSize("/nonexistent/path/abc", 1024); err == nil {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	if err := CheckFileSize(missing, 1024); err == nil {
 		t.Fatal("missing file accepted")
 	}
 }
@@ -147,14 +148,56 @@ func TestRootGuardAcceptsRootItself(t *testing.T) {
 	}
 }
 
+func TestRootGuardAcceptsFilesystemRoot(t *testing.T) {
+	// Regression: when root is "/", the prior implementation built a "//"
+	// prefix that no descendant ever matches, silently rejecting every
+	// file. NewRootGuard("/") must accept any concrete path under it.
+	g, err := NewRootGuard(string(filepath.Separator))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// /tmp exists on every supported platform's fs root.
+	if _, err := g.Check("/tmp"); err != nil {
+		t.Fatalf("/tmp under filesystem root rejected: %v", err)
+	}
+}
+
+func TestRootGuardAcceptsRelativePathInput(t *testing.T) {
+	// Regression: callers like `gogfy run .` make filepath.Walk yield
+	// relative paths. The guard must absolutize them before resolving,
+	// otherwise it compares an abs root against a rel resolved path and
+	// rejects every file.
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.go"), []byte("package a"), 0644)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := NewRootGuard(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Check("a.go"); err != nil {
+		t.Fatalf("relative path under relative root rejected: %v", err)
+	}
+}
+
 func TestSafeJoinErrorsOnUnresolvableRoot(t *testing.T) {
 	// Non-existent root: don't silently fall back to the unresolved form.
 	// Doing so would make every path under a path-resolved location (e.g.,
 	// macOS /var → /private/var) appear to escape the root, producing
-	// wholesale false rejects. Returning the error forces callers to
-	// surface the misconfiguration.
+	// wholesale false rejects. Both NewRootGuard and SafeJoin should
+	// surface the error.
 	missingRoot := filepath.Join(t.TempDir(), "does-not-exist")
 	if _, err := NewRootGuard(missingRoot); err == nil {
 		t.Fatal("expected error from NewRootGuard on missing root")
+	}
+	if _, err := SafeJoin(missingRoot, missingRoot); err == nil {
+		t.Fatal("expected SafeJoin to propagate NewRootGuard error")
 	}
 }

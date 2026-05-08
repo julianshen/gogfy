@@ -106,8 +106,8 @@ func TestCollectFilesEmptyExtensions(t *testing.T) {
 }
 
 func TestCollectFilesNonExistentRoot(t *testing.T) {
-	_, err := CollectFiles("/nonexistent/path/12345", []string{".go"})
-	if err == nil {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	if _, err := CollectFiles(missing, []string{".go"}); err == nil {
 		t.Fatal("expected error for nonexistent root")
 	}
 }
@@ -369,6 +369,42 @@ func TestCollectFilesWarnsOnSecuritySkip(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "outside root") {
 		t.Fatalf("expected skip warning to mention reason; got %q", buf.String())
+	}
+}
+
+func TestCollectFilesSizeCapNotBypassedBySymlink(t *testing.T) {
+	// Regression: filepath.Walk uses Lstat, so for a symlink the FileInfo
+	// reports the link's size (tens of bytes) — not the target's. Without
+	// a re-stat on the resolved path, a small symlink to a huge file would
+	// evade DefaultMaxFileSize.
+	root := t.TempDir()
+	huge := filepath.Join(root, "huge.go")
+	if err := os.WriteFile(huge, make([]byte, 12<<20), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "small-link.go")
+	if err := os.Symlink(huge, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var buf strings.Builder
+	old := SkipLogger
+	SkipLogger = &buf
+	defer func() { SkipLogger = old }()
+
+	files, err := CollectFiles(root, []string{".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both the link and the target should be filtered out — they resolve
+	// to the same oversize file. (CollectFiles dedups by storing the
+	// resolved path; both entries map to `huge.go`, both fail the size
+	// cap on re-stat.)
+	if len(files) != 0 {
+		t.Fatalf("oversize-target symlink should be filtered; got %v", files)
+	}
+	if !strings.Contains(buf.String(), "exceeds size cap") {
+		t.Fatalf("expected size-cap warning; got %q", buf.String())
 	}
 }
 
