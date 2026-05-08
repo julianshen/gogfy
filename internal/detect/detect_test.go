@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -105,8 +106,8 @@ func TestCollectFilesEmptyExtensions(t *testing.T) {
 }
 
 func TestCollectFilesNonExistentRoot(t *testing.T) {
-	_, err := CollectFiles("/nonexistent/path/12345", []string{".go"})
-	if err == nil {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	if _, err := CollectFiles(missing, []string{".go"}); err == nil {
 		t.Fatal("expected error for nonexistent root")
 	}
 }
@@ -233,9 +234,21 @@ func TestCollectFilesLeadingSlashAnchorsToRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// CollectFiles returns symlink-resolved absolute paths (so a hostile
+	// symlink can't redirect the eventual read); compute the rel form
+	// against the resolved root so the assertions don't depend on macOS's
+	// /var → /private/var resolution.
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bases := make([]string, len(files))
 	for i, f := range files {
-		bases[i] = filepath.ToSlash(f[len(root)+1:])
+		rel, err := filepath.Rel(resolvedRoot, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bases[i] = filepath.ToSlash(rel)
 	}
 	for _, b := range bases {
 		if b == "foo.go" {
@@ -299,6 +312,127 @@ func TestCollectFilesCharClassPattern(t *testing.T) {
 		if !slices.Contains(bases, b) {
 			t.Fatalf("expected %q present; got %v", b, bases)
 		}
+	}
+}
+
+func TestCollectFilesSkipsSymlinkEscapingRoot(t *testing.T) {
+	// A symlink inside the corpus root pointing at a file outside the root
+	// must not appear in the result; otherwise an attacker who controls a
+	// repo could redirect a Go-source read to /etc/passwd.
+	root := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secret.go")
+	os.WriteFile(target, []byte("package secret"), 0644)
+
+	link := filepath.Join(root, "evil.go")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	os.WriteFile(filepath.Join(root, "ok.go"), []byte("package ok"), 0644)
+
+	files, err := CollectFiles(root, []string{".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if filepath.Base(f) == "evil.go" {
+			t.Fatalf("symlink escaping root must be filtered out; got %v", files)
+		}
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "ok.go" {
+		t.Fatalf("expected only ok.go, got %v", files)
+	}
+}
+
+func TestCollectFilesWarnsOnSecuritySkip(t *testing.T) {
+	// Symlink-escape skips should produce a stderr warning so users notice
+	// missing files. Capture SkipLogger to assert the message.
+	root := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secret.go")
+	os.WriteFile(target, []byte("package x"), 0644)
+	link := filepath.Join(root, "evil.go")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var buf strings.Builder
+	old := SkipLogger
+	SkipLogger = &buf
+	defer func() { SkipLogger = old }()
+
+	if _, err := CollectFiles(root, []string{".go"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "evil.go") {
+		t.Fatalf("expected skip warning to mention evil.go; got %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "outside root") {
+		t.Fatalf("expected skip warning to mention reason; got %q", buf.String())
+	}
+}
+
+func TestCollectFilesSizeCapNotBypassedBySymlink(t *testing.T) {
+	// Regression: filepath.Walk uses Lstat, so for a symlink the FileInfo
+	// reports the link's size (tens of bytes) — not the target's. Without
+	// a re-stat on the resolved path, a small symlink to a huge file would
+	// evade DefaultMaxFileSize.
+	root := t.TempDir()
+	huge := filepath.Join(root, "huge.go")
+	if err := os.WriteFile(huge, make([]byte, 12<<20), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "small-link.go")
+	if err := os.Symlink(huge, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var buf strings.Builder
+	old := SkipLogger
+	SkipLogger = &buf
+	defer func() { SkipLogger = old }()
+
+	files, err := CollectFiles(root, []string{".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both the link and the target should be filtered out — they resolve
+	// to the same oversize file. (CollectFiles dedups by storing the
+	// resolved path; both entries map to `huge.go`, both fail the size
+	// cap on re-stat.)
+	if len(files) != 0 {
+		t.Fatalf("oversize-target symlink should be filtered; got %v", files)
+	}
+	if !strings.Contains(buf.String(), "exceeds size cap") {
+		t.Fatalf("expected size-cap warning; got %q", buf.String())
+	}
+}
+
+func TestCollectFilesSkipsOversizeFile(t *testing.T) {
+	// Files above security.DefaultMaxFileSize must be silently dropped (with
+	// a stderr warning) rather than aborting the walk. Use a tiny cap by
+	// abusing a 12 MiB synthetic file that exceeds the 10 MiB default.
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "ok.go"), []byte("package ok"), 0644)
+	big := filepath.Join(root, "big.go")
+	if err := os.WriteFile(big, make([]byte, 12<<20), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf strings.Builder
+	old := SkipLogger
+	SkipLogger = &buf
+	defer func() { SkipLogger = old }()
+
+	files, err := CollectFiles(root, []string{".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "ok.go" {
+		t.Fatalf("expected only ok.go, got %v", files)
+	}
+	if !strings.Contains(buf.String(), "big.go") {
+		t.Fatalf("expected size-cap warning to mention big.go; got %q", buf.String())
 	}
 }
 

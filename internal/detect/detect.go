@@ -3,13 +3,21 @@ package detect
 
 import (
 	"bufio"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/julianshen/gogfy/internal/security"
 	gitignore "github.com/sabhiram/go-gitignore"
 )
+
+// SkipLogger receives stderr-bound warnings about files dropped from the
+// corpus by security guards (symlink escape, size cap). Tests override it
+// to assert; production leaves the default (os.Stderr).
+var SkipLogger io.Writer = os.Stderr
 
 // CollectFiles recursively collects files under root matching the given extensions,
 // skipping entries matched by .graphifyignore patterns.
@@ -26,6 +34,10 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 	matcher, hasNegations, err := loadIgnoreMatcher(root)
 	if err != nil {
 		return nil, err
+	}
+	guard, err := security.NewRootGuard(root)
+	if err != nil {
+		return nil, fmt.Errorf("security: %w", err)
 	}
 
 	extSet := make(map[string]struct{}, len(extensions))
@@ -71,9 +83,33 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 		}
 		if !info.IsDir() {
 			ext := filepath.Ext(path)
-			if _, ok := extSet[ext]; ok {
-				files = append(files, path)
+			if _, ok := extSet[ext]; !ok {
+				return nil
 			}
+			// Resolve through the guard so a hostile symlink can't redirect
+			// the eventual extractor read; on success, append the resolved
+			// path so the read goes directly to the real file (closing a
+			// TOCTOU between this check and the eventual os.ReadFile).
+			resolved, err := guard.Check(path)
+			if err != nil {
+				if security.IsSkippable(err) {
+					fmt.Fprintf(SkipLogger, "gogfy: skipping %s: %v\n", path, err)
+					return nil
+				}
+				return err
+			}
+			// Size cap must be enforced against the resolved target, not
+			// the walk-time FileInfo: filepath.Walk uses Lstat, so for
+			// symlinks `info.Size()` is the link size (~tens of bytes),
+			// trivially evading the cap. Re-stat the resolved path.
+			if err := security.CheckFileSize(resolved, security.DefaultMaxFileSize); err != nil {
+				if security.IsSkippable(err) {
+					fmt.Fprintf(SkipLogger, "gogfy: skipping %s: %v\n", path, err)
+					return nil
+				}
+				return err
+			}
+			files = append(files, resolved)
 		}
 		return nil
 	})
