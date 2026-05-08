@@ -56,7 +56,7 @@ func TestGoExtractor(t *testing.T) {
 	// Verify import edge exists
 	var importEdge *schema.Edge
 	for i := range result.Edges {
-		if result.Edges[i].Relation == "imports" && result.Edges[i].Target == "pkg:import:fmt" {
+		if result.Edges[i].Relation == "imports" && result.Edges[i].Target == "go:import:fmt" {
 			importEdge = &result.Edges[i]
 			break
 		}
@@ -102,10 +102,10 @@ func run() {}
 			importTargets[e.Target] = true
 		}
 	}
-	if !importTargets["pkg:import:fmt"] {
+	if !importTargets["go:import:fmt"] {
 		t.Fatal("expected import edge for 'fmt'")
 	}
-	if !importTargets["pkg:import:os"] {
+	if !importTargets["go:import:os"] {
 		t.Fatal("expected import edge for 'os'")
 	}
 }
@@ -145,8 +145,8 @@ func TestGoExtractorEmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Nodes) != 0 {
-		t.Fatalf("expected 0 nodes, got %d", len(result.Nodes))
+	if len(result.Nodes) != 1 {
+		t.Fatalf("expected 1 module node, got %d", len(result.Nodes))
 	}
 	if len(result.Edges) != 0 {
 		t.Fatalf("expected 0 edges, got %d", len(result.Edges))

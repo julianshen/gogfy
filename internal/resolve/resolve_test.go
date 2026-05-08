@@ -8,18 +8,18 @@ import (
 
 func TestCallsResolvesUniqueCandidateAsInferred(t *testing.T) {
 	nodes := []schema.Node{
-		{ID: "fn:/m.go:main.bar", Label: "bar"},
-		{ID: "fn:/m.go:main.foo", Label: "foo"},
+		{ID: "go:function:/m.go:main:bar", Label: "bar"},
+		{ID: "go:function:/m.go:main:foo", Label: "foo"},
 		{ID: "go:call:foo", Label: "foo"},
 	}
 	edges := []schema.Edge{
-		{Source: "fn:/m.go:main.bar", Target: "go:call:foo", Relation: "calls", Confidence: schema.Extracted},
+		{Source: "go:function:/m.go:main:bar", Target: "go:call:foo", Relation: "calls", Confidence: schema.Extracted},
 	}
 	gotN, gotE := Calls(nodes, edges)
 	if len(gotE) != 1 {
 		t.Fatalf("expected 1 edge, got %d: %v", len(gotE), gotE)
 	}
-	if gotE[0].Target != "fn:/m.go:main.foo" {
+	if gotE[0].Target != "go:function:/m.go:main:foo" {
 		t.Fatalf("expected upgraded target to function node, got %q", gotE[0].Target)
 	}
 	if gotE[0].Confidence != schema.Inferred {
@@ -38,13 +38,13 @@ func TestCallsAmbiguousPreservesSyntheticAnchor(t *testing.T) {
 	// still discoverable in the graph. Regression test against doc/code
 	// mismatch.
 	nodes := []schema.Node{
-		{ID: "fn:/a.go:a.foo", Label: "foo"},
-		{ID: "fn:/b.go:b.foo", Label: "foo"},
-		{ID: "fn:/m.go:main.bar", Label: "bar"},
+		{ID: "go:function:/a.go:a:foo", Label: "foo"},
+		{ID: "go:function:/b.go:b:foo", Label: "foo"},
+		{ID: "go:function:/m.go:main:bar", Label: "bar"},
 		{ID: "go:call:foo", Label: "foo"},
 	}
 	edges := []schema.Edge{
-		{Source: "fn:/m.go:main.bar", Target: "go:call:foo", Relation: "calls", Confidence: schema.Extracted},
+		{Source: "go:function:/m.go:main:bar", Target: "go:call:foo", Relation: "calls", Confidence: schema.Extracted},
 	}
 	gotN, _ := Calls(nodes, edges)
 	for _, n := range gotN {
@@ -57,13 +57,13 @@ func TestCallsAmbiguousPreservesSyntheticAnchor(t *testing.T) {
 
 func TestCallsAmbiguousFanOutsToAllCandidates(t *testing.T) {
 	nodes := []schema.Node{
-		{ID: "fn:/a.go:a.foo", Label: "foo"},
-		{ID: "fn:/b.go:b.foo", Label: "foo"},
-		{ID: "fn:/m.go:main.bar", Label: "bar"},
+		{ID: "go:function:/a.go:a:foo", Label: "foo"},
+		{ID: "go:function:/b.go:b:foo", Label: "foo"},
+		{ID: "go:function:/m.go:main:bar", Label: "bar"},
 		{ID: "go:call:foo", Label: "foo"},
 	}
 	edges := []schema.Edge{
-		{Source: "fn:/m.go:main.bar", Target: "go:call:foo", Relation: "calls", Confidence: schema.Extracted},
+		{Source: "go:function:/m.go:main:bar", Target: "go:call:foo", Relation: "calls", Confidence: schema.Extracted},
 	}
 	_, gotE := Calls(nodes, edges)
 	if len(gotE) != 2 {
@@ -73,7 +73,7 @@ func TestCallsAmbiguousFanOutsToAllCandidates(t *testing.T) {
 	for _, e := range gotE {
 		targets[e.Target] = e.Confidence
 	}
-	for _, want := range []string{"fn:/a.go:a.foo", "fn:/b.go:b.foo"} {
+	for _, want := range []string{"go:function:/a.go:a:foo", "go:function:/b.go:b:foo"} {
 		if c, ok := targets[want]; !ok {
 			t.Fatalf("missing AMBIGUOUS edge to %q (got %v)", want, targets)
 		} else if c != schema.Ambiguous {
@@ -87,11 +87,11 @@ func TestCallsLeavesUnresolvableEdgesAsExtracted(t *testing.T) {
 	// The edge stays EXTRACTED and points at the synthetic call node, which
 	// must NOT be pruned (it's still referenced).
 	nodes := []schema.Node{
-		{ID: "fn:/m.go:main.bar", Label: "bar"},
+		{ID: "go:function:/m.go:main:bar", Label: "bar"},
 		{ID: "go:call:Println", Label: "Println"},
 	}
 	edges := []schema.Edge{
-		{Source: "fn:/m.go:main.bar", Target: "go:call:Println", Relation: "calls", Confidence: schema.Extracted},
+		{Source: "go:function:/m.go:main:bar", Target: "go:call:Println", Relation: "calls", Confidence: schema.Extracted},
 	}
 	gotN, gotE := Calls(nodes, edges)
 	if len(gotE) != 1 {
@@ -117,12 +117,12 @@ func TestCallsLeavesUnresolvableEdgesAsExtracted(t *testing.T) {
 func TestCallsRespectsLanguageNamespacing(t *testing.T) {
 	// A `go:call:foo` should not match a Python function named `foo`.
 	nodes := []schema.Node{
-		{ID: "py:fn:/m.py:foo", Label: "foo"},
-		{ID: "fn:/m.go:main.bar", Label: "bar"},
+		{ID: "py:function:/m.py:foo", Label: "foo"},
+		{ID: "go:function:/m.go:main:bar", Label: "bar"},
 		{ID: "go:call:foo", Label: "foo"},
 	}
 	edges := []schema.Edge{
-		{Source: "fn:/m.go:main.bar", Target: "go:call:foo", Relation: "calls", Confidence: schema.Extracted},
+		{Source: "go:function:/m.go:main:bar", Target: "go:call:foo", Relation: "calls", Confidence: schema.Extracted},
 	}
 	_, gotE := Calls(nodes, edges)
 	if gotE[0].Confidence != schema.Extracted {
@@ -155,11 +155,11 @@ func TestCallsHandlesSharedSchemeFunctionNodes(t *testing.T) {
 
 func TestCallsLeavesNonCallEdgesAlone(t *testing.T) {
 	nodes := []schema.Node{
-		{ID: "fn:/m.go:main.bar", Label: "bar"},
-		{ID: "fn:/m.go:main.foo", Label: "foo"},
+		{ID: "go:function:/m.go:main:bar", Label: "bar"},
+		{ID: "go:function:/m.go:main:foo", Label: "foo"},
 	}
 	edges := []schema.Edge{
-		{Source: "fn:/m.go:main.bar", Target: "fn:/m.go:main.foo", Relation: "imports", Confidence: schema.Extracted},
+		{Source: "go:function:/m.go:main:bar", Target: "go:function:/m.go:main:foo", Relation: "imports", Confidence: schema.Extracted},
 	}
 	gotN, gotE := Calls(nodes, edges)
 	if len(gotE) != 1 || gotE[0].Relation != "imports" || gotE[0].Confidence != schema.Extracted {

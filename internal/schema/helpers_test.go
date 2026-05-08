@@ -11,35 +11,11 @@ func TestFormatLocation(t *testing.T) {
 	}
 }
 
-func TestPackageID(t *testing.T) {
-	if got := PackageID("/a/b.go", "main"); got != "pkg:/a/b.go:main" {
+func TestLangID(t *testing.T) {
+	if got := LangID("go", "module", "/a/b.go"); got != "go:module:/a/b.go" {
 		t.Fatalf("unexpected: %s", got)
 	}
-}
-
-func TestFuncID(t *testing.T) {
-	if got := FuncID("/a/b.go", "main", "foo"); got != "fn:/a/b.go:main.foo" {
-		t.Fatalf("unexpected: %s", got)
-	}
-}
-
-func TestImportID(t *testing.T) {
-	if got := ImportID("fmt"); got != "pkg:import:fmt" {
-		t.Fatalf("unexpected: %s", got)
-	}
-}
-
-func TestPythonHelpers(t *testing.T) {
-	if got := PythonModuleID("/a/b.py"); got != "py:module:/a/b.py" {
-		t.Fatalf("unexpected: %s", got)
-	}
-	if got := PythonFuncID("/a/b.py", "foo"); got != "py:fn:/a/b.py:foo" {
-		t.Fatalf("unexpected: %s", got)
-	}
-	if got := PythonClassID("/a/b.py", "Foo"); got != "py:class:/a/b.py:Foo" {
-		t.Fatalf("unexpected: %s", got)
-	}
-	if got := PythonImportID("os"); got != "py:import:os" {
+	if got := LangID("py", "function", "/a/b.py:foo"); got != "py:function:/a/b.py:foo" {
 		t.Fatalf("unexpected: %s", got)
 	}
 }

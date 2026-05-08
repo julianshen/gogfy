@@ -134,6 +134,20 @@ func fileBase(absPath string) string {
 	return filepath.Base(absPath)
 }
 
+// rewriteModuleLabel updates the most recently emitted module node's Label
+// in place. Used by Go and Python after the package/module name is parsed
+// out of the source to give the module node a more meaningful label than
+// the raw filename.
+func rewriteModuleLabel(s *extractState, label string) {
+	want := schema.LangID(s.lang, "module", s.filePath)
+	for i := len(s.nodes) - 1; i >= 0; i-- {
+		if s.nodes[i].ID == want {
+			s.nodes[i].Label = label
+			return
+		}
+	}
+}
+
 // emitModule appends the file-as-module node, used as the per-file root.
 func (s *extractState) emitModule(root *sitter.Node) {
 	s.nodes = append(s.nodes, schema.Node{
