@@ -27,7 +27,17 @@ func walkScala(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "trait_definition":
 		state.emitDecl("trait", node, firstChildOfKind(node, "identifier"), src)
 	case "function_definition":
-		state.emitDecl("function", node, firstChildOfKind(node, "identifier"), src)
+		nameNode := firstChildOfKind(node, "identifier")
+		state.emitDecl("function", node, nameNode, src)
+		state.walkFnScope("function", nameNode, src, cursor, walkScala)
+		return
+	case "call_expression":
+		state.emitCall(node, src)
+	case "lambda_expression":
+		// `xs.map(x => inner(x))` — calls inside should source from the
+		// anonymous lambda scope, not the enclosing method.
+		state.walkAnonFnScope("function", node, src, cursor, walkScala)
+		return
 	}
 	walkChildren(cursor, func() { walkScala(cursor, src, state) })
 }

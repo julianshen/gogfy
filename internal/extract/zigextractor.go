@@ -19,7 +19,12 @@ func walkZig(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	node := cursor.Node()
 	switch node.Kind() {
 	case "function_declaration":
-		state.emitDecl("function", node, firstChildOfKind(node, "identifier"), src)
+		nameNode := firstChildOfKind(node, "identifier")
+		state.emitDecl("function", node, nameNode, src)
+		state.walkFnScope("function", nameNode, src, cursor, walkZig)
+		return
+	case "call_expression":
+		state.emitCall(node, src)
 	case "variable_declaration":
 		// Zig idiom: `const X = struct/enum/union { … }` / `@import("y")`.
 		// Classify the declaration by inspecting the RHS shape; nameNode is

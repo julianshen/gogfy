@@ -81,6 +81,26 @@ func (s *extractState) seenCall(target string) bool {
 	return false
 }
 
+// emitCall is a shorthand for the recurring `addCall(callTargetName(firstCallee))`
+// chain. Languages without a `function` field name (Kotlin, Scala, Zig,
+// Julia, Lua) use this to keep their walkers terse.
+func (s *extractState) emitCall(call *sitter.Node, src []byte) {
+	s.addCall(callTargetName(firstCallee(call), src))
+}
+
+// firstCallee returns the first child of a call-expression node that looks
+// like a callee (a bare identifier or a member-access chain). Languages
+// without a `function` field name (Kotlin, Scala, Zig, Julia, Lua) pair this
+// with callTargetName to emit `<lang>:call:<name>` edges.
+func firstCallee(call *sitter.Node) *sitter.Node {
+	return firstChildOfKind(call,
+		"identifier", "field_identifier",
+		"selector_expression", "member_expression", "attribute",
+		"scoped_identifier", "field_access", "field_expression",
+		"dot_index_expression",
+	)
+}
+
 // callTargetName returns the human-readable callee identifier from a call
 // expression's `function` (or equivalent) child. Handles the three shapes
 // most grammars share: a bare `identifier`, a member-access wrapper
@@ -92,10 +112,11 @@ func callTargetName(fn *sitter.Node, src []byte) string {
 		return ""
 	}
 	switch fn.Kind() {
-	case "identifier", "field_identifier":
+	case "identifier", "field_identifier", "name":
 		return fn.Utf8Text(src)
 	case "selector_expression", "member_expression", "attribute",
-		"scoped_identifier", "field_access", "field_expression":
+		"scoped_identifier", "field_access", "field_expression",
+		"dot_index_expression":
 		// The last identifier-bearing child is the called name (the
 		// receiver/qualifier comes first).
 		if id := lastChildOfKind(fn, "identifier", "field_identifier", "property_identifier"); id != nil {

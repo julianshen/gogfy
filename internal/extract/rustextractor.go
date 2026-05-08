@@ -21,9 +21,10 @@ func walkRust(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "function_item":
 		nameNode := node.ChildByFieldName("name")
 		state.emitDecl("function", node, nameNode, src)
-		state.pushFn(declID(state.lang, "function", state.filePath, nameNode, src))
-		walkChildren(cursor, func() { walkRust(cursor, src, state) })
-		state.popFn()
+		state.walkFnScope("function", nameNode, src, cursor, walkRust)
+		return
+	case "closure_expression":
+		state.walkAnonFnScope("function", node, src, cursor, walkRust)
 		return
 	case "call_expression":
 		state.addCall(callTargetName(node.ChildByFieldName("function"), src))

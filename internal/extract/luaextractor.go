@@ -18,11 +18,18 @@ func walkLua(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	node := cursor.Node()
 	switch node.Kind() {
 	case "function_declaration":
-		state.emitDecl("function", node, luaFunctionName(node), src)
+		nameNode := luaFunctionName(node)
+		state.emitDecl("function", node, nameNode, src)
+		state.walkFnScope("function", nameNode, src, cursor, walkLua)
+		return
 	case "function_call":
-		// `require("x")` and `require "x"` show up as function_call expressions.
+		// `require("x")` and `require "x"` show up as function_call
+		// expressions; route those to imports first, then emit a `calls`
+		// edge for any other callee.
 		if target := luaRequireTarget(node, src); target != "" {
 			state.addImport(target)
+		} else {
+			state.emitCall(node, src)
 		}
 	}
 	walkChildren(cursor, func() { walkLua(cursor, src, state) })
