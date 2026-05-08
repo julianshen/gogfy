@@ -81,6 +81,13 @@ func (s *extractState) seenCall(target string) bool {
 	return false
 }
 
+// emitCall is a shorthand for the recurring `addCall(callTargetName(firstCallee))`
+// chain. Languages without a `function` field name (Kotlin, Scala, Zig,
+// Julia, Lua) use this to keep their walkers terse.
+func (s *extractState) emitCall(call *sitter.Node, src []byte) {
+	s.addCall(callTargetName(firstCallee(call), src))
+}
+
 // firstCallee returns the first child of a call-expression node that looks
 // like a callee (a bare identifier or a member-access chain). Languages
 // without a `function` field name (Kotlin, Scala, Zig, Julia, Lua) pair this

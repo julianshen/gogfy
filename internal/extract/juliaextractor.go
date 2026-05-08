@@ -37,7 +37,7 @@ func walkJulia(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		if p := node.Parent(); p != nil && p.Kind() == "signature" {
 			break
 		}
-		state.addCall(callTargetName(firstCallee(node), src))
+		state.emitCall(node, src)
 	}
 	walkChildren(cursor, func() { walkJulia(cursor, src, state) })
 }

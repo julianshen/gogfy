@@ -446,6 +446,48 @@ func TestPythonLambdaScopesCalls(t *testing.T) {
 	t.Fatalf("expected calls edge from lambda; edges=%s", formatEdges(res.Edges, "calls"))
 }
 
+func TestPHPScopedCallEdge(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "s.php")
+	if err := os.WriteFile(path, []byte("<?php\nfunction caller() { Foo::bar(); }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := PHPExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEdge(res, "calls", ":caller", "php:call:bar") {
+		t.Fatalf("expected `Foo::bar()` to emit calls→bar; edges=%s",
+			formatEdges(res.Edges, "calls"))
+	}
+}
+
+func TestScalaLambdaScopesCalls(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "M.scala")
+	if err := os.WriteFile(path, []byte(`object M {
+  def caller() = { List(1).map(x => inner(x)) }
+  def inner(x: Int): Int = x
+}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ScalaExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Target == "scala:call:inner" {
+			if strings.HasSuffix(e.Source, ":caller") {
+				t.Fatalf("Scala lambda call should source from anon scope, not caller: %s", e.Source)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected Scala lambda→inner calls edge; edges=%s",
+		formatEdges(res.Edges, "calls"))
+}
+
 func TestRustClosureScopesCalls(t *testing.T) {
 	// Calls inside `|x| inner(x)` should source from a synthetic anonymous
 	// scope, not the outer fn.

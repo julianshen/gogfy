@@ -30,7 +30,7 @@ func walkKotlin(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "object_declaration":
 		state.emitDecl("object", node, firstChildOfKind(node, "identifier"), src)
 	case "call_expression":
-		state.addCall(callTargetName(firstCallee(node), src))
+		state.emitCall(node, src)
 	}
 	walkChildren(cursor, func() { walkKotlin(cursor, src, state) })
 }

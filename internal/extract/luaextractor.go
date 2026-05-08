@@ -29,7 +29,7 @@ func walkLua(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		if target := luaRequireTarget(node, src); target != "" {
 			state.addImport(target)
 		} else {
-			state.addCall(callTargetName(firstCallee(node), src))
+			state.emitCall(node, src)
 		}
 	}
 	walkChildren(cursor, func() { walkLua(cursor, src, state) })

@@ -43,6 +43,12 @@ func walkPHP(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		state.addCall(callTargetName(node.ChildByFieldName("function"), src))
 	case "member_call_expression":
 		state.addCall(callTargetName(node.ChildByFieldName("name"), src))
+	case "scoped_call_expression":
+		// `Foo::bar()` — class is the first `name` child, method is the
+		// last. Source the call edge against the method, dropping the
+		// class context (consistent with how member calls drop the
+		// receiver across all extractors).
+		state.addCall(callTargetName(lastChildOfKind(node, "name"), src))
 	}
 	walkChildren(cursor, func() { walkPHP(cursor, src, state) })
 }
