@@ -46,9 +46,12 @@ import "fmt"
 func bar() { fmt.Println("hi"); foo(1) }
 func foo(x int) int { return x }
 `,
+			// Use the explicit `go:function:` kind suffix instead of bare
+			// `:bar` so a future bug producing `go:function:/x:wrong:bar`
+			// would still fail this assertion.
 			wantCalls: [][3]string{
-				{":bar", "go:call:Println", ""},
-				{":bar", "go:call:foo", ""},
+				{"main.go:bar", "go:call:Println", ""},
+				{"main.go:bar", "go:call:foo", ""},
 			},
 		},
 		{
@@ -270,6 +273,53 @@ func foo() {}
 	}
 	if count != 1 {
 		t.Fatalf("expected exactly 1 call-target node for `foo`; got %d", count)
+	}
+}
+
+func TestGoCrossFileSamePackageCallsHaveResolvableTargets(t *testing.T) {
+	// Regression: pre-refactor `addCall` keyed source IDs off pkgName, so
+	// two Go files in the same package emitted distinct module IDs but
+	// shared the function ID's pkg-qualified key. Post-refactor, IDs use
+	// only the file path and function name. Cross-file resolution still
+	// works because the resolver's index is keyed by (lang, label) — this
+	// test pins that property by extracting two same-package files and
+	// verifying both contain the expected function nodes with matching
+	// labels suitable for resolution.
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.go")
+	b := filepath.Join(dir, "b.go")
+	if err := os.WriteFile(a, []byte("package shared\nfunc Caller() { Helper() }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("package shared\nfunc Helper() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	resA, err := GoExtractor{}.Extract(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resB, err := GoExtractor{}.Extract(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Caller emits a calls→Helper edge with a synthetic target.
+	if !hasEdge(resA, "calls", "a.go:Caller", "go:call:Helper") {
+		t.Fatalf("expected Caller→Helper synthetic call; edges=%s",
+			formatEdges(resA.Edges, "calls"))
+	}
+	// Helper exists as a function node in b.go with Label="Helper" so the
+	// resolver's (lang, label) index will find it for cross-file resolution.
+	hasHelper := false
+	for _, n := range resB.Nodes {
+		if n.Label == "Helper" {
+			hasHelper = true
+			if !strings.Contains(n.ID, "go:function:") {
+				t.Fatalf("Helper node ID should be a LangID function shape; got %q", n.ID)
+			}
+		}
+	}
+	if !hasHelper {
+		t.Fatal("expected Helper function node in b.go's extraction")
 	}
 }
 
