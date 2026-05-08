@@ -15,10 +15,11 @@ import (
 type PythonExtractor struct{}
 
 type pythonExtractState struct {
-	moduleName string
-	nodes      []schema.Node
-	edges      []schema.Edge
-	fnStack    []string
+	moduleName  string
+	nodes       []schema.Node
+	edges       []schema.Edge
+	fnStack     []string
+	callTargets map[string]struct{}
 }
 
 func (s *pythonExtractState) pushFn(id string) { s.fnStack = append(s.fnStack, id) }
@@ -42,7 +43,13 @@ func (s *pythonExtractState) addCall(filePath, callee string) {
 		return
 	}
 	target := schema.LangID("py", "call", callee)
-	s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
+	if s.callTargets == nil {
+		s.callTargets = map[string]struct{}{}
+	}
+	if _, seen := s.callTargets[target]; !seen {
+		s.callTargets[target] = struct{}{}
+		s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
+	}
 	s.edges = append(s.edges, schema.Edge{
 		Source:     s.callSource(filePath),
 		Target:     target,

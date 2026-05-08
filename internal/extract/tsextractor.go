@@ -26,15 +26,15 @@ func walkTS(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "function_declaration":
 		nameNode := node.ChildByFieldName("name")
 		state.emitDecl("function", node, nameNode, src)
-		state.pushFn(declID(state.lang, "function", state.filePath, nameNode, src))
-		walkChildren(cursor, func() { walkTS(cursor, src, state) })
-		state.popFn()
+		state.walkFnScope("function", nameNode, src, cursor, walkTS)
 		return
 	case "method_definition":
 		nameNode := node.ChildByFieldName("name")
-		state.pushFn(declID(state.lang, "method", state.filePath, nameNode, src))
-		walkChildren(cursor, func() { walkTS(cursor, src, state) })
-		state.popFn()
+		state.emitDecl("method", node, nameNode, src)
+		state.walkFnScope("method", nameNode, src, cursor, walkTS)
+		return
+	case "arrow_function", "function_expression", "generator_function":
+		state.walkAnonFnScope("function", node, src, cursor, walkTS)
 		return
 	case "class_declaration":
 		state.emitDecl("class", node, node.ChildByFieldName("name"), src)

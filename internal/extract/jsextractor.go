@@ -19,15 +19,17 @@ func walkJS(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "function_declaration":
 		nameNode := node.ChildByFieldName("name")
 		state.emitDecl("function", node, nameNode, src)
-		state.pushFn(declID(state.lang, "function", state.filePath, nameNode, src))
-		walkChildren(cursor, func() { walkJS(cursor, src, state) })
-		state.popFn()
+		state.walkFnScope("function", nameNode, src, cursor, walkJS)
 		return
 	case "method_definition":
 		nameNode := node.ChildByFieldName("name")
-		state.pushFn(declID(state.lang, "method", state.filePath, nameNode, src))
-		walkChildren(cursor, func() { walkJS(cursor, src, state) })
-		state.popFn()
+		state.emitDecl("method", node, nameNode, src)
+		state.walkFnScope("method", nameNode, src, cursor, walkJS)
+		return
+	case "arrow_function", "function_expression", "generator_function":
+		// Anonymous-by-construction: source position keys the synthetic ID
+		// so calls inside don't all collide on a single anonymous bucket.
+		state.walkAnonFnScope("function", node, src, cursor, walkJS)
 		return
 	case "class_declaration":
 		state.emitDecl("class", node, node.ChildByFieldName("name"), src)

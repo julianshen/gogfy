@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/julianshen/gogfy/internal/schema"
@@ -15,11 +16,12 @@ import (
 // edges can be sourced from the innermost caller. Walkers push when entering
 // a function-decl node and pop after walking its children.
 type extractState struct {
-	lang     string
-	filePath string
-	nodes    []schema.Node
-	edges    []schema.Edge
-	fnStack  []string
+	lang        string
+	filePath    string
+	nodes       []schema.Node
+	edges       []schema.Edge
+	fnStack     []string
+	callTargets map[string]struct{} // dedup set for emitted call-target nodes
 }
 
 // pushFn records that subsequent walk steps are inside the function with id.
@@ -46,18 +48,37 @@ func (s *extractState) callSource() string {
 // current scope (enclosing function or module). Cross-file resolution of the
 // callee to a concrete function node is the next phase's job; for now every
 // emitted edge is EXTRACTED — we observed the call in source.
+//
+// Repeated calls to the same callee within one file emit a single target
+// node (so state.nodes doesn't bloat with N copies for N call sites) but
+// every edge — each `bar() bar() bar()` is a distinct call event.
 func (s *extractState) addCall(callee string) {
 	if callee == "" {
 		return
 	}
 	target := schema.LangID(s.lang, "call", callee)
-	s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
+	if !s.seenCall(target) {
+		s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
+	}
 	s.edges = append(s.edges, schema.Edge{
 		Source:     s.callSource(),
 		Target:     target,
 		Relation:   "calls",
 		Confidence: schema.Extracted,
 	})
+}
+
+// seenCall reports whether target was already emitted by this state, marking
+// it as seen on the first call.
+func (s *extractState) seenCall(target string) bool {
+	if s.callTargets == nil {
+		s.callTargets = map[string]struct{}{}
+	}
+	if _, ok := s.callTargets[target]; ok {
+		return true
+	}
+	s.callTargets[target] = struct{}{}
+	return false
 }
 
 // callTargetName returns the human-readable callee identifier from a call
@@ -81,8 +102,10 @@ func callTargetName(fn *sitter.Node, src []byte) string {
 			return id.Utf8Text(src)
 		}
 	}
-	// Fallback: best-effort literal text.
-	return fn.Utf8Text(src)
+	// Drop unknown shapes — `(a + b)()`, `arr[0]()`, IIFEs etc. don't have
+	// a meaningful textual name. Falling back to verbatim source text would
+	// pollute the graph with noisy targets like `call:(a + b)`.
+	return ""
 }
 
 // fileBase returns the file's basename, used as the default module-node label.
@@ -114,6 +137,36 @@ func nodeNameOrEmpty(nameNode *sitter.Node, src []byte) string {
 		return ""
 	}
 	return nameNode.Utf8Text(src)
+}
+
+// walkFnScope is the canonical "enter a named function/method, walk its
+// children with the function on the scope stack, then leave" helper.
+// Eliminates the easy-to-forget pattern of pushFn/walkChildren/popFn/return
+// duplicated across every extractor.
+func (s *extractState) walkFnScope(kind string, nameNode *sitter.Node, src []byte, cursor *sitter.TreeCursor, recurse func(*sitter.TreeCursor, []byte, *extractState)) {
+	s.pushFn(declID(s.lang, kind, s.filePath, nameNode, src))
+	walkChildren(cursor, func() { recurse(cursor, src, s) })
+	s.popFn()
+}
+
+// walkAnonFnScope is the analogue for arrow functions / function expressions
+// / lambdas — anonymous by construction. The scope ID is keyed by source
+// position so two arrow functions in the same file don't collide on a
+// single "anon" bucket. The synthetic node is also emitted (so call edges
+// from within have a real source).
+func (s *extractState) walkAnonFnScope(kind string, node *sitter.Node, src []byte, cursor *sitter.TreeCursor, recurse func(*sitter.TreeCursor, []byte, *extractState)) {
+	p := node.StartPosition()
+	posKey := fmt.Sprintf("anon@%d:%d", p.Row, p.Column)
+	id := schema.LangID(s.lang, kind, s.filePath+":"+posKey)
+	s.nodes = append(s.nodes, schema.Node{
+		ID:             id,
+		Label:          "<anonymous>",
+		SourceFile:     s.filePath,
+		SourceLocation: nodeLocation(node),
+	})
+	s.pushFn(id)
+	walkChildren(cursor, func() { recurse(cursor, src, s) })
+	s.popFn()
 }
 
 // emitDecl appends a "<lang>:<kind>:<filePath:name>" declaration node. Empty

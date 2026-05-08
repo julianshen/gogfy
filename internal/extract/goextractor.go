@@ -16,10 +16,11 @@ import (
 type GoExtractor struct{}
 
 type goExtractState struct {
-	pkgName string
-	nodes   []schema.Node
-	edges   []schema.Edge
-	fnStack []string // enclosing function IDs; top is the current scope
+	pkgName     string
+	nodes       []schema.Node
+	edges       []schema.Edge
+	fnStack     []string // enclosing function IDs; top is the current scope
+	callTargets map[string]struct{}
 }
 
 func (s *goExtractState) pushFn(id string) { s.fnStack = append(s.fnStack, id) }
@@ -39,14 +40,21 @@ func (s *goExtractState) callSource(filePath string) string {
 }
 
 // addCall emits a call edge from the current scope to a synthetic
-// "go:call:<callee>" target. Cross-file resolution of callee → real function
-// node is left to the analyze layer.
+// "go:call:<callee>" target. Repeated calls to the same callee within a
+// file emit one target node and N edges. Cross-file resolution of
+// callee → real function node is left to the analyze layer.
 func (s *goExtractState) addCall(filePath, callee string) {
 	if callee == "" || s.pkgName == "" {
 		return
 	}
 	target := schema.LangID("go", "call", callee)
-	s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
+	if s.callTargets == nil {
+		s.callTargets = map[string]struct{}{}
+	}
+	if _, seen := s.callTargets[target]; !seen {
+		s.callTargets[target] = struct{}{}
+		s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
+	}
 	s.edges = append(s.edges, schema.Edge{
 		Source:     s.callSource(filePath),
 		Target:     target,

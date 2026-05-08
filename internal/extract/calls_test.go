@@ -155,6 +155,152 @@ def foo(x); x end
 	}
 }
 
+func TestJSMethodDefinitionEmitsDeclNodeForCallSource(t *testing.T) {
+	// Ship-blocker regression: walkJS pushed the method's funcID onto fnStack
+	// but never emitted the corresponding `js:method:...` node, so call edges
+	// from inside class methods referenced a dangling source.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.js")
+	if err := os.WriteFile(path, []byte(`class C { greet() { foo(); } }
+function foo() {}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := JavaScriptExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The method node must exist so the call edge has a real source.
+	var methodID string
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Target == "js:call:foo" {
+			methodID = e.Source
+			break
+		}
+	}
+	if methodID == "" {
+		t.Fatalf("no calls edge to foo; edges=%s", formatEdges(res.Edges, "calls"))
+	}
+	for _, n := range res.Nodes {
+		if n.ID == methodID {
+			return
+		}
+	}
+	t.Fatalf("call source %q has no corresponding node — dangling edge", methodID)
+}
+
+func TestJSArrowFunctionAttributesCallsToScope(t *testing.T) {
+	// Arrow / function-expression / IIFE bodies should source their calls
+	// to a non-module scope. The exact scope can be anonymous; we just
+	// require it ISN'T the module node.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.js")
+	if err := os.WriteFile(path, []byte(`const handler = () => { trigger(); };
+[1,2,3].map(x => use(x));
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := JavaScriptExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moduleID := "js:module:" + path
+	for _, e := range res.Edges {
+		if e.Relation != "calls" {
+			continue
+		}
+		if e.Target == "js:call:trigger" || e.Target == "js:call:use" {
+			if e.Source == moduleID {
+				t.Fatalf("call %s should source from arrow scope, not module; edge=%s->%s",
+					e.Target, e.Source, e.Target)
+			}
+		}
+	}
+}
+
+func TestCallTargetNameDropsNonIdentifierFallback(t *testing.T) {
+	// Calls with non-identifier callees like `(a + b)()` or `arr[0]()` should
+	// not pollute the graph with junk targets like `js:call:(a + b)`.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "weird.js")
+	if err := os.WriteFile(path, []byte(`(a + b)();
+arr[0]();
+foo();
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := JavaScriptExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Edges {
+		if e.Relation != "calls" {
+			continue
+		}
+		if strings.ContainsAny(e.Target, " +[]()") {
+			t.Fatalf("non-identifier callee leaked into target: %q", e.Target)
+		}
+	}
+	if !hasEdge(res, "calls", path, "js:call:foo") {
+		t.Fatal("identifier callee `foo` should still be emitted")
+	}
+}
+
+func TestCallEdgesDedupCallTargetNodes(t *testing.T) {
+	// Repeated calls to the same callee should produce one target node, not
+	// N copies. The graph builder dedups in Build(); the extractor should
+	// also dedup so state.nodes doesn't bloat.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rep.go")
+	if err := os.WriteFile(path, []byte(`package main
+func bar() { foo(); foo(); foo(); foo() }
+func foo() {}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := GoExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, n := range res.Nodes {
+		if n.ID == "go:call:foo" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 call-target node for `foo`; got %d", count)
+	}
+}
+
+func TestGoReceiverMethodCallsScopedToMethod(t *testing.T) {
+	// PR-review regression: walkGo now matches method_declaration too; verify
+	// calls inside a receiver method source from the method, not the package.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "m.go")
+	if err := os.WriteFile(path, []byte(`package main
+type T struct{}
+func (t T) Run() { helper() }
+func helper() {}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := GoExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Target == "go:call:helper" {
+			if !strings.HasSuffix(e.Source, ".Run") {
+				t.Fatalf("call should source from method Run, got %q", e.Source)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected calls edge to helper from Run; edges=%s",
+		formatEdges(res.Edges, "calls"))
+}
+
 func TestCallEdgesUseModuleSourceForTopLevelCalls(t *testing.T) {
 	// A call outside any function should source from the file's module
 	// node, not silently disappear.
