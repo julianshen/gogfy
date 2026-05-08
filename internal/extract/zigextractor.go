@@ -21,23 +21,35 @@ func walkZig(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "function_declaration":
 		state.emitDecl("function", node, firstChildOfKind(node, "identifier"), src)
 	case "variable_declaration":
-		// Zig idiom: `const X = struct { … }` / `enum { … }` / `@import("y")`.
-		// Use the first identifier child as the declaration name.
-		nameNode := firstChildOfKind(node, "identifier")
-		if rhs := firstChildOfKind(node, "struct_declaration"); rhs != nil {
-			state.emitDecl("struct", node, nameNode, src)
-		} else if rhs := firstChildOfKind(node, "enum_declaration"); rhs != nil {
-			_ = rhs
-			state.emitDecl("enum", node, nameNode, src)
-		} else if rhs := firstChildOfKind(node, "union_declaration"); rhs != nil {
-			_ = rhs
-			state.emitDecl("union", node, nameNode, src)
+		// Zig idiom: `const X = struct/enum/union { … }` / `@import("y")`.
+		// Classify the declaration by inspecting the RHS shape; nameNode is
+		// only consulted when there's a known type kind to emit.
+		if kind := zigDeclKind(node); kind != "" {
+			state.emitDecl(kind, node, firstChildOfKind(node, "identifier"), src)
 		}
 		if target := zigImportTarget(node, src); target != "" {
 			state.addImport(target)
 		}
 	}
 	walkChildren(cursor, func() { walkZig(cursor, src, state) })
+}
+
+// zigDeclKind returns "struct"/"enum"/"union" if the variable_declaration's
+// RHS is one of those container forms, or "" otherwise. Done in a single
+// pass to avoid three CGO-heavy firstChildOfKind calls.
+func zigDeclKind(node *sitter.Node) string {
+	n := node.ChildCount()
+	for i := uint(0); i < n; i++ {
+		switch node.Child(i).Kind() {
+		case "struct_declaration":
+			return "struct"
+		case "enum_declaration":
+			return "enum"
+		case "union_declaration":
+			return "union"
+		}
+	}
+	return ""
 }
 
 // zigImportTarget extracts the string argument of `@import("…")` from a

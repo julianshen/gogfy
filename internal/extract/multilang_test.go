@@ -254,6 +254,92 @@ fun greet() {}
 	})
 }
 
+func TestScalaImportSelectorsAndRenames(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "S.scala")
+	body := `import scala.collection.{Map, Set}
+import a.b.{Foo => Bar}
+`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ScalaExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{
+		"scala:import:scala.collection.Map",
+		"scala:import:scala.collection.Set",
+		"scala:import:a.b.Foo",
+	} {
+		if !targets[want] {
+			t.Fatalf("missing %q (got %v)", want, targets)
+		}
+	}
+}
+
+func TestPHPGroupUseAndMultiClause(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "g.php")
+	body := `<?php
+use App\Lib\{Foo, Bar};
+use A\B, A\C;
+`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := PHPExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{
+		`php:import:App\Lib\Foo`,
+		`php:import:App\Lib\Bar`,
+		`php:import:A\B`,
+		`php:import:A\C`,
+	} {
+		if !targets[want] {
+			t.Fatalf("missing %q (got %v)", want, targets)
+		}
+	}
+}
+
+func TestJuliaSelectedImport(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "s.jl")
+	body := "import Foo: a, b\n"
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := JuliaExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{"julia:import:Foo.a", "julia:import:Foo.b"} {
+		if !targets[want] {
+			t.Fatalf("missing %q (got %v)", want, targets)
+		}
+	}
+}
+
 func TestScalaExtractor(t *testing.T) {
 	runExtractorCase(t, extractorCase{
 		name:      "scala basic",
