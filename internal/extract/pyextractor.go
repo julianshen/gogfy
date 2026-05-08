@@ -169,6 +169,22 @@ func walkPython(cursor *sitter.TreeCursor, src []byte, filePath string, state *p
 		walkChildren(cursor, func() { walkPython(cursor, src, filePath, state) })
 		state.popFn()
 		return
+	case "lambda":
+		// Anonymous-by-construction; synthesize a position-keyed scope so
+		// calls inside source from the lambda rather than the enclosing
+		// def/class. Mirrors the JS arrow_function handling.
+		anonID := schema.LangID("py", "function",
+			filePath+":anon@"+nodeLocation(node))
+		state.nodes = append(state.nodes, schema.Node{
+			ID:             anonID,
+			Label:          "<lambda>",
+			SourceFile:     filePath,
+			SourceLocation: nodeLocation(node),
+		})
+		state.pushFn(anonID)
+		walkChildren(cursor, func() { walkPython(cursor, src, filePath, state) })
+		state.popFn()
+		return
 	case "call":
 		fn := node.ChildByFieldName("function")
 		state.addCall(filePath, callTargetName(fn, src))

@@ -301,6 +301,177 @@ func helper() {}
 		formatEdges(res.Edges, "calls"))
 }
 
+func TestExtraLanguagesEmitCallEdges(t *testing.T) {
+	cases := []callCase{
+		{
+			name:      "kotlin",
+			filename:  "Hello.kt",
+			extractor: KotlinExtractor{}.Extract,
+			source: `fun bar() { println("hi"); foo(1) }
+fun foo(x: Int): Int = x
+`,
+			wantCalls: [][3]string{
+				{":bar", "kotlin:call:println", ""},
+				{":bar", "kotlin:call:foo", ""},
+			},
+		},
+		{
+			name:      "scala",
+			filename:  "Hello.scala",
+			extractor: ScalaExtractor{}.Extract,
+			source: `object M {
+  def bar() = { foo(1); System.out.println("hi") }
+  def foo(x: Int): Int = x
+}
+`,
+			wantCalls: [][3]string{
+				{":bar", "scala:call:foo", ""},
+				{":bar", "scala:call:println", ""},
+			},
+		},
+		{
+			name:      "php",
+			filename:  "main.php",
+			extractor: PHPExtractor{}.Extract,
+			source: `<?php
+function bar() { return foo(1); }
+function foo($x) { return $x; }
+`,
+			wantCalls: [][3]string{
+				{":bar", "php:call:foo", ""},
+			},
+		},
+		{
+			name:      "lua",
+			filename:  "main.lua",
+			extractor: LuaExtractor{}.Extract,
+			source: `function bar() print("hi"); foo(1) end
+function foo(x) return x end
+`,
+			wantCalls: [][3]string{
+				{":bar", "lua:call:print", ""},
+				{":bar", "lua:call:foo", ""},
+			},
+		},
+		{
+			name:      "zig",
+			filename:  "main.zig",
+			extractor: ZigExtractor{}.Extract,
+			source: `pub fn bar() void { foo(1); }
+fn foo(x: i32) i32 { return x; }
+`,
+			wantCalls: [][3]string{
+				{":bar", "zig:call:foo", ""},
+			},
+		},
+		{
+			name:      "julia",
+			filename:  "main.jl",
+			extractor: JuliaExtractor{}.Extract,
+			source: `function bar()
+  println("hi")
+  foo(1)
+end
+function foo(x) x end
+`,
+			wantCalls: [][3]string{
+				{":bar", "julia:call:println", ""},
+				{":bar", "julia:call:foo", ""},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tc.filename)
+			if err := os.WriteFile(path, []byte(tc.source), 0644); err != nil {
+				t.Fatal(err)
+			}
+			res, err := tc.extractor(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range tc.wantCalls {
+				if !hasEdge(res, "calls", want[0], want[1]) {
+					t.Fatalf("expected calls edge ending-in %q -> %q; edges=%s",
+						want[0], want[1], formatEdges(res.Edges, "calls"))
+				}
+			}
+		})
+	}
+}
+
+func TestJuliaSignatureCallExpressionIsNotEmittedAsCall(t *testing.T) {
+	// Regression: function_definition wraps the function name in a `signature`
+	// child whose call_expression is the declaration shape, not an invocation.
+	// Emitting a `calls:bar` edge from inside `bar` would be a false self-call.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "m.jl")
+	if err := os.WriteFile(path, []byte("function bar()\n  1\nend\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := JuliaExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Target == "julia:call:bar" {
+			t.Fatalf("signature's declaration was misemitted as a calls edge: %+v", e)
+		}
+	}
+}
+
+func TestPythonLambdaScopesCalls(t *testing.T) {
+	// Calls inside `lambda x: foo(x)` should source from a synthetic
+	// anonymous scope, not the enclosing function or module.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "l.py")
+	if err := os.WriteFile(path, []byte("def outer():\n    return (lambda x: helper(x))\ndef helper(x): return x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := PythonExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moduleID := "py:module:" + path
+	outerID := "py:fn:" + path + ":outer"
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Target == "py:call:helper" {
+			if e.Source == moduleID || e.Source == outerID {
+				t.Fatalf("lambda call should source from anonymous scope, got %s", e.Source)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected calls edge from lambda; edges=%s", formatEdges(res.Edges, "calls"))
+}
+
+func TestRustClosureScopesCalls(t *testing.T) {
+	// Calls inside `|x| inner(x)` should source from a synthetic anonymous
+	// scope, not the outer fn.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.rs")
+	if err := os.WriteFile(path, []byte(`fn outer() { let f = |x| inner(x); }
+fn inner(x: i32) -> i32 { x }
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RustExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outerSuffix := ":outer"
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Target == "rust:call:inner" {
+			if strings.HasSuffix(e.Source, outerSuffix) {
+				t.Fatalf("closure call should source from anonymous scope, not outer: %s", e.Source)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected closure→inner calls edge; edges=%s", formatEdges(res.Edges, "calls"))
+}
+
 func TestRustMethodCallStripsReceiver(t *testing.T) {
 	// Rust represents `obj.foo()` as a call_expression whose function child
 	// is a `field_expression` (not selector_expression). Without that kind

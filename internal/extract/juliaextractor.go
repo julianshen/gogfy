@@ -22,10 +22,22 @@ func walkJulia(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		state.emitDecl("module", node, firstChildOfKind(node, "identifier"), src)
 	case "function_definition":
 		// Julia wraps the name inside a `signature` field's call_expression,
-		// so descend rather than looking at direct children.
-		state.emitDecl("function", node, firstDescendantIdentifier(node), src)
+		// so descend rather than looking at direct children. The signature
+		// also contains a call_expression that we must NOT treat as a real
+		// call edge (it's the declaration shape, not an invocation).
+		nameNode := firstDescendantIdentifier(node)
+		state.emitDecl("function", node, nameNode, src)
+		state.walkFnScope("function", nameNode, src, cursor, walkJulia)
+		return
 	case "struct_definition":
 		state.emitDecl("struct", node, firstDescendantIdentifier(node), src)
+	case "call_expression":
+		// Skip the synthetic call_expression inside a function_definition's
+		// signature — that's the function's own declaration, not a call.
+		if p := node.Parent(); p != nil && p.Kind() == "signature" {
+			break
+		}
+		state.addCall(callTargetName(firstCallee(node), src))
 	}
 	walkChildren(cursor, func() { walkJulia(cursor, src, state) })
 }

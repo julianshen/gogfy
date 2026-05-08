@@ -27,9 +27,22 @@ func walkPHP(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "enum_declaration":
 		state.emitDecl("enum", node, node.ChildByFieldName("name"), src)
 	case "function_definition":
-		state.emitDecl("function", node, node.ChildByFieldName("name"), src)
+		nameNode := node.ChildByFieldName("name")
+		state.emitDecl("function", node, nameNode, src)
+		state.walkFnScope("function", nameNode, src, cursor, walkPHP)
+		return
 	case "method_declaration":
-		state.emitDecl("method", node, node.ChildByFieldName("name"), src)
+		nameNode := node.ChildByFieldName("name")
+		state.emitDecl("method", node, nameNode, src)
+		state.walkFnScope("method", nameNode, src, cursor, walkPHP)
+		return
+	case "function_call_expression":
+		// callTargetName already handles the `name` kind for the bare-callee
+		// case; for member-style `$obj->foo()` PHP uses `member_call_expression`
+		// which has a `name` field for the method name.
+		state.addCall(callTargetName(node.ChildByFieldName("function"), src))
+	case "member_call_expression":
+		state.addCall(callTargetName(node.ChildByFieldName("name"), src))
 	}
 	walkChildren(cursor, func() { walkPHP(cursor, src, state) })
 }
