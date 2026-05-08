@@ -24,7 +24,18 @@ func walkTS(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	node := cursor.Node()
 	switch node.Kind() {
 	case "function_declaration":
-		state.emitDecl("function", node, node.ChildByFieldName("name"), src)
+		nameNode := node.ChildByFieldName("name")
+		state.emitDecl("function", node, nameNode, src)
+		state.walkFnScope("function", nameNode, src, cursor, walkTS)
+		return
+	case "method_definition":
+		nameNode := node.ChildByFieldName("name")
+		state.emitDecl("method", node, nameNode, src)
+		state.walkFnScope("method", nameNode, src, cursor, walkTS)
+		return
+	case "arrow_function", "function_expression", "generator_function":
+		state.walkAnonFnScope("function", node, src, cursor, walkTS)
+		return
 	case "class_declaration":
 		state.emitDecl("class", node, node.ChildByFieldName("name"), src)
 	case "interface_declaration":
@@ -35,6 +46,8 @@ func walkTS(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		if target := importStringSource(node, src); target != "" {
 			state.addImport(target)
 		}
+	case "call_expression":
+		state.addCall(callTargetName(node.ChildByFieldName("function"), src))
 	}
 	walkChildren(cursor, func() { walkTS(cursor, src, state) })
 }

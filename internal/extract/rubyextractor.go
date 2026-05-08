@@ -23,10 +23,20 @@ func walkRuby(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "class":
 		state.emitDecl("class", node, firstChildOfKind(node, "constant"), src)
 	case "method":
-		state.emitDecl("method", node, node.ChildByFieldName("name"), src)
+		nameNode := node.ChildByFieldName("name")
+		state.emitDecl("method", node, nameNode, src)
+		state.pushFn(declID(state.lang, "method", state.filePath, nameNode, src))
+		walkChildren(cursor, func() { walkRuby(cursor, src, state) })
+		state.popFn()
+		return
 	case "call":
+		// `require`/`require_relative` are method calls in Ruby's grammar;
+		// route them to import edges and skip the calls-edge emission so a
+		// require doesn't double as a `calls:require` edge.
 		if target := rubyRequireTarget(node, src); target != "" {
 			state.addImport(target)
+		} else if methodNode := node.ChildByFieldName("method"); methodNode != nil {
+			state.addCall(methodNode.Utf8Text(src))
 		}
 	}
 	walkChildren(cursor, func() { walkRuby(cursor, src, state) })

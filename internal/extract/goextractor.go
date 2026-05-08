@@ -16,9 +16,51 @@ import (
 type GoExtractor struct{}
 
 type goExtractState struct {
-	pkgName string
-	nodes   []schema.Node
-	edges   []schema.Edge
+	pkgName     string
+	nodes       []schema.Node
+	edges       []schema.Edge
+	fnStack     []string // enclosing function IDs; top is the current scope
+	callTargets map[string]struct{}
+}
+
+func (s *goExtractState) pushFn(id string) { s.fnStack = append(s.fnStack, id) }
+func (s *goExtractState) popFn() {
+	if len(s.fnStack) > 0 {
+		s.fnStack = s.fnStack[:len(s.fnStack)-1]
+	}
+}
+
+// callSource returns the innermost enclosing function ID, or the package
+// node when the call is at top-level (init expressions, top-level vars).
+func (s *goExtractState) callSource(filePath string) string {
+	if n := len(s.fnStack); n > 0 {
+		return s.fnStack[n-1]
+	}
+	return schema.PackageID(filePath, s.pkgName)
+}
+
+// addCall emits a call edge from the current scope to a synthetic
+// "go:call:<callee>" target. Repeated calls to the same callee within a
+// file emit one target node and N edges. Cross-file resolution of
+// callee → real function node is left to the analyze layer.
+func (s *goExtractState) addCall(filePath, callee string) {
+	if callee == "" || s.pkgName == "" {
+		return
+	}
+	target := schema.LangID("go", "call", callee)
+	if s.callTargets == nil {
+		s.callTargets = map[string]struct{}{}
+	}
+	if _, seen := s.callTargets[target]; !seen {
+		s.callTargets[target] = struct{}{}
+		s.nodes = append(s.nodes, schema.Node{ID: target, Label: callee})
+	}
+	s.edges = append(s.edges, schema.Edge{
+		Source:     s.callSource(filePath),
+		Target:     target,
+		Relation:   "calls",
+		Confidence: schema.Extracted,
+	})
 }
 
 // Extract parses the Go source file at path and returns the extracted graph Result.
@@ -75,7 +117,7 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *goExtra
 			SourceFile:     filePath,
 			SourceLocation: nodeLocation(node),
 		})
-	case "function_declaration":
+	case "function_declaration", "method_declaration":
 		nameNode := node.ChildByFieldName("name")
 		funcName := ""
 		if nameNode != nil {
@@ -85,12 +127,20 @@ func walk(cursor *sitter.TreeCursor, src []byte, filePath string, state *goExtra
 		if label == "" {
 			label = "<anonymous>"
 		}
+		funcID := schema.FuncID(filePath, state.pkgName, funcName)
 		state.nodes = append(state.nodes, schema.Node{
-			ID:             schema.FuncID(filePath, state.pkgName, funcName),
+			ID:             funcID,
 			Label:          label,
 			SourceFile:     filePath,
 			SourceLocation: nodeLocation(node),
 		})
+		state.pushFn(funcID)
+		walkChildren(cursor, func() { walk(cursor, src, filePath, state) })
+		state.popFn()
+		return
+	case "call_expression":
+		fn := node.ChildByFieldName("function")
+		state.addCall(filePath, callTargetName(fn, src))
 	case "import_spec":
 		if state.pkgName == "" {
 			break

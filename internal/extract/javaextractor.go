@@ -29,7 +29,17 @@ func walkJava(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "enum_declaration":
 		state.emitDecl("enum", node, node.ChildByFieldName("name"), src)
 	case "method_declaration":
-		state.emitDecl("method", node, node.ChildByFieldName("name"), src)
+		nameNode := node.ChildByFieldName("name")
+		state.emitDecl("method", node, nameNode, src)
+		state.pushFn(declID(state.lang, "method", state.filePath, nameNode, src))
+		walkChildren(cursor, func() { walkJava(cursor, src, state) })
+		state.popFn()
+		return
+	case "method_invocation":
+		// Java's call site: callee is in the `name` field; the receiver
+		// (if any) is in `object`. We surface just the called name so
+		// `obj.foo()` and `foo()` both produce a `calls:foo` edge.
+		state.addCall(callTargetName(node.ChildByFieldName("name"), src))
 	}
 	walkChildren(cursor, func() { walkJava(cursor, src, state) })
 }
