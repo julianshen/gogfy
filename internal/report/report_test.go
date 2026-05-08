@@ -74,6 +74,33 @@ func TestRenderReportMultipleItems(t *testing.T) {
 	}
 }
 
+func TestRenderReportConfidenceSection(t *testing.T) {
+	r := analyze.Report{
+		ConfidenceSummary: map[schema.Confidence]int{
+			schema.Extracted: 12,
+			schema.Inferred:  3,
+			schema.Ambiguous: 1,
+		},
+	}
+	out, err := Render(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !contains(s, "## Confidence") {
+		t.Fatalf("missing Confidence section:\n%s", s)
+	}
+	if !contains(s, "EXTRACTED") || !contains(s, "12") {
+		t.Fatalf("missing EXTRACTED count:\n%s", s)
+	}
+	if !contains(s, "INFERRED") || !contains(s, "3") {
+		t.Fatalf("missing INFERRED count:\n%s", s)
+	}
+	if !contains(s, "AMBIGUOUS") || !contains(s, "1") {
+		t.Fatalf("missing AMBIGUOUS count:\n%s", s)
+	}
+}
+
 func TestRenderReportMarkdownEscaping(t *testing.T) {
 	r := analyze.Report{
 		GodNodes: []schema.Node{

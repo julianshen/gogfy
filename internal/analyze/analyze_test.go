@@ -172,6 +172,80 @@ func TestExplorationQuestionsNoSurprisingLinks(t *testing.T) {
 	}
 }
 
+func TestConfidenceSummaryCountsEdgesByLevel(t *testing.T) {
+	nodes := []schema.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b", Confidence: schema.Extracted},
+		{Source: "a", Target: "c", Confidence: schema.Extracted},
+		{Source: "b", Target: "c", Confidence: schema.Inferred},
+		{Source: "c", Target: "a", Confidence: schema.Ambiguous},
+	}
+	report := NewAnalyzer().Analyze(nodes, edges)
+	if got := report.ConfidenceSummary[schema.Extracted]; got != 2 {
+		t.Fatalf("EXTRACTED count: got %d, want 2", got)
+	}
+	if got := report.ConfidenceSummary[schema.Inferred]; got != 1 {
+		t.Fatalf("INFERRED count: got %d, want 1", got)
+	}
+	if got := report.ConfidenceSummary[schema.Ambiguous]; got != 1 {
+		t.Fatalf("AMBIGUOUS count: got %d, want 1", got)
+	}
+}
+
+func TestSurprisingLinksRankedByInverseExpectedness(t *testing.T) {
+	// hub is connected to many; leaves are not. An edge between two leaves
+	// crossing communities is more surprising than an edge involving the hub.
+	nodes := []schema.Node{
+		{ID: "hub", Community: "A"},
+		{ID: "fillerA1", Community: "A"}, {ID: "fillerA2", Community: "A"}, {ID: "fillerA3", Community: "A"},
+		{ID: "leafA", Community: "A"},
+		{ID: "hubX", Community: "B"},
+		{ID: "fillerB1", Community: "B"}, {ID: "fillerB2", Community: "B"}, {ID: "fillerB3", Community: "B"},
+		{ID: "leafB", Community: "B"},
+	}
+	edges := []schema.Edge{
+		// inflate hub/hubX degrees with many intra-community edges
+		{Source: "hub", Target: "fillerA1"},
+		{Source: "hub", Target: "fillerA2"},
+		{Source: "hub", Target: "fillerA3"},
+		{Source: "hub", Target: "leafA"},
+		{Source: "hubX", Target: "fillerB1"},
+		{Source: "hubX", Target: "fillerB2"},
+		{Source: "hubX", Target: "fillerB3"},
+		{Source: "hubX", Target: "leafB"},
+		// cross-community candidates (both surprising)
+		{Source: "hub", Target: "hubX"},    // hub-to-hub: low surprise (high degrees)
+		{Source: "leafA", Target: "leafB"}, // leaf-to-leaf: high surprise (low degrees)
+	}
+	report := NewAnalyzer().Analyze(nodes, edges)
+	if len(report.SurprisingLinks) < 2 {
+		t.Fatalf("expected ≥2 surprising links, got %d", len(report.SurprisingLinks))
+	}
+	first := report.SurprisingLinks[0]
+	if first.Source != "leafA" || first.Target != "leafB" {
+		t.Fatalf("expected leafA->leafB ranked first, got %s->%s", first.Source, first.Target)
+	}
+}
+
+func TestSurprisingLinksCappedAtMax(t *testing.T) {
+	nodes := []schema.Node{}
+	edges := []schema.Edge{}
+	// 25 cross-community edges; cap should limit to 10.
+	for i := 0; i < 25; i++ {
+		idA := "a" + string(rune('A'+i%26))
+		idB := "b" + string(rune('A'+i%26))
+		nodes = append(nodes,
+			schema.Node{ID: idA + "_src", Community: "A"},
+			schema.Node{ID: idB + "_dst", Community: "B"},
+		)
+		edges = append(edges, schema.Edge{Source: idA + "_src", Target: idB + "_dst"})
+	}
+	report := NewAnalyzer().Analyze(nodes, edges)
+	if got := len(report.SurprisingLinks); got > 10 {
+		t.Fatalf("surprising links not capped: got %d, want ≤10", got)
+	}
+}
+
 func TestAnalyzeEmpty(t *testing.T) {
 	a := NewAnalyzer()
 	report := a.Analyze([]schema.Node{}, []schema.Edge{})

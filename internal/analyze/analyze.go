@@ -2,9 +2,19 @@
 package analyze
 
 import (
+	"math"
 	"sort"
 
 	"github.com/julianshen/gogfy/internal/schema"
+)
+
+// MaxGodNodes / MaxSurprisingLinks / MaxExplorationQuestions cap the
+// per-section sizes so reports stay digestible for AI assistants whose
+// context windows we don't want to flood. Ranking decides what survives.
+const (
+	MaxGodNodes             = 10
+	MaxSurprisingLinks      = 10
+	MaxExplorationQuestions = 5
 )
 
 // Report contains the findings of a graph analysis.
@@ -12,6 +22,10 @@ type Report struct {
 	GodNodes             []schema.Node
 	SurprisingLinks      []schema.Edge
 	ExplorationQuestions []string
+	// ConfidenceSummary counts edges per confidence level so the rendered
+	// report can surface how much of the graph was directly extracted vs.
+	// inferred or guessed.
+	ConfidenceSummary map[schema.Confidence]int
 }
 
 type nodeDegree struct {
@@ -52,16 +66,20 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 		return nd[i].node.ID < nd[j].node.ID
 	})
 
-	// God nodes: top 20% or nodes with degree >= 2x median, whichever is more inclusive
+	// God nodes: top 20% by degree, capped at MaxGodNodes.
 	godNodes := filterGodNodes(nd)
+	if len(godNodes) > MaxGodNodes {
+		godNodes = godNodes[:MaxGodNodes]
+	}
 
-	var surprising []schema.Edge
+	surprising := rankSurprising(edges, nodeMap, degree)
+	if len(surprising) > MaxSurprisingLinks {
+		surprising = surprising[:MaxSurprisingLinks]
+	}
+
+	confidence := map[schema.Confidence]int{}
 	for _, e := range edges {
-		src := nodeMap[e.Source]
-		dst := nodeMap[e.Target]
-		if src.Community != "" && dst.Community != "" && src.Community != dst.Community {
-			surprising = append(surprising, e)
-		}
+		confidence[e.Confidence]++
 	}
 
 	questions := []string{}
@@ -88,11 +106,52 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 		}
 	}
 
+	if len(questions) > MaxExplorationQuestions {
+		questions = questions[:MaxExplorationQuestions]
+	}
+
 	return Report{
 		GodNodes:             godNodes,
 		SurprisingLinks:      surprising,
 		ExplorationQuestions: questions,
+		ConfidenceSummary:    confidence,
 	}
+}
+
+// rankSurprising returns cross-community edges ordered by descending
+// "surprise score" — the inverse of the product of the endpoints' log-degrees.
+// Edges between low-degree nodes (leaves) outrank edges involving hubs, so a
+// capped section retains the most genuinely unexpected connections.
+func rankSurprising(edges []schema.Edge, nodeMap map[string]schema.Node, degree map[string]int) []schema.Edge {
+	type scored struct {
+		edge  schema.Edge
+		score float64
+		idx   int
+	}
+	var ranked []scored
+	for i, e := range edges {
+		src := nodeMap[e.Source]
+		dst := nodeMap[e.Target]
+		if src.Community == "" || dst.Community == "" || src.Community == dst.Community {
+			continue
+		}
+		// log2(d+2) is always ≥1, so the product is ≥1 and the score ≤1.
+		ds := math.Log2(float64(degree[e.Source]) + 2)
+		dt := math.Log2(float64(degree[e.Target]) + 2)
+		ranked = append(ranked, scored{edge: e, score: 1.0 / (ds * dt), idx: i})
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		// Stable secondary order: original edge order, so output is deterministic.
+		return ranked[i].idx < ranked[j].idx
+	})
+	out := make([]schema.Edge, len(ranked))
+	for i, r := range ranked {
+		out[i] = r.edge
+	}
+	return out
 }
 
 func filterGodNodes(nd []nodeDegree) []schema.Node {

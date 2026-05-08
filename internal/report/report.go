@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/gogfy/internal/analyze"
+	"github.com/julianshen/gogfy/internal/schema"
 )
 
 // Render produces a Markdown report from the analysis Report.
@@ -29,6 +30,15 @@ func Render(r analyze.Report) ([]byte, error) {
 	} else {
 		for _, e := range r.SurprisingLinks {
 			fmt.Fprintf(&b, "- %s -> %s (%s)\n", escapeMarkdown(e.Source), escapeMarkdown(e.Target), escapeMarkdown(e.Relation))
+		}
+	}
+
+	if len(r.ConfidenceSummary) > 0 {
+		fmt.Fprintf(&b, "\n## Confidence\n")
+		// Iterate in fixed order so output is deterministic regardless of
+		// map iteration.
+		for _, c := range []schema.Confidence{schema.Extracted, schema.Inferred, schema.Ambiguous} {
+			fmt.Fprintf(&b, "- %s: %d\n", c, r.ConfidenceSummary[c])
 		}
 	}
 
