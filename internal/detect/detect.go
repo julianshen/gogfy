@@ -17,6 +17,11 @@ import (
 // .graphifyignore follows gitignore semantics: last-match-wins, `!` negation
 // re-includes previously-ignored paths, leading `/` anchors to the root,
 // trailing `/` matches directories, and `**` recurses across path segments.
+//
+// Only the root .graphifyignore is read; per-subdirectory ignore files
+// (a feature of git itself) are not yet layered. If the file contains any
+// `!` negation, ignored directories are still descended so that re-included
+// children can be reached, at the cost of walking large vendored trees.
 func CollectFiles(root string, extensions []string) ([]string, error) {
 	matcher, hasNegations, err := loadIgnoreMatcher(root)
 	if err != nil {
@@ -54,11 +59,12 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 			if !info.IsDir() {
 				return nil
 			}
-			// Skip the whole subtree only if there are no `!` negations
-			// that could re-include children, AND the bare directory name
-			// matches (so children-only patterns like `vendor/*` don't
-			// prune the walk before we see the children).
-			if !hasNegations && matcher.MatchesPath(slash) {
+			// Skip the whole subtree iff there are no `!` negations that
+			// could re-include any descendant. The bare-form check the
+			// previous version did was wrong: pattern `vendor/` matches
+			// `vendor/` but not `vendor`, which suppressed SkipDir for
+			// the canonical "ignore a directory" rule.
+			if !hasNegations {
 				return filepath.SkipDir
 			}
 			return nil

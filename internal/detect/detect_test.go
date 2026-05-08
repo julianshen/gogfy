@@ -247,6 +247,61 @@ func TestCollectFilesLeadingSlashAnchorsToRoot(t *testing.T) {
 	}
 }
 
+func TestCollectFilesSkipsIgnoredDirSubtree(t *testing.T) {
+	// Regression: `vendor/` ignore must SkipDir so the walker never reads
+	// files inside an ignored subtree. Prior to the fix the walker descended
+	// because `MatchesPath("vendor")` (bare form) returns false for pattern
+	// `vendor/` even though `MatchesPath("vendor/")` is true.
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "keep.go"), []byte("package keep"), 0644)
+	dir := filepath.Join(root, "vendor")
+	os.MkdirAll(dir, 0755)
+	// Create an unreadable file inside vendor — if the walker descends into
+	// the ignored dir it would hit this and fail.
+	bad := filepath.Join(dir, "skip.go")
+	os.WriteFile(bad, []byte("package skip"), 0644)
+	os.Chmod(bad, 0000)
+	defer os.Chmod(bad, 0644)
+	os.WriteFile(filepath.Join(root, ".graphifyignore"), []byte("vendor/\n"), 0644)
+
+	files, err := CollectFiles(root, []string{".go"})
+	if err != nil {
+		t.Fatalf("CollectFiles must SkipDir over `vendor/`, not descend: %v", err)
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "keep.go" {
+		t.Fatalf("expected only keep.go; got %v", files)
+	}
+}
+
+func TestCollectFilesCharClassPattern(t *testing.T) {
+	// Pin gitignore character-class behavior so a future matcher swap can't
+	// silently regress.
+	root := t.TempDir()
+	for _, p := range []string{"a.tmp", "b.tmp", "c.tmp", "x.go"} {
+		os.WriteFile(filepath.Join(root, p), []byte("x"), 0644)
+	}
+	os.WriteFile(filepath.Join(root, ".graphifyignore"), []byte("[ab].tmp\n"), 0644)
+
+	files, err := CollectFiles(root, []string{".tmp", ".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bases := make([]string, len(files))
+	for i, f := range files {
+		bases[i] = filepath.Base(f)
+	}
+	for _, b := range []string{"a.tmp", "b.tmp"} {
+		if slices.Contains(bases, b) {
+			t.Fatalf("[ab].tmp should ignore %q; got %v", b, bases)
+		}
+	}
+	for _, b := range []string{"c.tmp", "x.go"} {
+		if !slices.Contains(bases, b) {
+			t.Fatalf("expected %q present; got %v", b, bases)
+		}
+	}
+}
+
 func TestCollectFilesLoadIgnorePermissionError(t *testing.T) {
 	root := t.TempDir()
 	ignorePath := filepath.Join(root, ".graphifyignore")
