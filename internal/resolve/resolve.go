@@ -3,11 +3,22 @@
 // label matches. Resolved edges are marked INFERRED (or AMBIGUOUS when
 // multiple candidates exist), implementing SPEC §2's typed confidence model
 // for cross-file calls.
+//
+// Known limitations:
+//
+//   - Method calls lose their receiver context upstream (extractors strip
+//     `obj.foo()` to a `<lang>:call:foo` target). When multiple types in the
+//     project define a method named `foo`, the resolver fans out to all of
+//     them as AMBIGUOUS — receiver-aware resolution would need type
+//     inference, which is out of scope for AST-only extraction.
+//   - Resolution is language-scoped: `go:call:foo` won't match a Python
+//     `foo` even if a project mixes both languages. Cross-language calls
+//     (FFI, RPC, subprocess invocations) stay EXTRACTED with the synthetic
+//     target preserved.
 package resolve
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/julianshen/gogfy/internal/schema"
 )
@@ -20,19 +31,18 @@ import (
 //   - 1 candidate  → edge's target is rewritten to the function's ID, and
 //     Confidence is set to INFERRED.
 //   - N candidates → the original edge is replaced with N AMBIGUOUS edges,
-//     one per candidate. The synthetic call node is preserved so the
-//     original-callee identity is still discoverable.
+//     one per candidate (sorted for deterministic output). The synthetic
+//     call node is preserved as an anchor for the original-callee identity
+//     so the edge expansion doesn't erase the "we observed this name" fact.
 //
-// Synthetic call-target nodes that no longer have any incoming edges are
+// Synthetic call-target nodes that no longer have any incoming edges (i.e.,
+// the only edge pointing at them got upgraded to a real function ID) are
 // pruned from the node list.
 func Calls(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Edge) {
 	idx := buildFunctionIndex(nodes)
 
 	out := make([]schema.Edge, 0, len(edges))
 	referenced := make(map[string]bool, len(nodes))
-	for _, n := range nodes {
-		_ = n
-	}
 	for _, e := range edges {
 		if e.Relation != "calls" {
 			out = append(out, e)
@@ -57,7 +67,6 @@ func Calls(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Ed
 			out = append(out, upgraded)
 			referenced[upgraded.Target] = true
 		default:
-			// Sort for determinism so AMBIGUOUS edges appear in stable order.
 			sorted := append([]string(nil), candidates...)
 			sort.Strings(sorted)
 			for _, cand := range sorted {
@@ -69,6 +78,9 @@ func Calls(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Ed
 				})
 				referenced[cand] = true
 			}
+			// Anchor: keep the synthetic call: node alive so the original
+			// callee identity is still discoverable in the graph.
+			referenced[e.Target] = true
 		}
 	}
 
@@ -99,35 +111,43 @@ func buildFunctionIndex(nodes []schema.Node) map[langLabel][]string {
 	return idx
 }
 
+// Legacy ID-prefix constants for the Go and Python extractors, which predate
+// the shared LangID scheme. Centralizing them here means a scheme change
+// breaks compilation rather than silently mis-resolving in functionNodeLang.
+const (
+	legacyGoFnPrefix = "fn:"
+	legacyPyFnPrefix = "py:fn:"
+)
+
 // functionNodeLang returns the language prefix and true if id refers to a
 // function or method node, otherwise ("", false). Handles the legacy Go and
-// Python ID schemes (which predate LangID) plus the shared
-// "<lang>:function:..." / "<lang>:method:..." form.
+// Python ID schemes plus the shared "<lang>:function:..." / "<lang>:method:..."
+// form (every other language).
 func functionNodeLang(id string) (string, bool) {
 	switch {
-	case strings.HasPrefix(id, "fn:"):
-		return "go", true
-	case strings.HasPrefix(id, "py:fn:"):
+	case hasPrefix(id, legacyPyFnPrefix):
 		return "py", true
+	case hasPrefix(id, legacyGoFnPrefix):
+		return "go", true
 	}
-	parts := strings.SplitN(id, ":", 3)
-	if len(parts) < 3 {
+	lang, kind, _, ok := schema.ParseLangID(id)
+	if !ok {
 		return "", false
 	}
-	if parts[1] == "function" || parts[1] == "method" {
-		return parts[0], true
+	if kind == "function" || kind == "method" {
+		return lang, true
 	}
 	return "", false
 }
 
 // parseCallTarget splits a "<lang>:call:<name>" ID into its parts. Returns
-// ok=false for any other shape so the resolver can leave it alone.
+// ok=false for any other shape.
 func parseCallTarget(id string) (lang, name string, ok bool) {
-	parts := strings.SplitN(id, ":", 3)
-	if len(parts) != 3 || parts[1] != "call" {
+	lang, kind, name, ok := schema.ParseLangID(id)
+	if !ok || kind != "call" {
 		return "", "", false
 	}
-	return parts[0], parts[2], true
+	return lang, name, true
 }
 
 // isSyntheticCallTarget reports whether id is a synthetic call-target node
@@ -135,4 +155,10 @@ func parseCallTarget(id string) (lang, name string, ok bool) {
 func isSyntheticCallTarget(id string) bool {
 	_, _, ok := parseCallTarget(id)
 	return ok
+}
+
+// hasPrefix is a tiny helper so functionNodeLang's prefix table reads cleanly
+// and we don't pull strings just for that one call site.
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }

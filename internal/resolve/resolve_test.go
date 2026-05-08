@@ -32,6 +32,29 @@ func TestCallsResolvesUniqueCandidateAsInferred(t *testing.T) {
 	}
 }
 
+func TestCallsAmbiguousPreservesSyntheticAnchor(t *testing.T) {
+	// The package doc commits to preserving the synthetic call-target node
+	// when fanning out AMBIGUOUS edges so the original-callee identity is
+	// still discoverable in the graph. Regression test against doc/code
+	// mismatch.
+	nodes := []schema.Node{
+		{ID: "fn:/a.go:a.foo", Label: "foo"},
+		{ID: "fn:/b.go:b.foo", Label: "foo"},
+		{ID: "fn:/m.go:main.bar", Label: "bar"},
+		{ID: "go:call:foo", Label: "foo"},
+	}
+	edges := []schema.Edge{
+		{Source: "fn:/m.go:main.bar", Target: "go:call:foo", Relation: "calls", Confidence: schema.Extracted},
+	}
+	gotN, _ := Calls(nodes, edges)
+	for _, n := range gotN {
+		if n.ID == "go:call:foo" {
+			return
+		}
+	}
+	t.Fatalf("AMBIGUOUS fan-out pruned the synthetic anchor; nodes=%v", gotN)
+}
+
 func TestCallsAmbiguousFanOutsToAllCandidates(t *testing.T) {
 	nodes := []schema.Node{
 		{ID: "fn:/a.go:a.foo", Label: "foo"},

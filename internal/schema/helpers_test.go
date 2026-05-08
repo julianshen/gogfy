@@ -44,6 +44,33 @@ func TestPythonHelpers(t *testing.T) {
 	}
 }
 
+func TestParseLangIDRoundTrip(t *testing.T) {
+	cases := []struct{ lang, kind, key string }{
+		{"go", "call", "Println"},
+		{"py", "function", "/abs/path:bar"},
+		{"rust", "call", "std::collections::HashMap"},
+	}
+	for _, c := range cases {
+		id := LangID(c.lang, c.kind, c.key)
+		gotLang, gotKind, gotKey, ok := ParseLangID(id)
+		if !ok {
+			t.Fatalf("ParseLangID(%q) failed", id)
+		}
+		if gotLang != c.lang || gotKind != c.kind || gotKey != c.key {
+			t.Fatalf("round-trip mismatch for %q: got (%q,%q,%q), want (%q,%q,%q)",
+				id, gotLang, gotKind, gotKey, c.lang, c.kind, c.key)
+		}
+	}
+}
+
+func TestParseLangIDRejectsMalformed(t *testing.T) {
+	for _, bad := range []string{"", "no-colons", "only:two-parts"} {
+		if _, _, _, ok := ParseLangID(bad); ok {
+			t.Fatalf("ParseLangID(%q) should have returned ok=false", bad)
+		}
+	}
+}
+
 func TestSortNodesByID(t *testing.T) {
 	nodes := []Node{{ID: "c"}, {ID: "a"}, {ID: "b"}}
 	SortNodesByID(nodes)
