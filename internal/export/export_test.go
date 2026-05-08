@@ -98,6 +98,24 @@ func TestExportHTMLContainsInteractiveFeatures(t *testing.T) {
 	}
 }
 
+func TestExportHTMLEmptyGraphDoesNotCrashViewer(t *testing.T) {
+	// Empty GraphExport{} has nil Nodes/Edges. Default json.Marshal encodes
+	// them as `null`, which would make the viewer's `DATA.nodes.map(...)`
+	// throw `TypeError: Cannot read properties of null` and the page would
+	// fail to render at all. Output must contain `[]`, not `null`.
+	data, err := ExportHTML(GraphExport{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(data)
+	if strings.Contains(html, `"nodes":null`) || strings.Contains(html, `"edges":null`) {
+		t.Fatalf("empty graph emitted as null arrays — viewer would crash on .map() of null")
+	}
+	if !strings.Contains(html, `"nodes":[]`) || !strings.Contains(html, `"edges":[]`) {
+		t.Fatal("expected empty-array payload `\"nodes\":[]` and `\"edges\":[]`")
+	}
+}
+
 func TestExportHTMLEscapesPayloadSafely(t *testing.T) {
 	// Adversarial labels should not be able to break out of the JS string
 	// literal that the JSON payload is interpolated into.

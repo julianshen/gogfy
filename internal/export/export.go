@@ -32,7 +32,17 @@ const htmlPlaceholder = "/*__DATA__*/null"
 // payload inlined as a JS literal. Opens in any modern browser; no external
 // network needed. Renders an SVG force-directed layout with search filtering,
 // a community legend, and a click-to-inspect panel.
+//
+// Nil Nodes/Edges are normalized to empty slices before marshaling so the
+// viewer's `DATA.nodes.map(...)` doesn't throw `TypeError: null` for
+// otherwise-valid empty graphs.
 func ExportHTML(g GraphExport) ([]byte, error) {
+	if g.Nodes == nil {
+		g.Nodes = []schema.Node{}
+	}
+	if g.Edges == nil {
+		g.Edges = []schema.Edge{}
+	}
 	payload, err := json.Marshal(g)
 	if err != nil {
 		return nil, err
