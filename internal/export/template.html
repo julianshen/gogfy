@@ -107,18 +107,42 @@ for (const n of nodes) {
   nodesG.appendChild(g);
 }
 
+// Spatial grid: cap pairwise repulsion to nodes within ±1 cell. Average
+// O(N) per frame vs the all-pairs O(N²) walk, which keeps the simulation
+// responsive for graphs of a few thousand nodes. Beyond that a Barnes-Hut
+// quadtree would scale further.
+const GRID = 80;
+const grid = new Map();
+function gridKey(x, y) { return ((x / GRID) | 0) + "," + ((y / GRID) | 0); }
+function rebuildGrid() {
+  grid.clear();
+  for (const n of nodes) {
+    const k = gridKey(n.x, n.y);
+    let bucket = grid.get(k);
+    if (!bucket) { bucket = []; grid.set(k, bucket); }
+    bucket.push(n);
+  }
+}
+
 function step() {
   const k = 30, repel = 1500, center = 0.01, damping = 0.85;
   for (const n of nodes) { n.fx = (W/2 - n.x) * center; n.fy = (H/2 - n.y) * center; }
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i+1; j < nodes.length; j++) {
-      const a = nodes[i], b = nodes[j];
-      const dx = a.x - b.x, dy = a.y - b.y;
-      const d2 = dx*dx + dy*dy + 0.01;
-      const f = repel / d2;
-      const d = Math.sqrt(d2);
-      a.fx += (dx/d)*f; a.fy += (dy/d)*f;
-      b.fx -= (dx/d)*f; b.fy -= (dy/d)*f;
+  rebuildGrid();
+  for (const a of nodes) {
+    const cx = (a.x / GRID) | 0, cy = (a.y / GRID) | 0;
+    for (let gx = -1; gx <= 1; gx++) {
+      for (let gy = -1; gy <= 1; gy++) {
+        const bucket = grid.get((cx + gx) + "," + (cy + gy));
+        if (!bucket) continue;
+        for (const b of bucket) {
+          if (b === a) continue;
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const d2 = dx*dx + dy*dy + 0.01;
+          const f = repel / d2;
+          const d = Math.sqrt(d2);
+          a.fx += (dx/d)*f; a.fy += (dy/d)*f;
+        }
+      }
     }
   }
   for (const e of edges) {
@@ -154,10 +178,18 @@ let dragging = false, dragStartX = 0, dragStartY = 0;
 svg.addEventListener("mousedown", e => { dragging = true; dragStartX = e.clientX - tx; dragStartY = e.clientY - ty; });
 window.addEventListener("mousemove", e => { if (!dragging) return; tx = e.clientX - dragStartX; ty = e.clientY - dragStartY; applyTransform(); });
 window.addEventListener("mouseup", () => dragging = false);
+// Zoom-to-mouse: anchor the zoom on the cursor's SVG-local point so the
+// graph doesn't drift away under the pointer.
 svg.addEventListener("wheel", e => {
   e.preventDefault();
   const factor = Math.exp(-e.deltaY * 0.001);
-  scale = Math.max(0.2, Math.min(5, scale * factor));
+  const newScale = Math.max(0.2, Math.min(5, scale * factor));
+  const rect = svg.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  tx = x - (x - tx) * (newScale / scale);
+  ty = y - (y - ty) * (newScale / scale);
+  scale = newScale;
   applyTransform();
 }, { passive: false });
 
