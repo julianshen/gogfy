@@ -301,6 +301,35 @@ func helper() {}
 		formatEdges(res.Edges, "calls"))
 }
 
+func TestRustMethodCallStripsReceiver(t *testing.T) {
+	// Rust represents `obj.foo()` as a call_expression whose function child
+	// is a `field_expression` (not selector_expression). Without that kind
+	// in callTargetName's switch, the callee fell through to the verbatim-
+	// text fallback and produced `rust:call:obj.foo`. After the fix, the
+	// receiver is stripped and the call target is `rust:call:foo`.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lib.rs")
+	if err := os.WriteFile(path, []byte(`fn caller() {
+    obj.foo();
+}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RustExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEdge(res, "calls", ":caller", "rust:call:foo") {
+		t.Fatalf("expected receiver-stripped target rust:call:foo; edges=%s",
+			formatEdges(res.Edges, "calls"))
+	}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && strings.Contains(e.Target, "obj.foo") {
+			t.Fatalf("receiver leaked into target: %q", e.Target)
+		}
+	}
+}
+
 func TestCallEdgesUseModuleSourceForTopLevelCalls(t *testing.T) {
 	// A call outside any function should source from the file's module
 	// node, not silently disappear.

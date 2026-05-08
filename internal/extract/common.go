@@ -95,7 +95,7 @@ func callTargetName(fn *sitter.Node, src []byte) string {
 	case "identifier", "field_identifier":
 		return fn.Utf8Text(src)
 	case "selector_expression", "member_expression", "attribute",
-		"scoped_identifier", "field_access":
+		"scoped_identifier", "field_access", "field_expression":
 		// The last identifier-bearing child is the called name (the
 		// receiver/qualifier comes first).
 		if id := lastChildOfKind(fn, "identifier", "field_identifier", "property_identifier"); id != nil {
