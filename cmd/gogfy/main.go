@@ -52,6 +52,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		update := fs.Bool("update", false, "incremental update")
 		out := fs.String("out", "graphify-out", "output directory")
 		directed := fs.Bool("directed", false, "render edges with arrowheads in graph.html")
+		graphml := fs.Bool("graphml", false, "also emit graph.graphml (Gephi/yEd)")
+		cypher := fs.Bool("cypher", false, "also emit graph.cypher (Neo4j MERGE script)")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
@@ -59,7 +61,7 @@ func dispatch(args []string, stderr io.Writer) error {
 			usage(stderr)
 			return fmt.Errorf("run: missing <root>")
 		}
-		return runPipeline(fs.Arg(0), *out, *update, *directed)
+		return runPipeline(fs.Arg(0), *out, *update, *directed, runOptions{GraphML: *graphml, Cypher: *cypher})
 	case "validate":
 		if len(rest) < 1 {
 			usage(stderr)
@@ -96,7 +98,7 @@ func dispatch(args []string, stderr io.Writer) error {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed]")
+	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed] [--graphml] [--cypher]")
 	fmt.Fprintln(w, "       gogfy watch <root> [--out dir] [--directed]")
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
@@ -106,7 +108,7 @@ func usage(w io.Writer) {
 // in sync with corpus changes. Returns when the OS signals SIGINT/SIGTERM
 // or the watcher errors out unrecoverably.
 func watchCommand(root, out string, directed bool, stderr io.Writer) error {
-	if err := runPipeline(root, out, false, directed); err != nil {
+	if err := runPipeline(root, out, false, directed, runOptions{}); err != nil {
 		return fmt.Errorf("initial build: %w", err)
 	}
 	stop := make(chan struct{})
@@ -121,7 +123,7 @@ func watchCommand(root, out string, directed bool, stderr io.Writer) error {
 		Logger:     stderr,
 	}, stop, func(_ []string) error {
 		// Re-run with --update so the cache filters to changed files only.
-		return runPipeline(root, out, true, directed)
+		return runPipeline(root, out, true, directed, runOptions{})
 	})
 }
 
@@ -171,7 +173,15 @@ func supportedExtensionsList() []string {
 	return exts
 }
 
-func runPipeline(root, out string, update, directed bool) error {
+// runOptions bundles optional artifact toggles that have grown beyond the
+// signature comfort zone. New formats land here rather than as positional
+// bools.
+type runOptions struct {
+	GraphML bool
+	Cypher  bool
+}
+
+func runPipeline(root, out string, update, directed bool, opts runOptions) error {
 	files, err := detect.CollectFiles(root, supportedExtensionsList())
 	if err != nil {
 		return fmt.Errorf("detect: %w", err)
@@ -266,6 +276,26 @@ func runPipeline(root, out string, update, directed bool) error {
 		{"GRAPH_REPORT.md", reportBytes},
 		{"graph.html", htmlBytes},
 	}
+	if opts.GraphML {
+		b, err := export.ExportGraphML(exportGraph)
+		if err != nil {
+			return fmt.Errorf("export graphml: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.graphml", b})
+	}
+	if opts.Cypher {
+		b, err := export.ExportCypher(exportGraph)
+		if err != nil {
+			return fmt.Errorf("export cypher: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.cypher", b})
+	}
 	for _, a := range artifacts {
 		if err := atomicWrite(filepath.Join(out, a.name), a.data); err != nil {
 			return fmt.Errorf("write %s: %w", a.name, err)
@@ -330,7 +360,8 @@ func groupRunFlags(args []string) ([]string, error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
-		case a == "--update", a == "-update", a == "--directed", a == "-directed":
+		case a == "--update", a == "-update", a == "--directed", a == "-directed",
+			a == "--graphml", a == "-graphml", a == "--cypher", a == "-cypher":
 			flags = append(flags, a)
 		case a == "--out", a == "-out":
 			if i+1 >= len(args) {
@@ -340,7 +371,9 @@ func groupRunFlags(args []string) ([]string, error) {
 			i++
 		case strings.HasPrefix(a, "--out="), strings.HasPrefix(a, "-out="),
 			strings.HasPrefix(a, "--update="), strings.HasPrefix(a, "-update="),
-			strings.HasPrefix(a, "--directed="), strings.HasPrefix(a, "-directed="):
+			strings.HasPrefix(a, "--directed="), strings.HasPrefix(a, "-directed="),
+			strings.HasPrefix(a, "--graphml="), strings.HasPrefix(a, "-graphml="),
+			strings.HasPrefix(a, "--cypher="), strings.HasPrefix(a, "-cypher="):
 			flags = append(flags, a)
 		case strings.HasPrefix(a, "-"):
 			return nil, fmt.Errorf("unknown flag: %s", a)
