@@ -104,6 +104,16 @@ var supportedExtensions = map[string]extract.Extractor{
 	".yaml":  extract.YAMLExtractor{},
 	".yml":   extract.YAMLExtractor{},
 	".toml":  extract.TOMLExtractor{},
+	".kt":    extract.KotlinExtractor{},
+	".kts":   extract.KotlinExtractor{},
+	".scala": extract.ScalaExtractor{},
+	".sc":    extract.ScalaExtractor{},
+	".php":   extract.PHPExtractor{},
+	".lua":   extract.LuaExtractor{},
+	".zig":   extract.ZigExtractor{},
+	".jl":    extract.JuliaExtractor{},
+	".sh":    extract.BashExtractor{},
+	".bash":  extract.BashExtractor{},
 }
 
 func supportedExtensionsList() []string {
