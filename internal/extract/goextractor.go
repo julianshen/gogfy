@@ -82,6 +82,7 @@ func (GoExtractor) Extract(path string) (Result, error) {
 	}
 	tree := parser.Parse(src, nil)
 	defer tree.Close()
+	warnIfParseError(absPath, tree)
 
 	cursor := tree.Walk()
 	defer cursor.Close()

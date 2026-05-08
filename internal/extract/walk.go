@@ -1,6 +1,8 @@
 package extract
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"unsafe"
@@ -8,6 +10,27 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
+
+// ParseErrorLogger receives stderr-bound warnings about files that produced
+// parser errors (tree-sitter ERROR/MISSING nodes). Tests override it to
+// assert; production leaves the default. Set to io.Discard to silence.
+//
+// Tree-sitter's HasError can occasionally false-positive on grammar edge
+// cases (some Go generics shapes, partial templated YAML, etc.) — the
+// warning is advisory and never fails the build.
+var ParseErrorLogger io.Writer = os.Stderr
+
+// warnIfParseError emits one stderr line when the parsed tree has any ERROR
+// or MISSING nodes. Centralized so per-extractor parse paths can call this
+// without duplicating the format string (and without double-firing when an
+// extractor uses both its own parser AND parseFile).
+func warnIfParseError(absPath string, tree *sitter.Tree) {
+	if tree.RootNode().HasError() {
+		fmt.Fprintf(ParseErrorLogger,
+			"gogfy: parse warning: %s contains syntax errors; extraction may be incomplete\n",
+			absPath)
+	}
+}
 
 // parsedFile bundles the tree-sitter parse output and source bytes for one file,
 // along with a single cleanup func that closes the parser/tree/cursor.
@@ -51,6 +74,7 @@ func parseFile(path string, lang unsafe.Pointer) (*parsedFile, error) {
 		return nil, err
 	}
 	tree := parser.Parse(src, nil)
+	warnIfParseError(abs, tree)
 	cursor := tree.Walk()
 	return &parsedFile{
 		src:     src,

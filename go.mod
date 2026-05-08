@@ -3,6 +3,7 @@ module github.com/julianshen/gogfy
 go 1.24
 
 require (
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/tree-sitter-grammars/tree-sitter-kotlin v1.1.0
 	github.com/tree-sitter-grammars/tree-sitter-lua v0.5.0
@@ -26,4 +27,7 @@ require (
 	github.com/vsuryav/leiden-go v0.0.0-20251120005855-0f56599dc139
 )
 
-require github.com/mattn/go-pointer v0.0.1 // indirect
+require (
+	github.com/mattn/go-pointer v0.0.1 // indirect
+	golang.org/x/sys v0.13.0 // indirect
+)
