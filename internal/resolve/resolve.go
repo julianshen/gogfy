@@ -67,9 +67,10 @@ func Calls(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Ed
 			out = append(out, upgraded)
 			referenced[upgraded.Target] = true
 		default:
-			sorted := append([]string(nil), candidates...)
-			sort.Strings(sorted)
-			for _, cand := range sorted {
+			// candidates was sorted once at index-build time, so the
+			// emitted edges are already deterministic without per-edge
+			// re-sorting.
+			for _, cand := range candidates {
 				out = append(out, schema.Edge{
 					Source:     e.Source,
 					Target:     cand,
@@ -97,7 +98,9 @@ func Calls(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Ed
 type langLabel struct{ lang, label string }
 
 // buildFunctionIndex maps (lang, label) → [function-node IDs] across the
-// graph so the resolver can find call candidates by name.
+// graph so the resolver can find call candidates by name. Each bucket is
+// sorted once here so the AMBIGUOUS edge expansion in Calls doesn't need
+// to re-sort per call site.
 func buildFunctionIndex(nodes []schema.Node) map[langLabel][]string {
 	idx := map[langLabel][]string{}
 	for _, n := range nodes {
@@ -107,6 +110,9 @@ func buildFunctionIndex(nodes []schema.Node) map[langLabel][]string {
 		}
 		key := langLabel{lang, n.Label}
 		idx[key] = append(idx[key], n.ID)
+	}
+	for k := range idx {
+		sort.Strings(idx[k])
 	}
 	return idx
 }
