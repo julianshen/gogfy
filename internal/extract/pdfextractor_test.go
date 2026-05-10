@@ -107,6 +107,26 @@ func TestPDFExtractorFallsBackToBasenameWhenNoTitle(t *testing.T) {
 	}
 }
 
+func TestPDFExtractorBodyWithoutURLsEmitsModuleOnly(t *testing.T) {
+	// Pins the contract that a readable PDF with no URLs in its text
+	// produces exactly one module node and zero reference edges. Most
+	// real-world PDFs have no URLs; a future refactor of urlEdges /
+	// extractURLs that started emitting spurious edges would be silent
+	// otherwise.
+	dir := t.TempDir()
+	path := writePDF(t, dir, "plain.pdf", "Plain Title", "Body with no links here.")
+	res, err := PDFExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Nodes) != 1 {
+		t.Fatalf("expected exactly 1 module node, got %d (%+v)", len(res.Nodes), res.Nodes)
+	}
+	if len(res.Edges) != 0 {
+		t.Fatalf("expected 0 edges, got %+v", res.Edges)
+	}
+}
+
 func TestPDFExtractorMalformedReturnsError(t *testing.T) {
 	// Bytes that don't start with %PDF — Open should error.
 	dir := t.TempDir()
