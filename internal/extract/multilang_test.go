@@ -636,6 +636,24 @@ let main () = print_endline (greet "world")
 	})
 }
 
+func TestSvelteExtractorReexports(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "svelte re-export",
+		filename: "index.svelte",
+		source: `<script>
+  export { default as Btn } from './Button.svelte';
+  export * from './utils';
+</script>
+`,
+		extractor: SvelteExtractor{}.Extract,
+		wantNodes: []string{"index.svelte"},
+		wantEdges: []string{
+			"svelte:import:./Button.svelte",
+			"svelte:import:./utils",
+		},
+	})
+}
+
 func TestSvelteExtractorImports(t *testing.T) {
 	runExtractorCase(t, extractorCase{
 		name:     "svelte basic",

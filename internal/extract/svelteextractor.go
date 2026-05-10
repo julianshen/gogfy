@@ -23,24 +23,31 @@ func (SvelteExtractor) Extract(path string) (Result, error) {
 	return runExtraction(path, tree_sitter_svelte.Language(), "svelte", walkSvelte)
 }
 
-// importLineRE matches the common ESM import shapes used in Svelte
+// importLineRE matches the common ESM `import` shapes used in Svelte
 // `<script>` blocks: `import X from "path"`, `import {x,y} from "path"`,
-// `import * as X from "path"`. Single or double quotes; trailing semicolon
-// optional. Multi-line imports are handled by scanning the entire script
-// text in one pass.
+// `import * as X from "path"`.
 var importLineRE = regexp.MustCompile(`(?m)^\s*import\s+[^'"]*?\s*from\s+['"]([^'"]+)['"]\s*;?`)
+
+// reexportLineRE matches `export … from "path"` re-export shapes — common
+// in Svelte index/barrel files: `export {x} from "path"`,
+// `export * from "path"`, `export * as X from "path"`.
+var reexportLineRE = regexp.MustCompile(`(?m)^\s*export\s+[^'"]*?\s*from\s+['"]([^'"]+)['"]\s*;?`)
 
 // bareImportRE matches `import "side-effect-only"` style imports.
 var bareImportRE = regexp.MustCompile(`(?m)^\s*import\s+['"]([^'"]+)['"]\s*;?`)
 
 func walkSvelte(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	node := cursor.Node()
-	if node.Kind() == "script_element" {
-		// Pull the raw script text and scan for imports — Svelte's grammar
-		// keeps the JS body opaque (kind="raw_text"), so we don't have an
-		// AST to walk inside the script.
+	if node.Kind() == "raw_text" {
+		// Inside a Svelte <script>/<style>, the body is exposed as a single
+		// `raw_text` child. Scan it (not the full `script_element` text,
+		// which would also include the surrounding tags and could match
+		// import-like substrings inside attribute values).
 		text := node.Utf8Text(src)
 		for _, m := range importLineRE.FindAllStringSubmatch(text, -1) {
+			state.addImport(m[1])
+		}
+		for _, m := range reexportLineRE.FindAllStringSubmatch(text, -1) {
 			state.addImport(m[1])
 		}
 		for _, m := range bareImportRE.FindAllStringSubmatch(text, -1) {
