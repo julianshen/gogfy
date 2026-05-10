@@ -67,7 +67,7 @@ func (DocxExtractor) Extract(path string) (Result, error) {
 		return docxBareModule(abs), nil
 	}
 
-	rels := parseDocxRels(relsXML)
+	rels := parseOOXMLRels(relsXML, relTypeHyperlink)
 
 	state := &extractState{lang: "docx", filePath: abs}
 	moduleID := schema.LangID("docx", "module", abs)
@@ -109,11 +109,17 @@ func readZipFile(f *zip.File) ([]byte, error) {
 	return io.ReadAll(rc)
 }
 
-// parseOOXMLRels parses an OOXML _rels file (e.g. word/_rels/document.xml.rels
-// or xl/_rels/workbook.xml.rels) into Id→Target. If `wantSuffix` is non-empty,
-// only relationships whose Type ends with that suffix are returned; otherwise
-// every relationship is included. Suffix filtering keeps image/embed
-// relationships out of hyperlink lookups.
+// OOXML relationship-type discriminators. Full URLs are
+// "http://schemas.openxmlformats.org/officeDocument/2006/relationships/<kind>"
+// — we only care about the trailing suffix for filtering.
+const (
+	relTypeHyperlink = "/hyperlink"
+	relTypeWorksheet = "/worksheet"
+)
+
+// parseOOXMLRels parses an OOXML _rels file into Id→Target. If wantSuffix
+// is non-empty, only relationships whose Type ends with it are returned —
+// keeps image/embed relationships out of hyperlink lookups.
 func parseOOXMLRels(data []byte, wantSuffix string) map[string]string {
 	out := map[string]string{}
 	if len(data) == 0 {
@@ -138,11 +144,6 @@ func parseOOXMLRels(data []byte, wantSuffix string) map[string]string {
 		out[r.ID] = r.Target
 	}
 	return out
-}
-
-// parseDocxRels is the docx-specific shorthand: hyperlinks only.
-func parseDocxRels(data []byte) map[string]string {
-	return parseOOXMLRels(data, "/hyperlink")
 }
 
 // walkDocxBody streams document.xml, accumulating per-paragraph text

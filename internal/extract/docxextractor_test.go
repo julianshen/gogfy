@@ -8,35 +8,13 @@ import (
 	"testing"
 )
 
-// writeMinimalDocx builds an in-memory .docx (zip with word/document.xml +
-// word/_rels/document.xml.rels) on disk and returns its path. The XML is
-// hand-written to mirror what Word/Pages/LibreOffice emit for a small doc
-// with a Title, two headings, a paragraph, and a hyperlink.
 func writeMinimalDocx(t *testing.T, dir, name, documentXML, relsXML string) string {
 	t.Helper()
-	path := filepath.Join(dir, name)
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	add := func(n, body string) {
-		w, err := zw.Create(n)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := w.Write([]byte(body)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	add("word/document.xml", documentXML)
+	parts := map[string]string{"word/document.xml": documentXML}
 	if relsXML != "" {
-		add("word/_rels/document.xml.rels", relsXML)
+		parts["word/_rels/document.xml.rels"] = relsXML
 	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return writeZipFixture(t, dir, name, parts)
 }
 
 func TestDocxExtractorTitleHeadingsAndHyperlink(t *testing.T) {

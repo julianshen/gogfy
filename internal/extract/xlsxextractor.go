@@ -9,31 +9,17 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
-// XlsxExtractor handles Excel .xlsx files. Like .docx, OOXML is a zip of
-// XML — but the part graph is richer:
+// XlsxExtractor handles Excel .xlsx files.
 //
-//   - xl/workbook.xml: lists sheets as `<sheet name="…" r:id="rIdN"/>`.
-//   - xl/_rels/workbook.xml.rels: resolves each sheet's r:id → relative
-//     path (e.g. `worksheets/sheet1.xml`).
-//   - xl/worksheets/sheetN.xml: per-sheet body. Contains
-//     `<hyperlinks><hyperlink ref="A1" r:id="rIdN"/></hyperlinks>` for
-//     external links.
-//   - xl/worksheets/_rels/sheetN.xml.rels: per-sheet rels file that
-//     resolves *that sheet's* hyperlink r:ids → URL Targets.
+// xlsx is a zip with a richer part graph than docx: xl/workbook.xml lists
+// sheets by r:id, xl/_rels/workbook.xml.rels resolves those ids to sheet
+// paths, and each sheet then has its own _rels file for hyperlinks. So we
+// resolve two rels graphs, not one.
 //
-// Schema (same shape as the other doc extractors):
-//
-//   - Workbook → module node, label = basename. (xlsx has no canonical
-//     "title" the way docx does; sheet names are user-meaningful but
-//     a workbook with one untitled "Sheet1" shouldn't hijack the label.)
-//   - Each sheet → section node, label = sheet name.
-//   - Each external hyperlink → reference edge sourced from its sheet
-//     section, target = `xlsx:link:<URL>`.
-//
-// Cell text isn't extracted: the shared-string table (xl/sharedStrings.xml)
-// would let us inline cell values, but for the knowledge-graph use case
-// the high-signal extracts are sheet names and outbound hyperlinks. Cell
-// content is mostly numeric/tabular and would mostly add noise.
+// Cell content is intentionally not extracted: the shared-string table
+// (xl/sharedStrings.xml) would let us inline cell values, but for the
+// knowledge-graph use case sheet names + outbound hyperlinks are the
+// high-signal extracts; cell text is mostly numeric/tabular noise.
 type XlsxExtractor struct{}
 
 func (XlsxExtractor) Extract(path string) (Result, error) {
@@ -72,15 +58,12 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 		ID:    moduleID,
 		Label: filepath.Base(abs),
 	})
-	state.fnStack = append(state.fnStack, moduleID)
 
 	workbookXML, err := readPart("xl/workbook.xml")
 	if err != nil {
 		return Result{}, err
 	}
 	if len(workbookXML) == 0 {
-		// Not an xlsx we recognize — bare module node so the file still
-		// appears in the graph.
 		return Result{Nodes: state.nodes}, nil
 	}
 
@@ -88,17 +71,14 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	// Workbook rels point to worksheets — not hyperlinks. Use the general
-	// helper with the worksheet-type suffix.
-	workbookRels := parseOOXMLRels(relsXML, "/worksheet")
+	workbookRels := parseOOXMLRels(relsXML, relTypeWorksheet)
 	sheets := parseXlsxSheets(workbookXML)
 
 	for _, s := range sheets {
-		// Sheet section node is emitted unconditionally — every sheet
-		// declared in xl/workbook.xml is part of the workbook's structure
-		// regardless of whether its worksheet part or rels can be resolved.
-		// Hyperlink extraction is what depends on those lookups; gating
-		// the section on them would silently drop sheets from the graph.
+		// Section emission is unconditional — sheets are declared in
+		// workbook.xml and belong in the graph regardless of whether
+		// the worksheet part or rels can be resolved. Only hyperlink
+		// extraction depends on resolution.
 		sectionID := schema.LangID("xlsx", "section", abs+":"+slugify(s.Name))
 		state.nodes = append(state.nodes, schema.Node{
 			ID:         sectionID,
@@ -106,8 +86,6 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 			SourceFile: abs,
 		})
 
-		// Resolve sheet path via the workbook rels. The Target is
-		// relative to xl/ (e.g. "worksheets/sheet1.xml" → "xl/worksheets/sheet1.xml").
 		target, ok := workbookRels[s.RelID]
 		if !ok {
 			continue
@@ -121,14 +99,13 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 			continue
 		}
 
-		// Per-sheet rels live next to the sheet. For "xl/worksheets/sheet1.xml"
-		// the rels path is "xl/worksheets/_rels/sheet1.xml.rels".
+		// Per-sheet rels: for "xl/worksheets/sheet1.xml" → "xl/worksheets/_rels/sheet1.xml.rels".
 		dir, file := filepath.Split(sheetPath)
 		sheetRelsXML, err := readPart(dir + "_rels/" + file + ".rels")
 		if err != nil {
 			return Result{}, err
 		}
-		sheetRels := parseOOXMLRels(sheetRelsXML, "/hyperlink")
+		sheetRels := parseOOXMLRels(sheetRelsXML, relTypeHyperlink)
 
 		for _, rid := range parseXlsxHyperlinks(sheetXML) {
 			url, ok := sheetRels[rid]
@@ -152,16 +129,13 @@ type xlsxSheet struct {
 	RelID string
 }
 
-// parseXlsxSheets parses xl/workbook.xml's <sheets><sheet name="…" r:id="…"/></sheets>.
-// Sheet order is preserved so the section nodes appear in workbook order
-// (matters for deterministic graph output).
 func parseXlsxSheets(data []byte) []xlsxSheet {
 	if len(data) == 0 {
 		return nil
 	}
 	type sheet struct {
 		Name  string `xml:"name,attr"`
-		RelID string `xml:"id,attr"` // namespaced as r:id; Go collapses to local name
+		RelID string `xml:"id,attr"` // r:id — Go's xml decoder matches namespaced attrs by local name
 	}
 	type sheets struct {
 		Sheets []sheet `xml:"sheets>sheet"`
@@ -180,9 +154,6 @@ func parseXlsxSheets(data []byte) []xlsxSheet {
 	return out
 }
 
-// parseXlsxHyperlinks returns the r:id of every <hyperlink> child of the
-// worksheet's <hyperlinks> block. The actual URL is in the per-sheet
-// rels; we just collect the IDs here.
 func parseXlsxHyperlinks(data []byte) []string {
 	if len(data) == 0 {
 		return nil

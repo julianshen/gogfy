@@ -1,38 +1,8 @@
 package extract
 
 import (
-	"archive/zip"
-	"bytes"
-	"os"
-	"path/filepath"
 	"testing"
 )
-
-// writeMinimalXlsx builds a small in-memory .xlsx and returns its path.
-// Each entry in `parts` becomes a file inside the zip; missing parts
-// (workbook.xml, sheet, rels) let tests probe degraded inputs.
-func writeMinimalXlsx(t *testing.T, dir, name string, parts map[string]string) string {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	for n, body := range parts {
-		w, err := zw.Create(n)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := w.Write([]byte(body)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
 
 func TestXlsxExtractorSheetsAndHyperlinks(t *testing.T) {
 	dir := t.TempDir()
@@ -66,7 +36,7 @@ func TestXlsxExtractorSheetsAndHyperlinks(t *testing.T) {
 </Relationships>`,
 		"xl/worksheets/sheet2.xml": `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>`,
 	}
-	path := writeMinimalXlsx(t, dir, "book.xlsx", parts)
+	path := writeZipFixture(t, dir, "book.xlsx", parts)
 
 	res, err := XlsxExtractor{}.Extract(path)
 	if err != nil {
@@ -129,7 +99,7 @@ func TestXlsxExtractorHyperlinkAttributedToOwnSheet(t *testing.T) {
   <Relationship Id="rIdBeta" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/beta" TargetMode="External"/>
 </Relationships>`,
 	}
-	path := writeMinimalXlsx(t, dir, "book.xlsx", parts)
+	path := writeZipFixture(t, dir, "book.xlsx", parts)
 	res, err := XlsxExtractor{}.Extract(path)
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +145,7 @@ func TestXlsxExtractorSheetSectionEmittedWhenRelsUnresolvable(t *testing.T) {
 </Relationships>`,
 		"xl/worksheets/sheet1.xml": `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>`,
 	}
-	path := writeMinimalXlsx(t, dir, "partial.xlsx", parts)
+	path := writeZipFixture(t, dir, "partial.xlsx", parts)
 	res, err := XlsxExtractor{}.Extract(path)
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +163,7 @@ func TestXlsxExtractorSheetSectionEmittedWhenRelsUnresolvable(t *testing.T) {
 
 func TestXlsxExtractorMissingWorkbookReturnsBareModule(t *testing.T) {
 	dir := t.TempDir()
-	path := writeMinimalXlsx(t, dir, "weird.xlsx", map[string]string{
+	path := writeZipFixture(t, dir, "weird.xlsx", map[string]string{
 		"dummy.txt": "",
 	})
 	res, err := XlsxExtractor{}.Extract(path)
@@ -217,7 +187,7 @@ func TestXlsxExtractorSheetWithoutHyperlinksProducesNoEdges(t *testing.T) {
 </Relationships>`,
 		"xl/worksheets/sheet1.xml": `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>`,
 	}
-	path := writeMinimalXlsx(t, dir, "plain.xlsx", parts)
+	path := writeZipFixture(t, dir, "plain.xlsx", parts)
 	res, err := XlsxExtractor{}.Extract(path)
 	if err != nil {
 		t.Fatal(err)
