@@ -597,6 +597,29 @@ func TestDispatchHookHonorsCustomFlags(t *testing.T) {
 	}
 }
 
+func TestDispatchHookStatus(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "status", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatalf("dispatch hook status: %v", err)
+	}
+	// Install both hooks then re-run status — should still succeed.
+	if err := dispatch([]string{"hook", "install", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "status", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatalf("dispatch hook status (post-install): %v", err)
+	}
+}
+
+func TestDispatchHookRejectsUnknownVerbAfterStatus(t *testing.T) {
+	if err := dispatch([]string{"hook", "wat"}, os.Stderr); err == nil {
+		t.Fatal("expected error for unknown verb")
+	}
+}
+
 func TestDispatchComboInstallClaude(t *testing.T) {
 	ws := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {

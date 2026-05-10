@@ -248,6 +248,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy uninstall-instructions [--file <path>]")
 	fmt.Fprintln(w, "       gogfy hook install [--repo <dir>] [--gogfy-bin <path>] [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy hook uninstall [--repo <dir>]")
+	fmt.Fprintln(w, "       gogfy hook status [--repo <dir>]")
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini> install   # combo: mcp + snippet + hook in one shot")
@@ -372,8 +373,11 @@ func hookCommand(args []string, stderr io.Writer) error {
 		return fmt.Errorf("hook: missing verb (install|uninstall)")
 	}
 	verb, rest := args[0], args[1:]
+	if verb == "status" {
+		return hookStatusCommand(rest, os.Stdout, stderr)
+	}
 	if verb != "install" && verb != "uninstall" {
-		return fmt.Errorf("hook: unknown verb %q (expected install or uninstall)", verb)
+		return fmt.Errorf("hook: unknown verb %q (expected install, uninstall, or status)", verb)
 	}
 	fs := flag.NewFlagSet("hook "+verb, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -412,6 +416,31 @@ func hookCommand(args []string, stderr io.Writer) error {
 		return fmt.Errorf("hook install: %w", err)
 	}
 	fmt.Fprintf(stderr, "gogfy: post-commit auto-rebuild installed at %s\n", githook.HookPath(abs))
+	return nil
+}
+
+// hookStatusCommand reports per-hook install state.
+func hookStatusCommand(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("hook status", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repo := fs.String("repo", ".", "git repository root (defaults to cwd)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("hook status: unexpected positional arguments: %v", fs.Args())
+	}
+	abs, err := filepath.Abs(*repo)
+	if err != nil {
+		return err
+	}
+	for _, st := range githook.Status(abs) {
+		state := "not installed"
+		if st.Installed {
+			state = "installed"
+		}
+		fmt.Fprintf(stdout, "%-15s %s    (%s)\n", st.Name, state, st.Path)
+	}
 	return nil
 }
 

@@ -502,6 +502,96 @@ func TestInstallHonorsCoreHooksPathEndToEnd(t *testing.T) {
 	}
 }
 
+func TestInstallWritesBothPostCommitAndPostCheckout(t *testing.T) {
+	root := makeRepo(t)
+	if err := Install(root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"post-commit", "post-checkout"} {
+		path := HookPathFor(root, name)
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("%s not installed: %v", name, err)
+		}
+	}
+}
+
+func TestPostCheckoutHookGuardsOnBranchFlag(t *testing.T) {
+	// post-checkout receives ($1=prev_HEAD $2=new_HEAD $3=branch_flag).
+	// Single-file checkouts pass branch_flag=0 — those must not trigger
+	// a rebuild. Only branch_flag=1 (real branch checkout) should run gogfy.
+	root := makeRepo(t)
+	if err := Install(root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(HookPathFor(root, "post-checkout"))
+	s := string(data)
+	if !strings.Contains(s, `"${3-0}" = "1"`) {
+		t.Fatalf("post-checkout missing branch_flag guard:\n%s", s)
+	}
+	// Guard must use if/then (not bare exit 0) so other tools' hook
+	// content following ours isn't short-circuited.
+	if strings.Contains(s, "exit 0") {
+		t.Fatalf("post-checkout uses bare exit 0 — would short-circuit other tools:\n%s", s)
+	}
+	// post-commit must NOT have the guard (it always runs).
+	commit, _ := os.ReadFile(HookPathFor(root, "post-commit"))
+	if strings.Contains(string(commit), `"${3-0}"`) {
+		t.Fatalf("post-commit must not have branch_flag guard:\n%s", commit)
+	}
+}
+
+func TestUninstallRemovesBothHooks(t *testing.T) {
+	root := makeRepo(t)
+	if err := Install(root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Uninstall(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"post-commit", "post-checkout"} {
+		if _, err := os.Stat(HookPathFor(root, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s should be removed (gogfy was sole content), err=%v", name, err)
+		}
+	}
+}
+
+func TestStatusReportsBothHooks(t *testing.T) {
+	root := makeRepo(t)
+	statuses := Status(root)
+	if len(statuses) != 2 {
+		t.Fatalf("expected 2 statuses, got %d: %+v", len(statuses), statuses)
+	}
+	for _, st := range statuses {
+		if st.Installed {
+			t.Fatalf("expected uninstalled before Install: %+v", st)
+		}
+	}
+	if err := Install(root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	statuses = Status(root)
+	for _, st := range statuses {
+		if !st.Installed {
+			t.Fatalf("expected installed after Install: %+v", st)
+		}
+	}
+}
+
+func TestStatusIgnoresUnrelatedHookContent(t *testing.T) {
+	// A user's hand-written post-commit (with no gogfy block) should
+	// report Installed=false rather than reusing the file's existence
+	// as the install flag.
+	root := makeRepo(t)
+	if err := os.WriteFile(HookPathFor(root, "post-commit"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range Status(root) {
+		if st.Name == "post-commit" && st.Installed {
+			t.Fatalf("user-written post-commit (no gogfy block) reported as installed")
+		}
+	}
+}
+
 func TestInstallSkipsRewriteWhenContentUnchanged(t *testing.T) {
 	root := makeRepo(t)
 	if err := Install(root, Options{}); err != nil {
