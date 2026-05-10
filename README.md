@@ -75,16 +75,17 @@ Plus a `gogfy://report` resource pointing at `GRAPH_REPORT.md`, which the agent 
 
 Go · Python · JavaScript · TypeScript · Java · C · C++ · Rust · Ruby · YAML · TOML · Kotlin · Scala · PHP · Lua · Zig · Julia · Bash · C# · Haskell · OCaml · Svelte · Fortran · Elixir · Dart · Swift
 
-**Documents (4, growing)** — pure-Go, no Python or LLM dependency:
+**Documents (5, growing)** — pure-Go, no Python or LLM dependency:
 
 - Markdown (`.md` / `.mdx` / `.markdown`) via [goldmark](https://github.com/yuin/goldmark)
 - HTML (`.html` / `.htm`) via [golang.org/x/net/html](https://pkg.go.dev/golang.org/x/net/html)
 - reStructuredText (`.rst`) — heuristic adornment-line detection + inline-target regex
 - Plain text (`.txt`) — module + URL-extraction regex
+- Word (`.docx`) — `archive/zip` + `encoding/xml` over `word/document.xml`, hyperlinks resolved via `word/_rels/document.xml.rels`
 
-All four emit the same shape (module + section + reference edges) so cross-format links (Markdown linking to HTML linking to RST) compose seamlessly.
+All five emit the same shape (module + section + reference edges) so cross-format links (Markdown → HTML → RST → Word) compose seamlessly.
 
-File extensions: `.go .py .js .jsx .mjs .cjs .ts .tsx .java .c .h .cpp .cc .cxx .hpp .hxx .hh .rs .rb .yaml .yml .toml .kt .kts .scala .sc .php .lua .zig .jl .sh .bash .cs .hs .ml .mli .svelte .f .f90 .f95 .f03 .f08 .ex .exs .dart .swift .md .mdx .markdown .html .htm .rst .txt`
+File extensions: `.go .py .js .jsx .mjs .cjs .ts .tsx .java .c .h .cpp .cc .cxx .hpp .hxx .hh .rs .rb .yaml .yml .toml .kt .kts .scala .sc .php .lua .zig .jl .sh .bash .cs .hs .ml .mli .svelte .f .f90 .f95 .f03 .f08 .ex .exs .dart .swift .md .mdx .markdown .html .htm .rst .txt .docx`
 
 ---
 
