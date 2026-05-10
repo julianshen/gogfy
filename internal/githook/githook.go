@@ -324,18 +324,24 @@ func renderHookBlockFor(hookName string, opts Options) []byte {
 	var b strings.Builder
 	b.WriteString(hookStartMarker)
 	b.WriteString("\n")
-	if hookName == "post-checkout" {
-		// Skip on single-file checkout (third arg "0") and on any other
-		// shape we don't recognize (defensive — only branch-flag "1"
-		// should trigger a rebuild).
-		b.WriteString(`if [ "${3-0}" != "1" ]; then exit 0; fi` + "\n")
-	}
-	b.WriteString(`GOGFY_LOG="$(git rev-parse --git-dir 2>/dev/null)/gogfy-rebuild.log"` + "\n")
 	// Shell-quote bin and outDir: os.Executable() can return paths with
 	// spaces (e.g. /Users/My Name/.../gogfy) and the user's --out value
 	// could contain shell metacharacters.
-	fmt.Fprintf(&b, "%s run --update --out %s . >>\"$GOGFY_LOG\" 2>&1 || true\n",
-		shellQuote(opts.bin()), shellQuote(opts.outDir()))
+	body := fmt.Sprintf(`GOGFY_LOG="$(git rev-parse --git-dir 2>/dev/null)/gogfy-rebuild.log"
+%s run --update --out %s . >>"$GOGFY_LOG" 2>&1 || true
+`, shellQuote(opts.bin()), shellQuote(opts.outDir()))
+	if hookName == "post-checkout" {
+		// Wrap in `if … then … fi` rather than using `exit 0` to skip:
+		// a bare `exit 0` would also skip any *other* tool's hook content
+		// that happens to live below us in the file. The if/then guard
+		// only short-circuits OUR block.
+		b.WriteString(`if [ "${3-0}" = "1" ]; then` + "\n")
+		b.WriteString(body)
+		b.WriteString("fi\n")
+	} else {
+		// post-commit: always run.
+		b.WriteString(body)
+	}
 	b.WriteString(hookEndMarker)
 	b.WriteString("\n")
 	return []byte(b.String())

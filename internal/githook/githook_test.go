@@ -525,12 +525,17 @@ func TestPostCheckoutHookGuardsOnBranchFlag(t *testing.T) {
 	}
 	data, _ := os.ReadFile(HookPathFor(root, "post-checkout"))
 	s := string(data)
-	if !strings.Contains(s, `"${3-0}" != "1"`) {
+	if !strings.Contains(s, `"${3-0}" = "1"`) {
 		t.Fatalf("post-checkout missing branch_flag guard:\n%s", s)
+	}
+	// Guard must use if/then (not bare exit 0) so other tools' hook
+	// content following ours isn't short-circuited.
+	if strings.Contains(s, "exit 0") {
+		t.Fatalf("post-checkout uses bare exit 0 — would short-circuit other tools:\n%s", s)
 	}
 	// post-commit must NOT have the guard (it always runs).
 	commit, _ := os.ReadFile(HookPathFor(root, "post-commit"))
-	if strings.Contains(string(commit), `"${3-0}" != "1"`) {
+	if strings.Contains(string(commit), `"${3-0}"`) {
 		t.Fatalf("post-commit must not have branch_flag guard:\n%s", commit)
 	}
 }
