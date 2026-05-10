@@ -73,6 +73,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		SvelteExtractor{},
 		FortranExtractor{},
 		ElixirExtractor{},
+		DartExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -675,6 +676,33 @@ func TestSvelteExtractorImports(t *testing.T) {
 			"svelte:import:svelte",
 			"svelte:import:./Button.svelte",
 			"svelte:import:side-effect.css",
+		},
+	})
+}
+
+func TestDartExtractorBasic(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "dart basic",
+		filename: "main.dart",
+		source: `library my_app;
+import 'package:flutter/material.dart';
+import 'dart:async';
+export 'src/utils.dart';
+
+class Greeter {
+  String greet(String name) => 'Hello $name';
+}
+
+void main() {
+  print(Greeter().greet('world'));
+}
+`,
+		extractor: DartExtractor{}.Extract,
+		wantNodes: []string{"Greeter", "greet", "main"},
+		wantEdges: []string{
+			"dart:import:package:flutter/material.dart",
+			"dart:import:dart:async",
+			"dart:import:src/utils.dart",
 		},
 	})
 }
