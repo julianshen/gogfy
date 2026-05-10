@@ -695,6 +695,7 @@ var supportedExtensions = map[string]extract.Extractor{
 	".txt":    extract.TextExtractor{},
 	".rst":    extract.RSTExtractor{},
 	".docx":   extract.DocxExtractor{},
+	".xlsx":   extract.XlsxExtractor{},
 }
 
 func supportedExtensionsList() []string {
