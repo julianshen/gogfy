@@ -76,6 +76,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		ElixirExtractor{},
 		DartExtractor{},
 		SwiftExtractor{},
+		RExtractor{},
 		MarkdownExtractor{},
 		HTMLExtractor{},
 		TextExtractor{},
@@ -1271,6 +1272,82 @@ Third
 	for _, want := range []string{"First", "Second", "Third"} {
 		if !labels[want] {
 			t.Fatalf("missing %q (first-appearance level inference broken): %v", want, labels)
+		}
+	}
+}
+
+func TestRExtractorBasic(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "r basic",
+		filename: "analysis.R",
+		source: `library(dplyr)
+require(ggplot2)
+
+#' Add two numbers
+add <- function(x, y) {
+  x + y
+}
+
+multiply <- function(a, b) a * b
+
+result <- add(1, 2)
+multiply(result, 3)
+`,
+		extractor: RExtractor{}.Extract,
+		wantNodes: []string{"analysis.R", "add", "multiply"},
+		wantEdges: []string{
+			"r:import:dplyr",
+			"r:import:ggplot2",
+			"r:call:add",
+			"r:call:multiply",
+		},
+	})
+}
+
+func TestRExtractorStringLiteralImport(t *testing.T) {
+	// library("pkg") and library(pkg) are both valid R; the bare-identifier
+	// form is the common one but quoted form is real-world common too,
+	// especially in package-load helpers.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "load.R")
+	source := `library("data.table")
+require('Matrix')
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{"r:import:data.table", "r:import:Matrix"} {
+		if !targets[want] {
+			t.Fatalf("missing %q in %v", want, targets)
+		}
+	}
+}
+
+func TestRExtractorImportNotEmittedAsCall(t *testing.T) {
+	// library(dplyr) must NOT also emit a call edge to "library" — it's
+	// modeled as a call in the AST but represents an import semantically.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.R")
+	if err := os.WriteFile(path, []byte("library(dplyr)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Target == "r:call:library" {
+			t.Fatalf("library() should not produce a calls edge: %+v", e)
 		}
 	}
 }

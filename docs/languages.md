@@ -2,7 +2,7 @@
 
 gogfy uses tree-sitter for AST extraction. A language is supported when (a) someone publishes a maintained tree-sitter grammar, (b) that grammar's repo carries a `bindings/go/` directory with cgo wrappers, and (c) the published Go module compiles cleanly. Most graphify-listed languages clear all three; some don't.
 
-## Supported (27 code + 8 document formats)
+## Supported (28 code + 8 document formats)
 
 | Language | Extensions | Grammar source |
 |----------|------------|----------------|
@@ -32,6 +32,7 @@ gogfy uses tree-sitter for AST extraction. A language is supported when (a) some
 | Elixir | `.ex` `.exs` | `github.com/elixir-lang/tree-sitter-elixir` (via go.mod `replace` from the declared `github.com/tree-sitter/tree-sitter-elixir` path, which is unmaintained) |
 | Dart | `.dart` | `github.com/UserNobody14/tree-sitter-dart` |
 | Swift | `.swift` | `github.com/julianshen/tree-sitter-swift` (fork of `alex-pinkus/tree-sitter-swift` with `parser.c` committed — upstream's `.gitignore` excludes the generated artifact) |
+| R | `.r` `.R` | `github.com/julianshen/tree-sitter-r` (fork of `r-lib/tree-sitter-r`; upstream's released v1.2.0 ships `bindings/go/binding.go` without the external-scanner `#include`, so the cgo binding fails to link — the fork's `main` branch carries the fix and re-modules under julianshen/) |
 
 ### Document formats
 
@@ -55,7 +56,6 @@ Each entry below has been **probed** with `go get`. Status reflects what the ups
 | Objective-C `.m` `.mm` | `tree-sitter-grammars/tree-sitter-objc` and `jiyee/tree-sitter-objc` ship `parser.c` but **no `bindings/go/`**. | Same as Dart — fork + binding stub. |
 | Groovy `.groovy` `.gradle` | `murtaza64/tree-sitter-groovy` ships `parser.c` but **no `bindings/go/`**. | Same as Dart. |
 | Erlang `.erl` `.hrl` | `WhatsApp/tree-sitter-erlang` has the module-path issue + a missing-scanner `binding.go` (same shape as R). `AbstractMachinesLab/tree-sitter-erlang` lacks `bindings/go/`. | Fork + scanner include + binding stub. |
-| R `.r` `.R` | `r-lib/tree-sitter-r` has `bindings/go/`, but its `binding.go` doesn't `#include` the external scanner — linker fails on `tree_sitter_r_external_scanner_*` symbols. | Fork + add `#include "../../src/scanner.c"` to the cgo block. ~30 minutes. |
 | SQL `.sql` | `DerekStride/tree-sitter-sql` ships `bindings/go/binding.go` but the package doesn't include the generated `parser.c` at the path the binding expects. | Fork + commit `parser.c`. |
 | PowerShell `.ps1` | `PowerShell/tree-sitter-PowerShell` is unmaintained; `airbus-cert/tree-sitter-powershell` lacks `bindings/go/`. | Fork (whichever is more current) + add binding. |
 | Vue `.vue` | `ikatyang/tree-sitter-vue` and `tree-sitter-grammars/tree-sitter-vue` both lack `bindings/go/`. | Fork + binding stub. |
@@ -70,12 +70,11 @@ Each entry below has been **probed** with `go get`. Status reflects what the ups
 
 ## Tier 1 wishlist (next up)
 
-**Code grammars** — each needs a fork repo under `julianshen/tree-sitter-<lang>`. Swift is the precedent:
+**Code grammars** — each needs a fork repo under `julianshen/tree-sitter-<lang>`. Swift and R are the precedents:
 
-1. **R** (Hatch 2 — fork-and-include-scanner; trivial change)
-2. **Erlang** (Hatch 2 — fork + scanner include + binding stub)
-3. **Objective-C** (Hatch 2 — fork + add binding stub)
-4. **Groovy** (Hatch 2 — fork + add binding stub)
+1. **Erlang** (Hatch 2 — fork + scanner include + binding stub)
+2. **Objective-C** (Hatch 2 — fork + add binding stub)
+3. **Groovy** (Hatch 2 — fork + add binding stub)
 
 **Document formats** — building Go-native, no Python (no markitdown dep). Markdown / HTML / RST / plain-text shipped; following the same shape:
 
