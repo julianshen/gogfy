@@ -71,6 +71,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		HaskellExtractor{},
 		OCamlExtractor{},
 		SvelteExtractor{},
+		FortranExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -673,6 +674,40 @@ func TestSvelteExtractorImports(t *testing.T) {
 			"svelte:import:svelte",
 			"svelte:import:./Button.svelte",
 			"svelte:import:side-effect.css",
+		},
+	})
+}
+
+func TestFortranExtractorBasic(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "fortran basic",
+		filename: "main.f90",
+		source: `module greet_mod
+  use iso_fortran_env
+contains
+  subroutine say_hi(name)
+    character(*), intent(in) :: name
+    print *, "Hello ", name
+  end subroutine say_hi
+
+  function add_one(x) result(y)
+    integer, intent(in) :: x
+    integer :: y
+    y = x + 1
+  end function add_one
+end module greet_mod
+
+program main
+  use greet_mod
+  call say_hi("world")
+end program main
+`,
+		extractor: FortranExtractor{}.Extract,
+		wantNodes: []string{"say_hi", "add_one"},
+		wantEdges: []string{
+			"fortran:import:iso_fortran_env",
+			"fortran:import:greet_mod",
+			"fortran:call:say_hi",
 		},
 	})
 }

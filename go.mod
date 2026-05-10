@@ -33,5 +33,12 @@ require (
 
 require (
 	github.com/mattn/go-pointer v0.0.1 // indirect
+	github.com/stadelmanma/tree-sitter-fortran v0.6.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 )
+
+// stadelmanma/tree-sitter-fortran's binding_test.go imports a non-existent
+// "github.com/tree-sitter/tree-sitter-fortran" path. The replace makes
+// `go mod tidy` resolvable. Production code uses the stadelmanma path
+// directly in internal/extract/fortranextractor.go.
+replace github.com/tree-sitter/tree-sitter-fortran => github.com/stadelmanma/tree-sitter-fortran v0.6.0
