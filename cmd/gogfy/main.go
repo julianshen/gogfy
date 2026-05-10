@@ -20,6 +20,7 @@ import (
 	"github.com/julianshen/gogfy/internal/detect"
 	"github.com/julianshen/gogfy/internal/export"
 	"github.com/julianshen/gogfy/internal/extract"
+	"github.com/julianshen/gogfy/internal/fsutil"
 	"github.com/julianshen/gogfy/internal/githook"
 	"github.com/julianshen/gogfy/internal/graph"
 	"github.com/julianshen/gogfy/internal/installer"
@@ -590,16 +591,8 @@ func loadGraph(path string) (export.GraphExport, error) {
 	return g, nil
 }
 
-// atomicWrite writes data to path via a sibling .tmp file followed by rename,
-// so a partial write cannot replace a previously-good file with a truncated one.
+// atomicWrite is a thin wrapper kept for callers that don't import fsutil
+// directly; new code should use fsutil.WriteFileAtomic.
 func atomicWrite(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return fsutil.WriteFileAtomic(path, data, 0644)
 }
