@@ -627,6 +627,7 @@ var supportedExtensions = map[string]extract.Extractor{
 	".ex":     extract.ElixirExtractor{},
 	".exs":    extract.ElixirExtractor{},
 	".dart":   extract.DartExtractor{},
+	".swift":  extract.SwiftExtractor{},
 }
 
 func supportedExtensionsList() []string {

@@ -112,17 +112,26 @@ func callTargetName(fn *sitter.Node, src []byte) string {
 		return ""
 	}
 	switch fn.Kind() {
-	case "identifier", "field_identifier", "name", "variable", "value_name":
+	case "identifier", "field_identifier", "name", "variable", "value_name", "simple_identifier":
 		// Bare-identifier call shapes. Haskell uses `variable`, OCaml uses
-		// `value_name`; both are simple wrappers over the textual name.
+		// `value_name`, Swift uses `simple_identifier`; all are simple
+		// wrappers over the textual name.
 		return fn.Utf8Text(src)
+	case "navigation_expression":
+		// Swift: `obj.foo` → navigation_expression with the trailing
+		// `navigation_suffix` carrying the suffix-field identifier.
+		if suf := lastChildOfKind(fn, "navigation_suffix"); suf != nil {
+			if name := suf.ChildByFieldName("suffix"); name != nil {
+				return name.Utf8Text(src)
+			}
+		}
 	case "selector_expression", "member_expression", "attribute",
 		"scoped_identifier", "field_access", "field_expression",
 		"dot_index_expression", "member_access_expression",
 		"qualified_variable", "value_path":
 		// The last identifier-bearing child is the called name (the
 		// receiver/qualifier comes first).
-		if id := lastChildOfKind(fn, "identifier", "field_identifier", "property_identifier", "variable", "value_name"); id != nil {
+		if id := lastChildOfKind(fn, "identifier", "field_identifier", "property_identifier", "variable", "value_name", "simple_identifier"); id != nil {
 			return id.Utf8Text(src)
 		}
 	}

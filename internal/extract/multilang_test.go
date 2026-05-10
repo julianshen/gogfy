@@ -74,6 +74,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		FortranExtractor{},
 		ElixirExtractor{},
 		DartExtractor{},
+		SwiftExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -676,6 +677,39 @@ func TestSvelteExtractorImports(t *testing.T) {
 			"svelte:import:svelte",
 			"svelte:import:./Button.svelte",
 			"svelte:import:side-effect.css",
+		},
+	})
+}
+
+func TestSwiftExtractorBasic(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "swift basic",
+		filename: "Greeter.swift",
+		source: `import Foundation
+import os.log
+
+protocol Greetable {
+    func greet(_ name: String) -> String
+}
+
+class Greeter: Greetable {
+    func greet(_ name: String) -> String {
+        return "Hello \(name)"
+    }
+}
+
+func main() {
+    let g = Greeter()
+    print(g.greet("world"))
+}
+`,
+		extractor: SwiftExtractor{}.Extract,
+		wantNodes: []string{"Greetable", "Greeter", "greet", "main"},
+		wantEdges: []string{
+			"swift:import:Foundation",
+			"swift:import:os.log",
+			"swift:call:print",
+			"swift:call:greet",
 		},
 	})
 }
