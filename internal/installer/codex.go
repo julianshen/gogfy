@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/julianshen/gogfy/internal/fsutil"
 )
 
 // codexInstaller writes the Codex CLI's TOML config (.codex/config.toml)
@@ -23,7 +25,7 @@ func (c codexInstaller) ConfigPath(workspace string) string {
 
 func (c codexInstaller) Install(workspace string, opts Options) error {
 	path := c.ConfigPath(workspace)
-	existing, err := readFileOrEmpty(path)
+	existing, err := fsutil.ReadFileOrEmpty(path)
 	if err != nil {
 		return err
 	}
@@ -37,7 +39,7 @@ func (c codexInstaller) Install(workspace string, opts Options) error {
 		// snippet writer).
 		return nil
 	}
-	return writeFileAtomic(path, updated)
+	return fsutil.WriteFileAtomic(path, updated, 0644)
 }
 
 func (c codexInstaller) Uninstall(workspace string) error {
@@ -54,7 +56,7 @@ func (c codexInstaller) Uninstall(workspace string) error {
 		// Block not present: leave the file byte-identical (no mtime churn).
 		return nil
 	}
-	return writeFileAtomic(path, updated)
+	return fsutil.WriteFileAtomic(path, updated, 0644)
 }
 
 // guardAgainstAlternateGogfyForms refuses to install when the existing
