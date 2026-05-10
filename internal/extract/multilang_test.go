@@ -1304,33 +1304,44 @@ multiply(result, 3)
 	})
 }
 
-func TestRExtractorStringLiteralImport(t *testing.T) {
-	// library("pkg") and library(pkg) are both valid R; the bare-identifier
-	// form is the common one but quoted form is real-world common too,
-	// especially in package-load helpers.
-	dir := t.TempDir()
-	path := filepath.Join(dir, "load.R")
-	source := `library("data.table")
+func TestRExtractorStringLiteralAndRequireNamespace(t *testing.T) {
+	// library("pkg") (quoted), require('pkg') (single-quoted), and
+	// requireNamespace("pkg") all need to be recognized as imports.
+	// Quoted forms are common in package-load helpers; requireNamespace
+	// is the lazy-load form widely used inside packages to avoid pulling
+	// dependencies into the user's namespace.
+	runExtractorCase(t, extractorCase{
+		name:     "r quoted + requireNamespace",
+		filename: "load.R",
+		source: `library("data.table")
 require('Matrix')
-`
-	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
-		t.Fatal(err)
-	}
-	res, err := RExtractor{}.Extract(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	targets := map[string]bool{}
-	for _, e := range res.Edges {
-		if e.Relation == "imports" {
-			targets[e.Target] = true
-		}
-	}
-	for _, want := range []string{"r:import:data.table", "r:import:Matrix"} {
-		if !targets[want] {
-			t.Fatalf("missing %q in %v", want, targets)
-		}
-	}
+requireNamespace("jsonlite")
+`,
+		extractor: RExtractor{}.Extract,
+		wantEdges: []string{
+			"r:import:data.table",
+			"r:import:Matrix",
+			"r:import:jsonlite",
+		},
+	})
+}
+
+func TestRExtractorAlternateAssignmentForms(t *testing.T) {
+	// R has three assignment operators that all parse as binary_operator:
+	// `<-` (canonical), `=` (also valid for top-level decls), and `<<-`
+	// (super-assignment). All three must be recognized as function decls
+	// when the rhs is a function_definition. Pins the doc claim that the
+	// "<-/=/<<-" set is uniformly handled.
+	runExtractorCase(t, extractorCase{
+		name:     "r assignment forms",
+		filename: "ops.R",
+		source: `f_arrow <- function(x) x
+f_eq = function(x) x
+f_super <<- function(x) x
+`,
+		extractor: RExtractor{}.Extract,
+		wantNodes: []string{"f_arrow", "f_eq", "f_super"},
+	})
 }
 
 func TestRExtractorImportNotEmittedAsCall(t *testing.T) {
