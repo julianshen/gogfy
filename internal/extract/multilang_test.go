@@ -681,6 +681,50 @@ func TestSvelteExtractorImports(t *testing.T) {
 	})
 }
 
+func TestDartExtractorMethodNotDoubleEmitted(t *testing.T) {
+	// method_signature wraps function_signature. Walking the method node
+	// must NOT also emit a function-kinded decl from the inner
+	// function_signature — that would mean every Dart method shows up
+	// twice in the graph (once as method, once as function).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "G.dart")
+	source := `class G {
+  String greet(String name) => 'Hi $name';
+}
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := DartExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	greetCount := 0
+	for _, n := range res.Nodes {
+		if n.Label == "greet" {
+			greetCount++
+		}
+	}
+	if greetCount != 1 {
+		t.Fatalf("expected exactly one `greet` node, got %d: %+v", greetCount, res.Nodes)
+	}
+}
+
+func TestDartExtractorDeferredImport(t *testing.T) {
+	// `import 'foo.dart' deferred as Bar;` — the URI sits as a direct
+	// `uri` child of import_specification, not wrapped in
+	// configurable_uri. PR #36's simplification accidentally dropped
+	// this shape; restored.
+	runExtractorCase(t, extractorCase{
+		name:     "dart deferred import",
+		filename: "lazy.dart",
+		source: `import 'package:foo/lazy.dart' deferred as lazy;
+`,
+		extractor: DartExtractor{}.Extract,
+		wantEdges: []string{"dart:import:package:foo/lazy.dart"},
+	})
+}
+
 func TestDartExtractorMixinExtensionEnum(t *testing.T) {
 	runExtractorCase(t, extractorCase{
 		name:     "dart mixin/extension/enum",
@@ -698,6 +742,62 @@ enum Suit { clubs, diamonds, hearts, spades }
 		extractor: DartExtractor{}.Extract,
 		wantNodes: []string{"Drawable", "StringExt", "Suit"},
 	})
+}
+
+func TestElixirExtractorNoSelfCallFromDefHeader(t *testing.T) {
+	// `def foo(x, y) do ... end` is itself a `call` node whose arguments
+	// contain another `call` (the function header). Walking the def's
+	// children naively would emit `elixir:call:foo` from foo's body —
+	// every defined function would self-edge to itself. Regression test:
+	// the def must not produce a call edge whose target equals its own
+	// declared name.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "self.ex")
+	source := `defmodule M do
+  def foo(x), do: x
+  def bar(x) do
+    foo(x)
+  end
+end
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ElixirExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" {
+			calls[e.Target] = true
+		}
+	}
+	if calls["elixir:call:foo"] && calls["elixir:call:bar"] {
+		// We expect bar to call foo (one edge), not both functions to
+		// self-emit. Distinguish by checking only the function-headers
+		// don't appear as call targets when there's no body call.
+	}
+	// Specifically: there must be NO call edge whose target equals the
+	// function being defined and whose source is the def itself.
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Source == "elixir:function:"+path+":foo" && e.Target == "elixir:call:foo" {
+			t.Fatalf("self-call edge from foo to itself: %+v", e)
+		}
+		if e.Relation == "calls" && e.Source == "elixir:function:"+path+":bar" && e.Target == "elixir:call:bar" {
+			t.Fatalf("self-call edge from bar to itself: %+v", e)
+		}
+	}
+	// Sanity: bar's body call to foo should still be captured.
+	foundBarCallsFoo := false
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Source == "elixir:function:"+path+":bar" && e.Target == "elixir:call:foo" {
+			foundBarCallsFoo = true
+		}
+	}
+	if !foundBarCallsFoo {
+		t.Fatalf("expected bar→foo call edge, got %+v", res.Edges)
+	}
 }
 
 func TestElixirExtractorMacrosAndUseAndGuard(t *testing.T) {
