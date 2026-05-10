@@ -1675,6 +1675,65 @@ go(L) ->
 	})
 }
 
+func TestErlangExtractorImportSelectors(t *testing.T) {
+	// `-import(lists, [map/2, foldl/3]).` should produce edges to the
+	// module AND to each Mod:Fn selector — same shape as Julia's
+	// selected-import handling. Without selectors, downstream graph
+	// queries can't see which functions of `lists` are used.
+	runExtractorCase(t, extractorCase{
+		name:      "erlang import selectors",
+		filename:  "imp.erl",
+		source:    `-module(imp).` + "\n" + `-import(lists, [map/2, foldl/3]).` + "\n",
+		extractor: ErlangExtractor{}.Extract,
+		wantEdges: []string{
+			"erlang:import:lists",
+			"erlang:import:lists:map",
+			"erlang:import:lists:foldl",
+		},
+	})
+}
+
+func TestErlangExtractorExternalFunReference(t *testing.T) {
+	// `fun mymod:func/1` is a function reference (passed to map/spawn/etc).
+	// Common Erlang idiom; must produce a call-edge target to "mymod:func"
+	// or graph queries for "what calls mymod:func" miss every higher-order
+	// usage.
+	runExtractorCase(t, extractorCase{
+		name:     "erlang external_fun",
+		filename: "fr.erl",
+		source: `-module(fr).
+go() ->
+    F = fun mymod:func/1,
+    F.
+`,
+		extractor: ErlangExtractor{}.Extract,
+		wantEdges: []string{
+			"erlang:call:mymod:func",
+		},
+	})
+}
+
+func TestErlangExtractorMultiClauseAttributesCallsToOneFunction(t *testing.T) {
+	// add(0,Y) -> identity(Y); add(X,Y) -> compute(X,Y).
+	// tree-sitter-erlang parses each clause as its own fun_decl; both
+	// clauses' bodies must produce call edges, both attributed to the
+	// same logical "add" function. Pin the contract.
+	runExtractorCase(t, extractorCase{
+		name:     "erlang multi-clause",
+		filename: "mc.erl",
+		source: `-module(mc).
+add(0, Y) -> identity(Y);
+add(X, Y) -> compute(X, Y).
+`,
+		extractor: ErlangExtractor{}.Extract,
+		wantNodes: []string{"add"},
+		wantEdges: []string{
+			"erlang:call:identity",
+			"erlang:call:compute",
+		},
+	})
+}
+
 func TestErlangExtractorModuleLabel(t *testing.T) {
 	// -module(myapp) should rewrite the file's module-node label to
 	// "myapp" (mirrors how Go and Python use package/module names).

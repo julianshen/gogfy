@@ -32,11 +32,10 @@ func walkErlang(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 			rewriteModuleLabel(state, a.Utf8Text(src))
 		}
 	case "import_attribute":
-		// First atom child is the imported module name; the bracketed
-		// FA list that follows is structural detail we don't model.
-		if a := firstChildOfKind(node, "atom"); a != nil {
-			state.addImport(a.Utf8Text(src))
-		}
+		// Module-level import: `-import(lists, [map/2, foldl/3]).` adds
+		// `lists` plus one selector edge per FA pair (`lists:map`,
+		// `lists:foldl`). Mirrors Julia's selected-import handling.
+		erlangEmitImport(state, node, src)
 	case "fun_decl":
 		if fc := firstChildOfKind(node, "function_clause"); fc != nil {
 			if name := firstChildOfKind(fc, "atom"); name != nil {
@@ -44,6 +43,19 @@ func walkErlang(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 				state.walkFnScope("function", name, src, cursor, walkErlang)
 				return
 			}
+		}
+	case "external_fun":
+		// `fun mymod:func/1` — a function reference. Emits a call edge
+		// to "mymod:func" (omitting the arity: graph nodes key on names,
+		// not signatures). Without this case, a common Erlang idiom for
+		// passing function refs to higher-order functions silently
+		// produces no call edge.
+		if mod, fn := erlangExternalFunName(node, src); fn != "" {
+			target := fn
+			if mod != "" {
+				target = mod + ":" + fn
+			}
+			state.addCall(target)
 		}
 	case "remote":
 		// Qualified call `Module:Fn(args)`. Emit one edge to "Mod:Fn"
@@ -72,8 +84,6 @@ func walkErlang(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	walkChildren(cursor, func() { walkErlang(cursor, src, state) })
 }
 
-// erlangAtomChild returns the text of the first `atom` child of n, or
-// "" if n is nil or has no atom child.
 func erlangAtomChild(n *sitter.Node, src []byte) string {
 	if n == nil {
 		return ""
@@ -82,4 +92,50 @@ func erlangAtomChild(n *sitter.Node, src []byte) string {
 		return a.Utf8Text(src)
 	}
 	return ""
+}
+
+// erlangEmitImport handles `-import(Mod, [Fn/Arity, ...]).` Adds the
+// module itself and one `Mod:Fn` edge per selector — same shape as
+// Julia's selected-import handling so cross-language graphs compose.
+func erlangEmitImport(state *extractState, node *sitter.Node, src []byte) {
+	mod := ""
+	if a := firstChildOfKind(node, "atom"); a != nil {
+		mod = a.Utf8Text(src)
+		state.addImport(mod)
+	}
+	if mod == "" {
+		return
+	}
+	// Each FA-pair entry is an `fa` node; its first atom child is the
+	// function name. Walk all `fa` children directly under the import.
+	n := node.ChildCount()
+	for i := uint(0); i < n; i++ {
+		c := node.Child(i)
+		if c.Kind() != "fa" {
+			continue
+		}
+		if fn := firstChildOfKind(c, "atom"); fn != nil {
+			state.addImport(mod + ":" + fn.Utf8Text(src))
+		}
+	}
+}
+
+// erlangExternalFunName decomposes a `fun Mod:Fn/N` external_fun node
+// into (module, name). Returns ("", "") if the shape is unrecognized.
+func erlangExternalFunName(node *sitter.Node, src []byte) (string, string) {
+	mod := erlangAtomChild(firstChildOfKind(node, "module"), src)
+	// The function-name atom is a direct child of external_fun, after
+	// the optional `module` qualifier; lastChildOfKind(...,"atom") would
+	// pick the wrong atom if the module qualifier is present (its inner
+	// atom is also a child by-DFS-order). We walk children directly and
+	// take the LAST top-level atom.
+	var fn string
+	n := node.ChildCount()
+	for i := uint(0); i < n; i++ {
+		c := node.Child(i)
+		if c.Kind() == "atom" {
+			fn = c.Utf8Text(src)
+		}
+	}
+	return mod, fn
 }
