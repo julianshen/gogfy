@@ -449,6 +449,59 @@ func TestHookPathResolvesWorktreeCommonDir(t *testing.T) {
 	}
 }
 
+// TestHookPathRespectsCoreHooksPath — repos using Husky or centralized
+// hooks set core.hooksPath. Writing to .git/hooks in that case installs
+// to a path Git ignores. HookPath must read .git/config and follow.
+func TestHookPathRespectsCoreHooksPath(t *testing.T) {
+	root := makeRepo(t)
+	if err := os.MkdirAll(filepath.Join(root, ".husky"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "[core]\n\thooksPath = .husky\n"
+	if err := os.WriteFile(filepath.Join(root, ".git", "config"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := HookPath(root)
+	want := filepath.Join(root, ".husky", "post-commit")
+	if got != want {
+		t.Fatalf("HookPath did not honor core.hooksPath: got %q, want %q", got, want)
+	}
+}
+
+func TestHookPathIgnoresCoreHooksPathSubsections(t *testing.T) {
+	// Subsections on `core` (e.g. `[core "x"]`) are a different config
+	// scope and must not be treated as the unscoped `[core]` block.
+	root := makeRepo(t)
+	cfg := "[core \"sub\"]\n\thooksPath = .ignored\n"
+	if err := os.WriteFile(filepath.Join(root, ".git", "config"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := HookPath(root)
+	want := filepath.Join(root, ".git", "hooks", "post-commit")
+	if got != want {
+		t.Fatalf("HookPath wrongly honored subsection hookspath: got %q, want %q", got, want)
+	}
+}
+
+func TestInstallHonorsCoreHooksPathEndToEnd(t *testing.T) {
+	root := makeRepo(t)
+	if err := os.MkdirAll(filepath.Join(root, ".githooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "config"), []byte("[core]\nhookspath = .githooks\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".githooks", "post-commit")); err != nil {
+		t.Fatalf("hook not written to core.hooksPath dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".git", "hooks", "post-commit")); !os.IsNotExist(err) {
+		t.Fatal("hook should not have been written to .git/hooks when core.hooksPath is set")
+	}
+}
+
 func TestInstallSkipsRewriteWhenContentUnchanged(t *testing.T) {
 	root := makeRepo(t)
 	if err := Install(root, Options{}); err != nil {

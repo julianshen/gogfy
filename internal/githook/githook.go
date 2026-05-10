@@ -52,41 +52,124 @@ func HookPath(repoRoot string) string {
 }
 
 // hooksDirFor returns the directory containing git hooks for repoRoot.
-// For a normal repo, this is `<root>/.git/hooks`. For a submodule, it's
-// the submodule's resolved git dir + /hooks. For a linked worktree, Git
-// runs hooks from the *common* (main-repo) hooks dir — `<gitdir>/commondir`
-// names that path; we resolve and return it. Without that resolution we'd
-// write a hook Git never executes.
+//
+// Resolution order, matching what Git itself does:
+//  1. core.hooksPath in the resolved gitdir's config (e.g., Husky-style
+//     repos point at .husky or a central hooks dir).
+//  2. For linked worktrees, the *common* (main-repo) hooks dir, located
+//     via `<gitdir>/commondir`. Git runs hooks from there, not from the
+//     per-worktree gitdir.
+//  3. <gitdir>/hooks otherwise.
+//
+// Skipping (1) silently installs to a path Git ignores. Skipping (2)
+// installs to a per-worktree path Git also ignores. Both are real bugs
+// that would make `hook install` report success while doing nothing.
 func hooksDirFor(repoRoot string) string {
+	gitdir, isWorktree := resolveGitDir(repoRoot)
+	if hooks := readConfigHooksPath(gitdir, repoRoot); hooks != "" {
+		return hooks
+	}
+	if isWorktree {
+		if commonRel, err := os.ReadFile(filepath.Join(gitdir, "commondir")); err == nil {
+			commonPath := strings.TrimSpace(string(commonRel))
+			if !filepath.IsAbs(commonPath) {
+				commonPath = filepath.Join(gitdir, commonPath)
+			}
+			// commondir's config can also override hooksPath.
+			if hooks := readConfigHooksPath(commonPath, repoRoot); hooks != "" {
+				return hooks
+			}
+			return filepath.Join(commonPath, "hooks")
+		}
+	}
+	return filepath.Join(gitdir, "hooks")
+}
+
+// resolveGitDir returns (absolute gitdir path, isLinkedWorktree). The
+// worktree flag tells callers to look for a `commondir` file. For normal
+// (directory) `.git`, the gitdir is `<root>/.git` and isWorktree=false.
+func resolveGitDir(repoRoot string) (string, bool) {
 	gitPath := filepath.Join(repoRoot, ".git")
 	info, err := os.Stat(gitPath)
 	if err != nil || info.IsDir() {
-		return filepath.Join(gitPath, "hooks")
+		return gitPath, false
 	}
 	// `.git` is a file (submodule / worktree). Parse `gitdir: <path>`.
 	data, err := os.ReadFile(gitPath)
 	if err != nil {
-		return filepath.Join(gitPath, "hooks") // fall back; caller will surface error
+		return gitPath, false // caller surfaces error elsewhere
 	}
 	line := strings.TrimSpace(string(data))
 	const prefix = "gitdir:"
 	gitdir := strings.TrimSpace(strings.TrimPrefix(line, prefix))
 	if gitdir == "" || gitdir == line {
-		return filepath.Join(gitPath, "hooks")
+		return gitPath, false
 	}
 	if !filepath.IsAbs(gitdir) {
 		gitdir = filepath.Join(repoRoot, gitdir)
 	}
-	// Linked worktrees have a `commondir` file pointing at the main
-	// repo's git dir; submodules don't. When present, hooks live there.
-	if commonRel, err := os.ReadFile(filepath.Join(gitdir, "commondir")); err == nil {
-		commonPath := strings.TrimSpace(string(commonRel))
-		if !filepath.IsAbs(commonPath) {
-			commonPath = filepath.Join(gitdir, commonPath)
-		}
-		return filepath.Join(commonPath, "hooks")
+	return gitdir, true
+}
+
+// readConfigHooksPath returns the absolute path of `core.hooksPath` from
+// gitdir/config, or "" if unset / unreadable. Relative values resolve
+// against repoRoot (Git's documented behavior — relative hooks paths are
+// "relative to the working directory", which equals repoRoot for our use).
+//
+// Hand-rolled mini-parser instead of shelling out to `git config` to keep
+// gogfy self-contained at install time. Handles the common shapes:
+//
+//	[core]
+//	    hooksPath = .husky
+//	[core "..."]              # ignored: subsections don't apply to core.hooksPath
+//	[core] hooksPath = .githooks
+//
+// Comments (`;` or `#`) and quoted values (`"..."`) are tolerated.
+func readConfigHooksPath(gitdir, repoRoot string) string {
+	data, err := os.ReadFile(filepath.Join(gitdir, "config"))
+	if err != nil {
+		return ""
 	}
-	return filepath.Join(gitdir, "hooks")
+	inCore := false
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			// Section header. Match exactly `[core]` (case-insensitive,
+			// no subsection — Git treats subsections on `core` as a
+			// different section that doesn't carry hooksPath).
+			inCore = strings.EqualFold(strings.TrimRight(line, " \t"), "[core]")
+			continue
+		}
+		if !inCore {
+			continue
+		}
+		// `key = value` (with possible inline comment).
+		eq := strings.IndexByte(line, '=')
+		if eq < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		if !strings.EqualFold(key, "hookspath") {
+			continue
+		}
+		val := strings.TrimSpace(line[eq+1:])
+		// Strip inline comment (matches Git's git-config grammar).
+		if i := strings.IndexAny(val, "#;"); i >= 0 {
+			val = strings.TrimSpace(val[:i])
+		}
+		val = strings.Trim(val, `"`)
+		if val == "" {
+			continue
+		}
+		if !filepath.IsAbs(val) {
+			val = filepath.Join(repoRoot, val)
+		}
+		return val
+	}
+	return ""
 }
 
 // Install writes (or refreshes) the gogfy auto-rebuild block in the repo's
