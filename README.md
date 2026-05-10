@@ -75,11 +75,14 @@ Plus a `gogfy://report` resource pointing at `GRAPH_REPORT.md`, which the agent 
 
 Go · Python · JavaScript · TypeScript · Java · C · C++ · Rust · Ruby · YAML · TOML · Kotlin · Scala · PHP · Lua · Zig · Julia · Bash · C# · Haskell · OCaml · Svelte · Fortran · Elixir · Dart · Swift
 
-**Documents (1, growing)** — pure-Go, no Python or LLM dependency:
+**Documents (2, growing)** — pure-Go, no Python or LLM dependency:
 
-Markdown (`.md` / `.mdx` / `.markdown`) — extracted via [goldmark](https://github.com/yuin/goldmark) into module + section + reference-edge graph.
+- Markdown (`.md` / `.mdx` / `.markdown`) via [goldmark](https://github.com/yuin/goldmark)
+- HTML (`.html` / `.htm`) via [golang.org/x/net/html](https://pkg.go.dev/golang.org/x/net/html)
 
-File extensions: `.go .py .js .jsx .mjs .cjs .ts .tsx .java .c .h .cpp .cc .cxx .hpp .hxx .hh .rs .rb .yaml .yml .toml .kt .kts .scala .sc .php .lua .zig .jl .sh .bash .cs .hs .ml .mli .svelte .f .f90 .f95 .f03 .f08 .ex .exs .dart .swift .md .mdx .markdown`
+Both emit the same shape: module + section (h1/h2/h3) + reference-edge graph, so cross-format links (Markdown linking to HTML or vice versa) compose seamlessly.
+
+File extensions: `.go .py .js .jsx .mjs .cjs .ts .tsx .java .c .h .cpp .cc .cxx .hpp .hxx .hh .rs .rb .yaml .yml .toml .kt .kts .scala .sc .php .lua .zig .jl .sh .bash .cs .hs .ml .mli .svelte .f .f90 .f95 .f03 .f08 .ex .exs .dart .swift .md .mdx .markdown .html .htm`
 
 ---
 
