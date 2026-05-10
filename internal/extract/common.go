@@ -112,14 +112,17 @@ func callTargetName(fn *sitter.Node, src []byte) string {
 		return ""
 	}
 	switch fn.Kind() {
-	case "identifier", "field_identifier", "name":
+	case "identifier", "field_identifier", "name", "variable", "value_name":
+		// Bare-identifier call shapes. Haskell uses `variable`, OCaml uses
+		// `value_name`; both are simple wrappers over the textual name.
 		return fn.Utf8Text(src)
 	case "selector_expression", "member_expression", "attribute",
 		"scoped_identifier", "field_access", "field_expression",
-		"dot_index_expression", "member_access_expression":
+		"dot_index_expression", "member_access_expression",
+		"qualified_variable", "value_path":
 		// The last identifier-bearing child is the called name (the
 		// receiver/qualifier comes first).
-		if id := lastChildOfKind(fn, "identifier", "field_identifier", "property_identifier"); id != nil {
+		if id := lastChildOfKind(fn, "identifier", "field_identifier", "property_identifier", "variable", "value_name"); id != nil {
 			return id.Utf8Text(src)
 		}
 	}

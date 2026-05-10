@@ -571,6 +571,50 @@ main = putStrLn (greet "world")
 	})
 }
 
+func TestCSharpExtractorRecordDeclaration(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:      "csharp record",
+		filename:  "Models.cs",
+		source:    "public record Point(int X, int Y);\n",
+		extractor: CSharpExtractor{}.Extract,
+		wantNodes: []string{"Point"},
+	})
+}
+
+func TestHaskellExtractorEmitsCalls(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Calls.hs")
+	source := `module M where
+greet name = putStrLn name
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := HaskellExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" {
+			targets[e.Target] = true
+		}
+	}
+	if !targets["haskell:call:putStrLn"] {
+		t.Fatalf("expected haskell:call:putStrLn in %v", targets)
+	}
+}
+
+func TestOCamlExtractorInterfaceFile(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:      "ocaml interface",
+		filename:  "lib.mli",
+		source:    "val greet : string -> string\n",
+		extractor: OCamlExtractor{}.Extract,
+		wantNodes: []string{"greet"},
+	})
+}
+
 func TestOCamlExtractor(t *testing.T) {
 	runExtractorCase(t, extractorCase{
 		name:     "ocaml basic",

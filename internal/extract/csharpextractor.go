@@ -29,7 +29,9 @@ func walkCSharp(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		if nameNode != nil {
 			rewriteModuleLabel(state, nameNode.Utf8Text(src))
 		}
-	case "class_declaration":
+	case "class_declaration", "record_declaration":
+		// Records (C# 9+) are declared with the same `name` field as
+		// classes; treat them as classes for graph purposes.
 		state.emitDecl("class", node, node.ChildByFieldName("name"), src)
 	case "interface_declaration":
 		state.emitDecl("interface", node, node.ChildByFieldName("name"), src)
