@@ -302,6 +302,74 @@ func TestCodexInstallRefusesInlineTableGogfy(t *testing.T) {
 	}
 }
 
+// TestCodexInstallPreservesBlankLineBeforeNextTable — when re-installing
+// over a config where the gogfy block is followed by another table, the
+// idiomatic blank-line separator before that next table must survive.
+func TestCodexInstallPreservesBlankLineBeforeNextTable(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Existing config has gogfy block then blank line then another table.
+	existing := []byte("[mcp_servers.gogfy]\ncommand = \"old\"\n\n[mcp_servers.other]\ncommand = \"other\"\n")
+	if err := os.WriteFile(path, existing, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Contains(got, []byte("\n\n[mcp_servers.other]")) {
+		t.Fatalf("blank line separator before next table was lost:\n%s", got)
+	}
+}
+
+// TestCodexInstallMatchesHeaderWithInlineComment — `[mcp_servers.gogfy] # foo`
+// is the same logical block as `[mcp_servers.gogfy]`. Failing to match it
+// would cause us to append a duplicate header → duplicate-key TOML.
+func TestCodexInstallMatchesHeaderWithInlineComment(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	existing := []byte("[mcp_servers.gogfy] # legacy entry\ncommand = \"old\"\n")
+	if err := os.WriteFile(path, existing, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	if c := bytes.Count(got, []byte("[mcp_servers.gogfy]")); c != 1 {
+		t.Fatalf("expected exactly one [mcp_servers.gogfy] header, got %d:\n%s", c, got)
+	}
+	if bytes.Contains(got, []byte(`command = "old"`)) {
+		t.Fatalf("old block not replaced:\n%s", got)
+	}
+}
+
+// TestCodexInstallSkipsRewriteWhenContentUnchanged — a no-op install (same
+// args, same Options) must not touch mtime; mirrors the snippet behavior.
+func TestCodexInstallSkipsRewriteWhenContentUnchanged(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	preInfo, _ := os.Stat(inst.ConfigPath(ws))
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	postInfo, _ := os.Stat(inst.ConfigPath(ws))
+	if !preInfo.ModTime().Equal(postInfo.ModTime()) {
+		t.Fatalf("idempotent codex install touched mtime")
+	}
+}
+
 // TestCodexInstallCustomOutDir — Options.OutDir must flow into the args
 // list inside the TOML block (not just the JSON installers).
 func TestCodexInstallCustomOutDir(t *testing.T) {

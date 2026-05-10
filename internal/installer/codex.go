@@ -32,6 +32,11 @@ func (c codexInstaller) Install(workspace string, opts Options) error {
 	}
 	block := codexGogfyBlock(opts)
 	updated, _ := replaceOrAppendBlock(existing, []byte("[mcp_servers.gogfy]"), block)
+	if bytes.Equal(updated, existing) {
+		// No change — skip the rewrite to preserve mtime (parity with the
+		// snippet writer).
+		return nil
+	}
 	return writeFileAtomic(path, updated)
 }
 
@@ -99,6 +104,10 @@ func codexGogfyBlock(opts Options) []byte {
 // Returns (startLineIdx, endLineIdx, lines, found). lines is bytes.SplitAfter
 // on '\n' so each entry preserves its trailing newline (joining with
 // bytes.Join(lines, nil) is exactly inverse).
+//
+// Header matching tolerates trailing inline comments — `[name] # note` is
+// the same block as `[name]` — since Codex configs are hand-edited and
+// users frequently annotate sections.
 func findBlock(existing []byte, header []byte) (start, end int, lines [][]byte, found bool) {
 	if len(existing) == 0 {
 		return 0, 0, nil, false
@@ -106,7 +115,7 @@ func findBlock(existing []byte, header []byte) (start, end int, lines [][]byte, 
 	lines = bytes.SplitAfter(existing, []byte("\n"))
 	start = -1
 	for i, line := range lines {
-		if bytes.Equal(bytes.TrimSpace(line), header) {
+		if bytes.Equal(stripTrailingComment(bytes.TrimSpace(line)), header) {
 			start = i
 			break
 		}
@@ -122,6 +131,28 @@ func findBlock(existing []byte, header []byte) (start, end int, lines [][]byte, 
 		}
 	}
 	return start, end, lines, true
+}
+
+// stripTrailingComment drops a `# ...` suffix from a TOML line, ignoring
+// `#` characters that appear inside basic-string literals (`"..."`). Returns
+// the leading content with trailing whitespace trimmed.
+func stripTrailingComment(line []byte) []byte {
+	inString := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if c == '\\' && i+1 < len(line) {
+			i++ // skip escaped char inside a string literal
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+		if c == '#' && !inString {
+			return bytes.TrimRight(line[:i], " \t")
+		}
+	}
+	return line
 }
 
 // replaceOrAppendBlock returns existing with the block whose header line is
@@ -147,7 +178,14 @@ func replaceOrAppendBlock(existing, header, replacement []byte) ([]byte, bool) {
 	out.Write(bytes.Join(lines[:start], nil))
 	out.Write(replacement)
 	if end < len(lines) {
+		// Preserve TOML's idiomatic blank-line separator between tables.
+		// The previous block may have included a trailing blank line we
+		// already swallowed; re-add one if the replacement doesn't end
+		// with the `\n\n` shape and a real next-table line follows.
 		if !bytes.HasSuffix(replacement, []byte("\n")) {
+			out.WriteByte('\n')
+		}
+		if !bytes.HasSuffix(replacement, []byte("\n\n")) {
 			out.WriteByte('\n')
 		}
 		out.Write(bytes.Join(lines[end:], nil))
