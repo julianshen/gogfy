@@ -37,6 +37,7 @@ const (
 	ToolGodNodes = "gogfy_god_nodes"
 	ToolExplain  = "gogfy_explain"
 	ToolQuery    = "gogfy_query"
+	ToolPath     = "gogfy_path"
 )
 
 // Server holds the in-memory graph + report bytes the MCP tools read from.
@@ -203,6 +204,8 @@ func (s *Server) toolsCall(req rpcRequest) []byte {
 		return jsonRPCResult(req.ID, s.callExplain(p.Arguments))
 	case ToolQuery:
 		return jsonRPCResult(req.ID, s.callQuery(p.Arguments))
+	case ToolPath:
+		return jsonRPCResult(req.ID, s.callPath(p.Arguments))
 	default:
 		return jsonRPCError(req.ID, -32602, "unknown tool: "+p.Name)
 	}
@@ -283,6 +286,104 @@ func (s *Server) explainBody(target schema.Node) string {
 		}
 	}
 	return b.String()
+}
+
+func (s *Server) callPath(args json.RawMessage) map[string]any {
+	var p struct {
+		Source string `json:"source"`
+		Target string `json:"target"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil || p.Source == "" || p.Target == "" {
+		return toolResult("path requires `source` and `target` arguments (node IDs or labels)", true)
+	}
+	src, _, ok := s.findNode(p.Source)
+	if !ok {
+		return toolResult(fmt.Sprintf("source not found: %q", p.Source), true)
+	}
+	tgt, _, ok := s.findNode(p.Target)
+	if !ok {
+		return toolResult(fmt.Sprintf("target not found: %q", p.Target), true)
+	}
+	path := s.shortestPath(src.ID, tgt.ID)
+	if len(path) == 0 {
+		return toolResult(fmt.Sprintf("no path from %q to %q", src.Label, tgt.Label), false)
+	}
+	var b strings.Builder
+	for i, id := range path {
+		fmt.Fprintf(&b, "%d. %s (%s)\n", i+1, s.labelFor(id), id)
+	}
+	return toolResult(b.String(), false)
+}
+
+// FindNode resolves a query (node ID or label) to a node, returning the
+// resolved node, all label-collision candidates, and whether anything
+// matched. Exported so the CLI `gogfy path` subcommand can reuse the
+// indexed lookup.
+func (s *Server) FindNode(q string) (schema.Node, []string, bool) {
+	return s.findNode(q)
+}
+
+// ShortestPath returns the IDs along the shortest undirected path from
+// source to target (inclusive). Exported wrapper around shortestPath.
+func (s *Server) ShortestPath(source, target string) []string {
+	return s.shortestPath(source, target)
+}
+
+// LabelFor returns the label of the node with the given ID, or the ID
+// itself when not found. Exported wrapper around labelFor.
+func (s *Server) LabelFor(id string) string {
+	return s.labelFor(id)
+}
+
+// shortestPath returns the IDs of nodes along the shortest undirected path
+// from source to target (inclusive). Empty slice means unreachable.
+//
+// Treats edges as undirected because graph connectivity is what callers
+// actually want — `imports` and `calls` directions are an implementation
+// detail of the extractor pass, not of "is A related to B".
+func (s *Server) shortestPath(source, target string) []string {
+	if source == target {
+		return []string{source}
+	}
+	prev := map[string]string{source: ""}
+	queue := []string{source}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, neighbor := range s.neighborIDs(cur) {
+			if _, seen := prev[neighbor]; seen {
+				continue
+			}
+			prev[neighbor] = cur
+			if neighbor == target {
+				// Reconstruct path back to source.
+				var path []string
+				for n := target; n != ""; n = prev[n] {
+					path = append([]string{n}, path...)
+				}
+				return path
+			}
+			queue = append(queue, neighbor)
+		}
+	}
+	return nil
+}
+
+// neighborIDs returns the unique neighbor node IDs of id (both directions).
+func (s *Server) neighborIDs(id string) []string {
+	seen := map[string]bool{}
+	for _, e := range s.outEdges[id] {
+		seen[e.Target] = true
+	}
+	for _, e := range s.inEdges[id] {
+		seen[e.Source] = true
+	}
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+	sort.Strings(out) // deterministic BFS order
+	return out
 }
 
 func (s *Server) callQuery(args json.RawMessage) map[string]any {
@@ -397,6 +498,18 @@ var toolDescriptors = []map[string]any{
 				"id": map[string]any{"type": "string", "description": "Node ID or label."},
 			},
 			"required": []any{"id"},
+		},
+	},
+	{
+		"name":        ToolPath,
+		"description": "Find the shortest connectivity path between two nodes (treats edges as undirected — direction is an extractor implementation detail).",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"source": map[string]any{"type": "string", "description": "Start node ID or label."},
+				"target": map[string]any{"type": "string", "description": "End node ID or label."},
+			},
+			"required": []any{"source", "target"},
 		},
 	},
 	{

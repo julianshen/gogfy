@@ -91,6 +91,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return hookCommand(rest, stderr)
 	case "serve":
 		return serveCommand(rest, os.Stdin, os.Stdout, stderr)
+	case "path":
+		return pathCommand(rest, os.Stdout, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -126,6 +128,45 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy uninstall-instructions [--file <path>]")
 	fmt.Fprintln(w, "       gogfy hook install [--repo <dir>] [--gogfy-bin <path>] [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy hook uninstall [--repo <dir>]")
+	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
+}
+
+// pathCommand finds the shortest connectivity path between two nodes
+// (treating edges as undirected, same semantics as the gogfy_path MCP tool).
+// Reads the graph from --graph (default graphify-out/graph.json) and prints
+// the path as a numbered list to stdout, or "no path" if disconnected.
+func pathCommand(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("path", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	graphPath := fs.String("graph", "graphify-out/graph.json", "path to graph.json")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return fmt.Errorf("path: expected <source> <target>, got %d positional argument(s)", fs.NArg())
+	}
+	g, err := loadGraph(*graphPath)
+	if err != nil {
+		return fmt.Errorf("path: %w", err)
+	}
+	srv := serve.New(g, nil)
+	src, _, ok := srv.FindNode(fs.Arg(0))
+	if !ok {
+		return fmt.Errorf("path: source not found: %q", fs.Arg(0))
+	}
+	tgt, _, ok := srv.FindNode(fs.Arg(1))
+	if !ok {
+		return fmt.Errorf("path: target not found: %q", fs.Arg(1))
+	}
+	hops := srv.ShortestPath(src.ID, tgt.ID)
+	if len(hops) == 0 {
+		fmt.Fprintf(stdout, "no path from %q to %q\n", src.Label, tgt.Label)
+		return nil
+	}
+	for i, id := range hops {
+		fmt.Fprintf(stdout, "%d. %s (%s)\n", i+1, srv.LabelFor(id), id)
+	}
+	return nil
 }
 
 // hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The

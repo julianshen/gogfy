@@ -597,6 +597,47 @@ func TestDispatchHookHonorsCustomFlags(t *testing.T) {
 	}
 }
 
+func TestDispatchPathCommandFindsRoute(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// Read graph to find two related nodes for the assertion.
+	g, err := loadGraph(filepath.Join(out, "graph.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Nodes) < 2 || len(g.Edges) == 0 {
+		t.Skip("mini-corpus produced too few nodes/edges to test path-finding")
+	}
+	// Pick the first edge so we know a path exists.
+	src, tgt := g.Edges[0].Source, g.Edges[0].Target
+	if err := dispatch([]string{"path", "--graph", filepath.Join(out, "graph.json"), src, tgt}, os.Stderr); err != nil {
+		t.Fatalf("dispatch path: %v", err)
+	}
+}
+
+func TestDispatchPathCommandRejectsMissingArgs(t *testing.T) {
+	if err := dispatch([]string{"path"}, os.Stderr); err == nil {
+		t.Fatal("expected error when source/target missing")
+	}
+	if err := dispatch([]string{"path", "src-only"}, os.Stderr); err == nil {
+		t.Fatal("expected error when target missing")
+	}
+}
+
+func TestDispatchPathCommandUnknownNode(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"path", "--graph", filepath.Join(out, "graph.json"), "definitely-not-a-node", "also-not"}, os.Stderr); err == nil {
+		t.Fatal("expected error for unknown source node")
+	}
+}
+
 func TestServeCommandRejectsUnexpectedPositionalArgs(t *testing.T) {
 	err := serveCommand(
 		[]string{"--graph", "/tmp/x.json", "stray-arg"},
