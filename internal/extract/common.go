@@ -9,12 +9,17 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// trimQuotes strips matching string-literal delimiters that tree-sitter
-// includes verbatim in node text. Covers single quotes, double quotes,
-// backticks, and angle brackets (the latter for C-style `#include <foo.h>`
-// shapes). Idempotent on already-bare strings.
+// trimQuotes strips leading/trailing string-literal delimiters that
+// tree-sitter includes verbatim in a node's text. Covers single quotes,
+// double quotes, and backticks — the three delimiters that wrap string
+// literals in nearly every grammar. Idempotent on already-bare strings.
+//
+// Intentionally does NOT trim angle brackets: those appear in TypeScript
+// generics, HTML/JSX content, and arbitrary path strings, where stripping
+// them would mangle the value. Callers that need angle-bracket handling
+// (e.g., C `#include <foo.h>`) should do that strip explicitly.
 func trimQuotes(s string) string {
-	return strings.Trim(s, `"'`+"`<>")
+	return strings.Trim(s, `"'`+"`")
 }
 
 // extractState is the per-file accumulator shared across all language

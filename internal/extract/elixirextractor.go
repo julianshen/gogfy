@@ -38,16 +38,21 @@ func walkElixir(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 				rewriteModuleLabel(state, alias)
 			}
 		case "def", "defp", "defmacro", "defmacrop":
+			kind := "function"
+			if head == "defmacro" || head == "defmacrop" {
+				kind = "macro"
+			}
 			nameNode := elixirDefName(node)
 			if nameNode != nil {
-				kind := "function"
-				if head == "defmacro" || head == "defmacrop" {
-					kind = "macro"
-				}
 				state.emitDecl(kind, node, nameNode, src)
 				state.walkFnScope(kind, nameNode, src, cursor, walkElixir)
 				return
 			}
+			// def with an unrecognized header shape: anonymous scope
+			// keeps inner calls attributed correctly and avoids
+			// collapsing multiple unrecognized defs onto one node.
+			state.walkAnonFnScope(kind, node, src, cursor, walkElixir)
+			return
 		default:
 			if elixirImportMacros[head] {
 				if alias := elixirFirstAlias(node, src); alias != "" {
@@ -55,7 +60,6 @@ func walkElixir(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 				}
 				break
 			}
-			// General call.
 			if head != "" {
 				state.addCall(head)
 			}

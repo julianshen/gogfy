@@ -35,7 +35,7 @@ gogfy uses tree-sitter for AST extraction. A language is supported when (a) some
 
 ## Not supported (graphify lists; we don't)
 
-Each entry below has been **probed** with `go get`. Status reflects what the upstream fork currently ships (as of v0.1.x).
+Each entry below has been **probed** with `go get`. Status reflects what the upstream fork currently ships at the time of probe — third-party fork state changes over time, so the specific blockers below may move; the table records the gap, not a permanent verdict.
 
 | Language | Block | What it would take |
 |----------|-------|--------------------|
