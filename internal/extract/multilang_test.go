@@ -1275,6 +1275,74 @@ Third
 	}
 }
 
+// sectionIDsForLabel returns the set of node IDs whose label equals
+// the given string. Used by duplicate-heading tests to assert that
+// same-labeled sections produce distinct LangIDs.
+func sectionIDsForLabel(res Result, label string) map[string]bool {
+	out := map[string]bool{}
+	for _, n := range res.Nodes {
+		if n.Label == label {
+			out[n.ID] = true
+		}
+	}
+	return out
+}
+
+func TestMarkdownExtractorDuplicateHeadingsProduceDistinctIDs(t *testing.T) {
+	// Three collisions, not two: a fencepost in a future refactor of
+	// nextSectionID (e.g., counter starting at 0 instead of 1, or per-
+	// label map keyed differently) might still pass with n=2 but break
+	// at n=3.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	source := "# Top\n\n## Examples\n\nFirst.\n\n## Examples\n\nSecond.\n\n## Examples\n\nThird.\n"
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := MarkdownExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := sectionIDsForLabel(res, "Examples")
+	if len(ids) != 3 {
+		t.Fatalf("three H2 'Examples' must produce three distinct IDs, got %d (%v)", len(ids), ids)
+	}
+}
+
+func TestHTMLExtractorDuplicateHeadingsProduceDistinctIDs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.html")
+	source := `<html><body><h2>Examples</h2><p>1</p><h2>Examples</h2><p>2</p></body></html>`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := HTMLExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := sectionIDsForLabel(res, "Examples")
+	if len(ids) != 2 {
+		t.Fatalf("two <h2>Examples must produce two distinct IDs, got %d (%v)", len(ids), ids)
+	}
+}
+
+func TestRSTExtractorDuplicateHeadingsProduceDistinctIDs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.rst")
+	source := "Top\n===\n\nExamples\n--------\n\nFirst.\n\nExamples\n--------\n\nSecond.\n"
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RSTExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := sectionIDsForLabel(res, "Examples")
+	if len(ids) != 2 {
+		t.Fatalf("two RST 'Examples' sections must produce two distinct IDs, got %d (%v)", len(ids), ids)
+	}
+}
+
 func TestSwiftExtractorBasic(t *testing.T) {
 	runExtractorCase(t, extractorCase{
 		name:     "swift basic",

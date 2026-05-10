@@ -66,7 +66,7 @@ func (RSTExtractor) Extract(path string) (Result, error) {
 			nextLevel++
 		}
 		if level >= 1 && level <= 3 {
-			id := schema.LangID("rst", "section", abs+":"+slugify(title))
+			id := nextSectionID(state, "rst", abs, title)
 			state.nodes = append(state.nodes, schema.Node{
 				ID:         id,
 				Label:      title,

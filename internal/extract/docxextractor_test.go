@@ -252,3 +252,28 @@ func TestDocxExtractorMissingDocumentXMLReturnsBareModule(t *testing.T) {
 		t.Fatalf("expected single basename-labeled module node, got %+v", res.Nodes)
 	}
 }
+
+func TestDocxExtractorDuplicateHeadingsProduceDistinctIDs(t *testing.T) {
+	// Two Heading2 paragraphs with identical text in one .docx must
+	// produce distinct section node IDs. Without an ordinal in the key,
+	// graph.Builder.AddNode would keep the first and silently drop every
+	// later "Examples" section's hyperlinks under the first.
+	dir := t.TempDir()
+	docXML := `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+ <w:body>
+  <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Top</w:t></w:r></w:p>
+  <w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Examples</w:t></w:r></w:p>
+  <w:p><w:r><w:t>First section.</w:t></w:r></w:p>
+  <w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Examples</w:t></w:r></w:p>
+  <w:p><w:r><w:t>Second section.</w:t></w:r></w:p>
+ </w:body>
+</w:document>`
+	path := writeMinimalDocx(t, dir, "dup.docx", docXML, "")
+	res, err := DocxExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := sectionIDsForLabel(res, "Examples"); len(ids) != 2 {
+		t.Fatalf("two Heading2 'Examples' must produce two distinct IDs, got %d (%v)", len(ids), ids)
+	}
+}

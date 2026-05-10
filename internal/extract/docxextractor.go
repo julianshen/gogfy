@@ -110,51 +110,6 @@ func readZipFile(f *zip.File) ([]byte, error) {
 	return io.ReadAll(rc)
 }
 
-// OOXML relationship-type discriminators. Full URLs are
-// "http://schemas.openxmlformats.org/officeDocument/2006/relationships/<kind>"
-// — we only care about the trailing suffix for filtering.
-const (
-	relTypeHyperlink = "/hyperlink"
-	relTypeWorksheet = "/worksheet"
-	relTypeSlide     = "/slide"
-)
-
-// parseOOXMLRels parses an OOXML _rels file into Id→Target. If wantSuffix
-// is non-empty, only relationships whose Type ends with it are returned.
-// For hyperlink rels we additionally require TargetMode="External": OOXML
-// hyperlinks can target bookmarks or internal parts, and emitting those
-// as cross-document references would pollute the graph the same way the
-// body walker's w:anchor skip prevents.
-func parseOOXMLRels(data []byte, wantSuffix string) map[string]string {
-	out := map[string]string{}
-	if len(data) == 0 {
-		return out
-	}
-	type relationship struct {
-		ID         string `xml:"Id,attr"`
-		Type       string `xml:"Type,attr"`
-		Target     string `xml:"Target,attr"`
-		TargetMode string `xml:"TargetMode,attr"`
-	}
-	type relationships struct {
-		Items []relationship `xml:"Relationship"`
-	}
-	var rs relationships
-	if err := xml.Unmarshal(data, &rs); err != nil {
-		return out
-	}
-	for _, r := range rs.Items {
-		if wantSuffix != "" && !strings.HasSuffix(r.Type, wantSuffix) {
-			continue
-		}
-		if wantSuffix == relTypeHyperlink && r.TargetMode != "External" {
-			continue
-		}
-		out[r.ID] = r.Target
-	}
-	return out
-}
-
 // walkDocxBody streams document.xml, accumulating per-paragraph text
 // (with hyperlink runs interleaved) and per-paragraph hyperlink rIDs.
 // On paragraph-end it inspects the paragraph's pStyle: Heading1/2/3 →
@@ -243,7 +198,7 @@ func walkDocxBody(data []byte, rels map[string]string, path string, state *extra
 				if level == 1 && firstH1 == "" {
 					firstH1 = text
 				}
-				id := schema.LangID("docx", "section", path+":"+slugify(text))
+				id := nextSectionID(state, "docx", path, text)
 				state.nodes = append(state.nodes, schema.Node{
 					ID:         id,
 					Label:      text,

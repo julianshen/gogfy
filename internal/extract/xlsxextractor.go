@@ -90,7 +90,7 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 		if !ok {
 			continue
 		}
-		sheetPath := "xl/" + strings.TrimPrefix(target, "/")
+		sheetPath := resolveOOXMLPartPath("xl/", target)
 		sheetXML, err := readPart(sheetPath)
 		if err != nil {
 			return Result{}, err

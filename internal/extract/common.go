@@ -22,6 +22,18 @@ func trimQuotes(s string) string {
 	return strings.Trim(s, `"'`+"`")
 }
 
+// nextSectionID mints a section LangID using the per-Extract sectionSeq
+// counter so two sections with identical labels in the same document get
+// distinct IDs (graph.Builder.AddNode keeps the first node per ID, so a
+// label-only key would silently fold later sections — and their inbound
+// edges — into the first). Centralizing the format here keeps the four
+// document extractors from drifting.
+func nextSectionID(state *extractState, lang, path, label string) string {
+	state.sectionSeq++
+	return schema.LangID(lang, "section",
+		fmt.Sprintf("%s:n%d:%s", path, state.sectionSeq, slugify(label)))
+}
+
 // extractState is the per-file accumulator shared across all language
 // extractors. The `lang` prefix is woven into every emitted ID so different
 // languages don't collide on identical names.
@@ -36,6 +48,7 @@ type extractState struct {
 	edges       []schema.Edge
 	fnStack     []string
 	callTargets map[string]struct{} // dedup set for emitted call-target nodes
+	sectionSeq  int                 // see nextSectionID
 }
 
 // pushFn records that subsequent walk steps are inside the function with id.

@@ -74,7 +74,7 @@ func walkHTML(n *html.Node, path string, state *extractState) {
 		case "h1", "h2", "h3":
 			label := strings.TrimSpace(elementText(n))
 			if label != "" {
-				id := schema.LangID("html", "section", path+":"+slugify(label))
+				id := nextSectionID(state, "html", path, label)
 				state.nodes = append(state.nodes, schema.Node{
 					ID:         id,
 					Label:      label,

@@ -76,15 +76,16 @@ func walkMarkdown(node ast.Node, src []byte, path string, state *extractState) {
 	case *ast.Heading:
 		if n.Level >= 1 && n.Level <= 3 {
 			label := nodeText(node, src)
-			id := schema.LangID("markdown", "section", path+":"+slugify(label))
+			id := nextSectionID(state, "markdown", path, label)
 			state.nodes = append(state.nodes, schema.Node{
 				ID:         id,
 				Label:      label,
 				SourceFile: path,
 			})
-			// Pop any deeper section, push this one. Heading levels are
-			// monotonic-ish in practice; we don't need a precise stack
-			// since "innermost section" is what each link wants.
+			// Each heading at level 1-3 becomes the new innermost scope
+			// for following links; nesting depth is intentionally not
+			// tracked, since "innermost section" is what each link
+			// edge needs to attribute to.
 			state.fnStack = []string{state.fnStack[0]} // reset to module
 			state.fnStack = append(state.fnStack, id)
 		}
