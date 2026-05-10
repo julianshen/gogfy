@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,10 +15,11 @@ import (
 
 // PPTXExtractor handles PowerPoint .pptx files. Architecture mirrors
 // XlsxExtractor — see that file for the OOXML zip-of-XML rationale and
-// the unconditional-section-emission policy. The pptx-specific quirk is
-// that slide title text is buried inside <p:sp>/<p:nvSpPr>/<p:nvPr>/<p:ph
-// type="title">, deep enough that struct-tag unmarshalling can't express
-// the descendant-only constraint cleanly — we walk tokens instead.
+// the unconditional-section-emission policy. Slide titles, hyperlinks,
+// and paragraph separators are collected in one token-walk because
+// struct-tag unmarshalling can't express several cross-cutting
+// concerns cleanly: descendant-only title-shape gating, first-title-
+// wins semantics, hyperlinks at arbitrary depth, inter-paragraph spacing.
 type PPTXExtractor struct{}
 
 func (PPTXExtractor) Extract(path string) (Result, error) {
@@ -58,7 +61,7 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 		return Result{}, err
 	}
 	if len(presXML) == 0 {
-		return Result{Nodes: state.nodes}, nil
+		return Result{Nodes: state.nodes, Edges: state.edges}, nil
 	}
 
 	relsXML, err := readPart("ppt/_rels/presentation.xml.rels")
@@ -66,7 +69,7 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 		return Result{}, err
 	}
 	presRels := parseOOXMLRels(relsXML, relTypeSlide)
-	slideRIDs := parsePresentationSlideRIDs(presXML)
+	slideRIDs := parsePresentationSlideRIDs(presXML, abs)
 
 	for i, rid := range slideRIDs {
 		title := fmt.Sprintf("Slide %d", i+1)
@@ -80,15 +83,17 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 				return Result{}, err
 			}
 			if len(slideXML) > 0 {
-				t, links := pptxSlideContent(slideXML)
+				t, links := pptxSlideContent(slideXML, abs, i+1)
 				if t != "" {
 					title = t
 				}
 				hyperlinkRIDs = links
 				dir, file := filepath.Split(slidePath)
-				if rxml, err := readPart(dir + "_rels/" + file + ".rels"); err == nil {
-					slideRels = parseOOXMLRels(rxml, relTypeHyperlink)
+				rxml, err := readPart(dir + "_rels/" + file + ".rels")
+				if err != nil {
+					return Result{}, err
 				}
+				slideRels = parseOOXMLRels(rxml, relTypeHyperlink)
 			}
 		}
 
@@ -116,8 +121,10 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 }
 
 // parsePresentationSlideRIDs returns the r:id of each slide listed in
-// ppt/presentation.xml's <p:sldIdLst>, in document order.
-func parsePresentationSlideRIDs(data []byte) []string {
+// ppt/presentation.xml's <p:sldIdLst>, in document order. Malformed
+// presentation XML degrades to nil + stderr log: distinguishes "broken
+// file" from "legitimately empty deck" for batch operators.
+func parsePresentationSlideRIDs(data []byte, abs string) []string {
 	if len(data) == 0 {
 		return nil
 	}
@@ -129,6 +136,7 @@ func parsePresentationSlideRIDs(data []byte) []string {
 	}
 	var p presentation
 	if err := xml.Unmarshal(data, &p); err != nil {
+		fmt.Fprintf(os.Stderr, "pptx: presentation parse failed on %s: %v\n", abs, err)
 		return nil
 	}
 	out := make([]string, 0, len(p.Slides))
@@ -140,11 +148,11 @@ func parsePresentationSlideRIDs(data []byte) []string {
 	return out
 }
 
-// pptxSlideContent walks the slide XML once, returning the title-
-// placeholder text (first title shape wins; <a:hlinkClick> is collected
-// throughout regardless). Single-pass replaces what was two independent
-// walks of the same bytes — meaningful on decks with many slides.
-func pptxSlideContent(data []byte) (title string, hyperlinkRIDs []string) {
+// pptxSlideContent walks slide XML once, capturing the first title-
+// placeholder's text and every <a:hlinkClick> rId in the slide.
+// Truncated/malformed XML logs to stderr and returns whatever was
+// collected so far — a partial slide is more useful than dropping it.
+func pptxSlideContent(data []byte, abs string, slideNum int) (title string, hyperlinkRIDs []string) {
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	var (
 		inShape, inTxBody, inText, sawTitlePh bool
@@ -154,7 +162,11 @@ func pptxSlideContent(data []byte) (title string, hyperlinkRIDs []string) {
 	)
 	for {
 		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "pptx: slide %d parse failed on %s: %v\n", slideNum, abs, err)
 			break
 		}
 		switch t := tok.(type) {

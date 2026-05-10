@@ -138,9 +138,9 @@ func TestPPTXExtractorHyperlinkAttributedToOwnSlide(t *testing.T) {
 }
 
 func TestPPTXExtractorSlideWithoutTitleFallsBackToSlideN(t *testing.T) {
-	// A slide whose title placeholder is empty (or absent) should still
-	// produce a section node, labeled "Slide N" so the structural
-	// information from presentation.xml isn't lost.
+	// Slide with no title placeholder at all should still produce a
+	// section node labeled "Slide N" so structural info from
+	// presentation.xml isn't lost.
 	dir := t.TempDir()
 	parts := map[string]string{
 		"ppt/presentation.xml": `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -170,6 +170,94 @@ func TestPPTXExtractorSlideWithoutTitleFallsBackToSlideN(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected 'Slide 1' fallback label, got %+v", res.Nodes)
+	}
+}
+
+func TestPPTXExtractorEmptyTitlePlaceholderFallsBackToSlideN(t *testing.T) {
+	// A title placeholder containing only whitespace must not produce
+	// a label of "" or " " — it should fall back to "Slide N", same as
+	// the no-placeholder case.
+	dir := t.TempDir()
+	parts := map[string]string{
+		"ppt/presentation.xml": `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>
+</p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>
+</Relationships>`,
+		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:txBody><a:p><a:r><a:t>   </a:t></a:r></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`,
+	}
+	path := writeZipFixture(t, dir, "blanktitle.pptx", parts)
+	res, err := PPTXExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range res.Nodes {
+		if n.Label == "" || n.Label == " " {
+			t.Fatalf("blank/space label leaked: %+v", n)
+		}
+	}
+	var found bool
+	for _, n := range res.Nodes {
+		if n.Label == "Slide 1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("whitespace-only title should fall back to 'Slide 1', got %+v", res.Nodes)
+	}
+}
+
+func TestPPTXExtractorFirstTitleShapeWins(t *testing.T) {
+	// A slide with two title-typed shapes — the first wins; the second
+	// must NOT overwrite the section label. Pins the titleDone flag's
+	// purpose so a future refactor that drops it would be caught.
+	dir := t.TempDir()
+	parts := map[string]string{
+		"ppt/presentation.xml": `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>
+</p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>
+</Relationships>`,
+		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:txBody><a:p><a:r><a:t>First Title</a:t></a:r></a:p></p:txBody>
+    </p:sp>
+    <p:sp>
+      <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:txBody><a:p><a:r><a:t>Second Title</a:t></a:r></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`,
+	}
+	path := writeZipFixture(t, dir, "twotitle.pptx", parts)
+	res, err := PPTXExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, n := range res.Nodes {
+		labels[n.Label] = true
+	}
+	if !labels["First Title"] {
+		t.Fatalf("expected first title to win, got %+v", labels)
+	}
+	if labels["Second Title"] {
+		t.Fatalf("second title shape should not produce a section, got %+v", labels)
 	}
 }
 
