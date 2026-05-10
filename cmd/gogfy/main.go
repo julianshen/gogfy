@@ -141,7 +141,7 @@ func hookCommand(args []string, stderr io.Writer) error {
 	fs := flag.NewFlagSet("hook "+verb, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "git repository root (defaults to cwd)")
-	bin := fs.String("gogfy-bin", "gogfy", "path or name of the gogfy binary the hook should invoke")
+	bin := fs.String("gogfy-bin", "", "path or name of the gogfy binary the hook should invoke (defaults to the absolute path of the running gogfy)")
 	outDir := fs.String("out", "graphify-out", "graph output directory passed to gogfy run --update")
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -160,7 +160,18 @@ func hookCommand(args []string, stderr io.Writer) error {
 		fmt.Fprintf(stderr, "gogfy: removed post-commit auto-rebuild from %s\n", abs)
 		return nil
 	}
-	if err := githook.Install(abs, githook.Options{Bin: *bin, OutDir: *outDir}); err != nil {
+	resolvedBin := *bin
+	if resolvedBin == "" {
+		// Default to the absolute path of the currently-running binary so
+		// the hook works even when GUI git clients (Tower, SourceTree, the
+		// VS Code embedded git) launch with a stripped PATH.
+		if exe, err := os.Executable(); err == nil {
+			resolvedBin = exe
+		} else {
+			resolvedBin = "gogfy"
+		}
+	}
+	if err := githook.Install(abs, githook.Options{Bin: resolvedBin, OutDir: *outDir}); err != nil {
 		return fmt.Errorf("hook install: %w", err)
 	}
 	fmt.Fprintf(stderr, "gogfy: post-commit auto-rebuild installed at %s\n", githook.HookPath(abs))

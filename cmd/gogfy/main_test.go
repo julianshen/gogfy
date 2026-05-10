@@ -518,8 +518,10 @@ func TestDispatchHookInstallWritesPostCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hook not written: %v", err)
 	}
-	if !bytes.Contains(data, []byte("gogfy run --update")) {
-		t.Fatalf("hook missing run --update:\n%s", data)
+	// The bin defaults to os.Executable(); under `go test` that's the test
+	// binary path, not literal "gogfy". Assert the invocation shape instead.
+	if !bytes.Contains(data, []byte(" run --update --out graphify-out .")) {
+		t.Fatalf("hook missing run --update invocation:\n%s", data)
 	}
 	info, _ := os.Stat(path)
 	if info.Mode().Perm()&0111 == 0 {
@@ -562,6 +564,22 @@ func TestDispatchHookRejectsStrayPositional(t *testing.T) {
 	}
 	if err := dispatch([]string{"hook", "install", "--repo", repo, "stray"}, os.Stderr); err == nil {
 		t.Fatal("expected error for stray positional in hook install")
+	}
+}
+
+func TestDispatchHookDefaultsBinToAbsolutePath(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(repo, ".git", "hooks", "post-commit"))
+	// Bare "gogfy" would mean we're trusting PATH at hook time — exactly
+	// the failure mode the absolute-path default prevents.
+	if bytes.Contains(data, []byte("\ngogfy run ")) {
+		t.Fatalf("hook left command as bare PATH-dependent 'gogfy':\n%s", data)
 	}
 }
 

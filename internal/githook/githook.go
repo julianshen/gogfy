@@ -43,15 +43,44 @@ func (o Options) outDir() string {
 	return o.OutDir
 }
 
-// HookPath returns the absolute path of the post-commit hook for repoRoot.
-// Pure: never touches disk.
+// HookPath returns the post-commit hook path for repoRoot. Resolves the
+// hooks directory through `.git` even when it's a file (submodule or
+// worktree shape, where `.git` contains `gitdir: <real-path>`). Pure-ish:
+// reads `.git` only when it's a file.
 func HookPath(repoRoot string) string {
-	return filepath.Join(repoRoot, ".git", "hooks", "post-commit")
+	return filepath.Join(hooksDirFor(repoRoot), "post-commit")
 }
 
-// Install writes (or refreshes) the gogfy auto-rebuild block in
-// `.git/hooks/post-commit`. Refuses if `.git/hooks` doesn't exist —
-// repoRoot must be an actual git repository checkout.
+// hooksDirFor returns the directory containing git hooks for repoRoot.
+// For a normal repo, this is `<root>/.git/hooks`. For a submodule or
+// worktree (where `.git` is a file pointing into `.git/modules/<name>`
+// or `.git/worktrees/<name>`), it's the resolved hooks directory.
+func hooksDirFor(repoRoot string) string {
+	gitPath := filepath.Join(repoRoot, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil || info.IsDir() {
+		return filepath.Join(gitPath, "hooks")
+	}
+	// `.git` is a file (submodule / worktree). Parse `gitdir: <path>`.
+	data, err := os.ReadFile(gitPath)
+	if err != nil {
+		return filepath.Join(gitPath, "hooks") // fall back; caller will surface error
+	}
+	line := strings.TrimSpace(string(data))
+	const prefix = "gitdir:"
+	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if rest == "" || rest == line {
+		return filepath.Join(gitPath, "hooks")
+	}
+	if !filepath.IsAbs(rest) {
+		rest = filepath.Join(repoRoot, rest)
+	}
+	return filepath.Join(rest, "hooks")
+}
+
+// Install writes (or refreshes) the gogfy auto-rebuild block in the repo's
+// post-commit hook. Resolves submodule and worktree shapes (where `.git`
+// is a file). Refuses bare repos (nothing to rebuild) and non-repo paths.
 //
 // Behavior:
 //   - Hook missing → create with `#!/bin/sh` shebang + the gogfy block.
@@ -63,11 +92,14 @@ func HookPath(repoRoot string) string {
 // The result is always chmod 0755 so git can execute it. No-op when the
 // resulting bytes match the existing file (preserves mtime).
 func Install(repoRoot string, opts Options) error {
-	hooksDir := filepath.Join(repoRoot, ".git", "hooks")
-	if info, err := os.Stat(hooksDir); err != nil || !info.IsDir() {
-		return fmt.Errorf("install hook: %s is not a git repository (no .git/hooks)", repoRoot)
+	if err := requireWorkingTreeRepo(repoRoot); err != nil {
+		return err
 	}
-	path := HookPath(repoRoot)
+	hooksDir := hooksDirFor(repoRoot)
+	if info, err := os.Stat(hooksDir); err != nil || !info.IsDir() {
+		return fmt.Errorf("install hook: hooks directory %s missing — submodule/worktree may not be initialized", hooksDir)
+	}
+	path := filepath.Join(hooksDir, "post-commit")
 	existing, err := readOrEmpty(path)
 	if err != nil {
 		return err
@@ -122,14 +154,37 @@ func Uninstall(repoRoot string) error {
 // simpler than the alternative (background) and avoids race conditions on
 // graph artifacts. Tradeoff: a slow rebuild slows the commit; users can
 // uninstall if it's annoying.
+//
+// stderr/stdout are redirected to a log inside the git directory so a
+// consistently-broken rebuild leaves a trail (silent /dev/null discard
+// would hide breakage indefinitely). `|| true` keeps the hook from
+// failing the commit even when gogfy errors.
 func renderHookBlock(opts Options) []byte {
 	var b strings.Builder
 	b.WriteString(hookStartMarker)
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s run --update --out %s . >/dev/null 2>&1 || true\n", opts.bin(), opts.outDir())
+	b.WriteString(`GOGFY_LOG="$(git rev-parse --git-dir 2>/dev/null)/gogfy-rebuild.log"` + "\n")
+	fmt.Fprintf(&b, "%s run --update --out %s . >>\"$GOGFY_LOG\" 2>&1 || true\n", opts.bin(), opts.outDir())
 	b.WriteString(hookEndMarker)
 	b.WriteString("\n")
 	return []byte(b.String())
+}
+
+// requireWorkingTreeRepo refuses bare repositories (where there's no
+// working tree to rebuild against) and unrecognized paths.
+func requireWorkingTreeRepo(repoRoot string) error {
+	gitPath := filepath.Join(repoRoot, ".git")
+	if _, err := os.Stat(gitPath); err != nil {
+		return fmt.Errorf("install hook: %s is not a git repository (no .git entry)", repoRoot)
+	}
+	// Detect bare-repo shape by looking for HEAD + objects in repoRoot.
+	// In a working-tree repo these live under .git, not at the root.
+	if _, err := os.Stat(filepath.Join(repoRoot, "HEAD")); err == nil {
+		if _, err := os.Stat(filepath.Join(repoRoot, "objects")); err == nil {
+			return fmt.Errorf("install hook: %s looks like a bare repository — auto-rebuild needs a working tree", repoRoot)
+		}
+	}
+	return nil
 }
 
 // mergeHookContent inserts/refreshes the rendered gogfy block in existing.

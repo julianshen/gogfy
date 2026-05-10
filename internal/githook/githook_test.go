@@ -304,6 +304,91 @@ func TestInstallFailsOnUnreadableHook(t *testing.T) {
 	}
 }
 
+// TestInstallRedirectsLogToGitDir — the hook must capture stderr/stdout
+// to a log file inside the git directory rather than discarding them, so
+// a consistently-broken rebuild leaves a discoverable trail.
+func TestInstallRedirectsLogToGitDir(t *testing.T) {
+	root := makeRepo(t)
+	if err := Install(root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(HookPath(root))
+	s := string(data)
+	// The gogfy invocation must capture both streams to the log file, not
+	// discard them. (`git rev-parse 2>/dev/null` is fine — that's just
+	// silencing the path-lookup probe.)
+	if strings.Contains(s, "run --update --out") && strings.Contains(s, ">/dev/null 2>&1") {
+		t.Fatalf("gogfy invocation still pipes to /dev/null:\n%s", s)
+	}
+	if !strings.Contains(s, "gogfy-rebuild.log") {
+		t.Fatalf("hook missing log file path:\n%s", s)
+	}
+	if !strings.Contains(s, ">>\"$GOGFY_LOG\" 2>&1") {
+		t.Fatalf("hook missing log redirection:\n%s", s)
+	}
+}
+
+// TestHookPathResolvesGitFile — submodule and worktree repos have `.git`
+// as a file containing `gitdir: <path>`. HookPath must follow the
+// indirection rather than assuming a directory.
+func TestHookPathResolvesGitFile(t *testing.T) {
+	root := t.TempDir()
+	realGitDir := filepath.Join(root, ".git-real")
+	if err := os.MkdirAll(filepath.Join(realGitDir, "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: ./.git-real\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := HookPath(root)
+	want := filepath.Join(realGitDir, "hooks", "post-commit")
+	if got != want {
+		t.Fatalf("HookPath did not follow gitdir: got %q, want %q", got, want)
+	}
+}
+
+// TestInstallSucceedsInWorktreeShape — install should work end-to-end
+// when `.git` is a file pointing into a sibling git directory.
+func TestInstallSucceedsInWorktreeShape(t *testing.T) {
+	root := t.TempDir()
+	realGitDir := filepath.Join(root, ".git-worktrees", "feature")
+	if err := os.MkdirAll(filepath.Join(realGitDir, "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	gitdirLine := []byte("gitdir: " + realGitDir + "\n")
+	if err := os.WriteFile(filepath.Join(root, ".git"), gitdirLine, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(root, Options{}); err != nil {
+		t.Fatalf("install in worktree shape: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(realGitDir, "hooks", "post-commit")); err != nil {
+		t.Fatalf("hook not created in resolved hooks dir: %v", err)
+	}
+}
+
+// TestInstallRefusesBareRepo — bare repos have HEAD + objects at the
+// root and no working tree, so `gogfy run --update .` would fail.
+func TestInstallRefusesBareRepo(t *testing.T) {
+	root := t.TempDir()
+	// Synthesize a bare-repo shape.
+	for _, dir := range []string{"hooks", "objects", "refs"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Also put a `.git` entry so the requireWorkingTreeRepo gate sees a repo.
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(root, Options{}); err == nil {
+		t.Fatal("expected error on bare-repo shape")
+	}
+}
+
 func TestInstallSkipsRewriteWhenContentUnchanged(t *testing.T) {
 	root := makeRepo(t)
 	if err := Install(root, Options{}); err != nil {
