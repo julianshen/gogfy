@@ -188,7 +188,7 @@ func gogfyServerEntry(opts Options) map[string]any {
 	}
 }
 
-// writeJSON marshals cfg to indented JSON and writes it via fsutil.WriteFileAtomic.
+// writeJSON marshals cfg to indented JSON and writes it atomically.
 func writeJSON(path string, cfg map[string]any) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {

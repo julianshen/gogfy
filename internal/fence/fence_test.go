@@ -12,13 +12,13 @@ const (
 )
 
 func TestIndexAllNoMatch(t *testing.T) {
-	if got := IndexAll([]byte("hello"), []byte("xyz")); got != nil {
+	if got := indexAll([]byte("hello"), []byte("xyz")); got != nil {
 		t.Fatalf("expected nil, got %v", got)
 	}
 }
 
 func TestIndexAllMultipleMatches(t *testing.T) {
-	got := IndexAll([]byte("ababab"), []byte("ab"))
+	got := indexAll([]byte("ababab"), []byte("ab"))
 	want := []int{0, 2, 4}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)

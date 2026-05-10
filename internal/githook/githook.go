@@ -232,7 +232,7 @@ func Uninstall(repoRoot string) error {
 	}
 	updated, removed, err := fence.Strip(existing, []byte(hookStartMarker), []byte(hookEndMarker))
 	if err != nil {
-		return err
+		return fmt.Errorf("hook uninstall: %w", err)
 	}
 	if !removed {
 		return nil
@@ -308,7 +308,7 @@ func mergeHookContent(existing, rendered []byte) ([]byte, error) {
 	}
 	updated, replaced, err := fence.Replace(existing, []byte(hookStartMarker), []byte(hookEndMarker), rendered)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("hook install: %w", err)
 	}
 	if replaced {
 		return updated, nil
@@ -324,20 +324,6 @@ func mergeHookContent(existing, rendered []byte) ([]byte, error) {
 	}
 	buf.Write(rendered)
 	return buf.Bytes(), nil
-}
-
-// ensureExecutable sets the execute bits on path so git can run the hook.
-// Idempotent. Race acceptable: hook lives under .git, owned by the user.
-func ensureExecutable(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	want := info.Mode() | 0111
-	if info.Mode() == want {
-		return nil
-	}
-	return os.Chmod(path, want)
 }
 
 // hookContentIsEmpty reports whether buf is "effectively empty" — nothing
@@ -357,4 +343,17 @@ func hookContentIsEmpty(buf []byte) bool {
 		return true
 	}
 	return false
+}
+// ensureExecutable sets the user/group/other execute bits on path so git
+// can run the hook. Idempotent.
+func ensureExecutable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	want := info.Mode() | 0111
+	if info.Mode() == want {
+		return nil
+	}
+	return os.Chmod(path, want)
 }

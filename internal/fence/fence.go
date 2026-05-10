@@ -15,8 +15,9 @@ import (
 	"fmt"
 )
 
-// IndexAll returns every starting index of needle within hay.
-func IndexAll(hay, needle []byte) []int {
+// indexAll returns every starting index of needle within hay. Unexported
+// because no external caller needs it — Replace/Strip use it internally.
+func indexAll(hay, needle []byte) []int {
 	var out []int
 	for offset := 0; ; {
 		i := bytes.Index(hay[offset:], needle)
@@ -89,8 +90,8 @@ func Strip(existing, start, end []byte) ([]byte, bool, error) {
 //   - (-1, -1, err) for any mismatched state — the caller MUST surface
 //     that error rather than guess.
 func matchPair(existing, start, end []byte) (int, int, error) {
-	starts := IndexAll(existing, start)
-	ends := IndexAll(existing, end)
+	starts := indexAll(existing, start)
+	ends := indexAll(existing, end)
 	if len(starts) == 0 && len(ends) == 0 {
 		return -1, -1, nil
 	}

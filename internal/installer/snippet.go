@@ -49,7 +49,7 @@ func InstallSnippet(path string, opts SnippetOptions) error {
 	}
 	updated, replaced, err := fence.Replace(existing, []byte(snippetStartMarker), []byte(snippetEndMarker), rendered)
 	if err != nil {
-		return err
+		return fmt.Errorf("install-instructions: %w", err)
 	}
 	if !replaced {
 		// Append. Ensure separation from prior content.
@@ -85,7 +85,7 @@ func UninstallSnippet(path string) error {
 	}
 	updated, removed, err := fence.Strip(existing, []byte(snippetStartMarker), []byte(snippetEndMarker))
 	if err != nil {
-		return err
+		return fmt.Errorf("uninstall-instructions: %w", err)
 	}
 	if !removed {
 		return nil
