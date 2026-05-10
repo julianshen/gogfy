@@ -2,7 +2,7 @@
 
 gogfy uses tree-sitter for AST extraction. A language is supported when (a) someone publishes a maintained tree-sitter grammar, (b) that grammar's repo carries a `bindings/go/` directory with cgo wrappers, and (c) the published Go module compiles cleanly. Most graphify-listed languages clear all three; some don't.
 
-## Supported (27 code + 5 document formats)
+## Supported (27 code + 6 document formats)
 
 | Language | Extensions | Grammar source |
 |----------|------------|----------------|
@@ -42,6 +42,7 @@ gogfy uses tree-sitter for AST extraction. A language is supported when (a) some
 | reStructuredText | `.rst` | Heuristic. Section detection via canonical RST adornment-line pattern (line N+1 same length as line N, composed of one of `= - ~ ^ ' " * + # : .`). Heading levels inferred by first-appearance order of the adornment character. Inline targets `\`text <url>\`_` plus bare URLs in prose extracted as references. No docutils dep — Python-free. |
 | Plain text | `.txt` | Module node only; references extracted via URL regex. Trailing sentence punctuation (`.`, `,`, `)`, `;`, `:`, `!`, `?`) stripped from URLs. Useful for getting README-adjacent files (CHANGELOG, NOTES, LICENSE) into the graph. |
 | Word | `.docx` | Pure-Go via `archive/zip` + `encoding/xml` (no third-party docx library). Reads `word/document.xml` for paragraphs and `word/_rels/document.xml.rels` for hyperlink targets. Module label prefers `Title`-style paragraph over first `Heading1` over basename. Heading1/2/3 → section nodes. `<w:hyperlink r:id="…">` → reference edge with the URL resolved through the rels map; anchor-only intra-document links are skipped. |
+| Excel | `.xlsx` | Pure-Go via `archive/zip` + `encoding/xml` (no `excelize` dep). Workbook → module node (label = basename). Each sheet listed in `xl/workbook.xml` → section node. External hyperlinks (`<hyperlink r:id="…"/>` resolved through each sheet's `xl/worksheets/_rels/sheetN.xml.rels`) → reference edges sourced from their owning sheet section. Cell content isn't extracted — sheet names + outbound links are the high-signal extracts; cell text is mostly numeric/tabular noise. |
 
 ## Not supported (graphify lists; we don't)
 
@@ -76,10 +77,9 @@ Each entry below has been **probed** with `go get`. Status reflects what the ups
 
 **Document formats** — building Go-native, no Python (no markitdown dep). Markdown / HTML / RST / plain-text shipped; following the same shape:
 
-1. **`.xlsx`** — `github.com/xuri/excelize/v2`. Each sheet → module; rows that look like cross-references → edges.
-5. **PDF** — `github.com/ledongthuc/pdf` for text-only extraction. Layout-complex PDFs may need `pdfcpu`.
-6. **Images** — Tesseract OCR via cgo. Opt-in build tag; not core.
-7. **Audio / video** — `whisper.cpp` via cgo. Opt-in build tag.
+1. **PDF** — `github.com/ledongthuc/pdf` for text-only extraction. Layout-complex PDFs may need `pdfcpu`.
+2. **Images** — Tesseract OCR via cgo. Opt-in build tag; not core.
+3. **Audio / video** — `whisper.cpp` via cgo. Opt-in build tag.
 
 ## Adding a language
 
