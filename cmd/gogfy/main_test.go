@@ -597,6 +597,71 @@ func TestDispatchHookHonorsCustomFlags(t *testing.T) {
 	}
 }
 
+func TestDispatchHookInstallMergeDriver(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install-merge-driver", "--repo", repo, "--gogfy-bin", "/opt/gogfy"}, os.Stderr); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	cfg, _ := os.ReadFile(filepath.Join(repo, ".git", "config"))
+	if !bytes.Contains(cfg, []byte(`[merge "gogfy"]`)) {
+		t.Fatalf(".git/config missing merge section:\n%s", cfg)
+	}
+	if !bytes.Contains(cfg, []byte("driver = /opt/gogfy merge-graphs %A %B --out %A")) {
+		t.Fatalf(".git/config missing driver line:\n%s", cfg)
+	}
+	attrs, _ := os.ReadFile(filepath.Join(repo, ".gitattributes"))
+	if !bytes.Contains(attrs, []byte("graphify-out/graph.json merge=gogfy")) {
+		t.Fatalf(".gitattributes missing rule:\n%s", attrs)
+	}
+}
+
+func TestDispatchHookUninstallMergeDriver(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install-merge-driver", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "uninstall-merge-driver", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatalf("dispatch uninstall: %v", err)
+	}
+	cfg, _ := os.ReadFile(filepath.Join(repo, ".git", "config"))
+	if bytes.Contains(cfg, []byte(`[merge "gogfy"]`)) {
+		t.Fatalf("merge section still present:\n%s", cfg)
+	}
+}
+
+func TestDispatchHookMergeDriverRejectsStrayPositional(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install-merge-driver", "--repo", repo, "stray"}, os.Stderr); err == nil {
+		t.Fatal("expected error for stray positional")
+	}
+}
+
+func TestDispatchHookStatusIncludesMergeDriver(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Status should include a merge-driver line whether installed or not.
+	if err := dispatch([]string{"hook", "status", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install-merge-driver", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "status", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDispatchHookStatus(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {

@@ -108,7 +108,8 @@ gogfy <claude|codex|cursor|vscode|gemini> uninstall
 gogfy install --platform <platform>       # just the MCP config
 gogfy install-instructions --file CLAUDE.md   # just the docs snippet
 gogfy hook install                            # just the post-commit + post-checkout hooks
-gogfy hook status                             # show what's wired
+gogfy hook install-merge-driver               # auto-union graph.json on `git merge`
+gogfy hook status                             # show what's wired (hooks + merge driver)
 
 # MCP server (stdio):
 gogfy serve --graph graphify-out/graph.json
@@ -159,7 +160,7 @@ dist/
 1. One person runs `gogfy run .` and commits `graphify-out/`.
 2. Everyone else pulls — their assistant reads the graph immediately.
 3. `gogfy hook install` adds post-commit + post-checkout hooks so the graph stays in sync without anyone thinking about it. Hook script is fenced so it coexists with other tools' hook content.
-4. Two devs committed parallel graphs? `gogfy merge-graphs a.json b.json --out merged.json` unions them deterministically — same shape future git merge driver will use.
+4. Two devs committed parallel graphs? Run `gogfy hook install-merge-driver` once — it registers a graph.json union driver in `.git/config` plus a matching `merge=gogfy` rule in `.gitattributes`. From then on, `git merge` auto-unions parallel graphs instead of leaving conflict markers.
 
 `graphify-out/.gographify-cache` (the hash-based incremental cache) can be `.gitignore`'d to keep repos lean; the rest of `graphify-out/` is meant to be committed.
 
@@ -173,7 +174,6 @@ Code-graph parity with graphify: ✅ complete (extraction, resolve, cluster, ana
 - Document extraction — Markdown / PDF / images / video transcription. All require LLM API integration.
 - Long-tail languages where Go bindings aren't published (V, SQL, Dart, Obj-C, Groovy, Elixir, Erlang, R, PowerShell, Fortran, Pascal).
 - Per-platform installers for Aider / Trae / Kimi / Kiro / Pi / Antigravity / Factory Droid (most read `AGENTS.md`, so `gogfy install-instructions --file AGENTS.md` covers them at the agent-rules layer).
-- Git merge driver registration on `graph.json` (the `merge-graphs` primitive exists; just no auto-driver yet).
 
 ---
 
