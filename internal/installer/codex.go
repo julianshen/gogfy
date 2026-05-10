@@ -23,13 +23,16 @@ func (c codexInstaller) ConfigPath(workspace string) string {
 
 func (c codexInstaller) Install(workspace string, opts Options) error {
 	path := c.ConfigPath(workspace)
-	existing, err := readBytesOrEmpty(path)
+	existing, err := readFileOrEmpty(path)
 	if err != nil {
+		return err
+	}
+	if err := guardAgainstAlternateGogfyForms(existing, path); err != nil {
 		return err
 	}
 	block := codexGogfyBlock(opts)
 	updated, _ := replaceOrAppendBlock(existing, []byte("[mcp_servers.gogfy]"), block)
-	return writeBytes(path, updated)
+	return writeFileAtomic(path, updated)
 }
 
 func (c codexInstaller) Uninstall(workspace string) error {
@@ -46,7 +49,37 @@ func (c codexInstaller) Uninstall(workspace string) error {
 		// Block not present: leave the file byte-identical (no mtime churn).
 		return nil
 	}
-	return writeBytes(path, updated)
+	return writeFileAtomic(path, updated)
+}
+
+// guardAgainstAlternateGogfyForms refuses to install when the existing config
+// already references mcp_servers.gogfy through an inline-table or
+// array-of-tables shape that our line-based editor doesn't understand —
+// blindly appending a `[mcp_servers.gogfy]` block in that case would produce
+// duplicate-key TOML that Codex rejects at parse time.
+func guardAgainstAlternateGogfyForms(existing []byte, path string) error {
+	for i, raw := range bytes.SplitAfter(existing, []byte("\n")) {
+		line := strings.TrimSpace(string(raw))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[mcp_servers.gogfy]") {
+			// The standard form — replace in place, fine.
+			return nil
+		}
+		// Hazard 1: array-of-tables `[[mcp_servers]]` followed by a line
+		// containing `name = "gogfy"` (rare, but legal).
+		if line == "[[mcp_servers.gogfy]]" {
+			return fmt.Errorf("install: %s line %d uses array-of-tables [[mcp_servers.gogfy]] which we don't edit safely; remove it manually then re-run install", path, i+1)
+		}
+		// Hazard 2: an inline-table assignment such as
+		// `mcp_servers = { gogfy = { ... } }` or
+		// `mcp_servers.gogfy = { ... }`.
+		if strings.Contains(line, "mcp_servers") && strings.Contains(line, "gogfy") && strings.Contains(line, "=") && !strings.HasPrefix(line, "[") {
+			return fmt.Errorf("install: %s line %d defines mcp_servers.gogfy via an inline-table form which we don't edit safely; remove it manually then re-run install", path, i+1)
+		}
+	}
+	return nil
 }
 
 // codexGogfyBlock builds the canonical TOML block for the gogfy server.
@@ -62,31 +95,45 @@ func codexGogfyBlock(opts Options) []byte {
 	return []byte(b.String())
 }
 
-// replaceOrAppendBlock returns existing with the block whose header line is
-// `header` replaced by replacement. The block runs from its header line up
-// to (but not including) the next top-level table header (a line starting
-// with `[`) or end-of-file. If no such header is found, replacement is
-// appended to existing (with a separating blank line if needed). Returns
-// (newContent, replaced).
-//
-// "Top-level table header" detection is intentionally simple: we treat any
-// line whose first non-whitespace character is `[` as a header boundary.
-// Codex's config is hand-edited and conventional — nested arrays-of-tables
-// or pathological indented headers don't appear in practice.
-func replaceOrAppendBlock(existing []byte, header, replacement []byte) ([]byte, bool) {
-	lines := splitLines(existing)
-	headerStr := string(header)
-	// Find the start of our block.
-	start := -1
+// findBlock locates a [header]…[next header or EOF] region in existing.
+// Returns (startLineIdx, endLineIdx, lines, found). lines is bytes.SplitAfter
+// on '\n' so each entry preserves its trailing newline (joining with
+// bytes.Join(lines, nil) is exactly inverse).
+func findBlock(existing []byte, header []byte) (start, end int, lines [][]byte, found bool) {
+	if len(existing) == 0 {
+		return 0, 0, nil, false
+	}
+	lines = bytes.SplitAfter(existing, []byte("\n"))
+	start = -1
 	for i, line := range lines {
-		if strings.TrimSpace(line) == headerStr {
+		if bytes.Equal(bytes.TrimSpace(line), header) {
 			start = i
 			break
 		}
 	}
 	if start < 0 {
-		// Append. Ensure a blank line separator if existing doesn't end with one.
+		return 0, 0, lines, false
+	}
+	end = len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if isTOMLHeaderLine(lines[i]) {
+			end = i
+			break
+		}
+	}
+	return start, end, lines, true
+}
+
+// replaceOrAppendBlock returns existing with the block whose header line is
+// `header` replaced by replacement. The block runs from its header line up
+// to (but not including) the next top-level table header or end-of-file.
+// If no such header is found, replacement is appended (with a separating
+// blank line if needed). Returns (newContent, replaced).
+func replaceOrAppendBlock(existing, header, replacement []byte) ([]byte, bool) {
+	start, end, lines, found := findBlock(existing, header)
+	if !found {
 		out := append([]byte{}, existing...)
+		// Ensure a blank line separates the appended block from prior content.
 		if len(out) > 0 && !bytes.HasSuffix(out, []byte("\n")) {
 			out = append(out, '\n')
 		}
@@ -96,127 +143,42 @@ func replaceOrAppendBlock(existing []byte, header, replacement []byte) ([]byte, 
 		out = append(out, replacement...)
 		return out, false
 	}
-	// Find the end of the block (next header line or EOF).
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		if isTOMLHeaderLine(lines[i]) {
-			end = i
-			break
-		}
-	}
-	// Splice: lines[:start] + replacement + lines[end:]
 	var out bytes.Buffer
-	out.Write(joinLines(lines[:start]))
+	out.Write(bytes.Join(lines[:start], nil))
 	out.Write(replacement)
 	if end < len(lines) {
-		// Ensure replacement ends with a newline before the trailing block.
 		if !bytes.HasSuffix(replacement, []byte("\n")) {
 			out.WriteByte('\n')
 		}
-		out.Write(joinLines(lines[end:]))
+		out.Write(bytes.Join(lines[end:], nil))
 	}
 	return out.Bytes(), true
 }
 
-// removeBlock strips a [header]...[next header or EOF] block from existing.
-// Returns (newContent, removed) where removed=false means the header was
-// not found (caller should treat as no-op).
-func removeBlock(existing []byte, header []byte) ([]byte, bool) {
-	lines := splitLines(existing)
-	headerStr := string(header)
-	start := -1
-	for i, line := range lines {
-		if strings.TrimSpace(line) == headerStr {
-			start = i
-			break
-		}
-	}
-	if start < 0 {
+// removeBlock strips a [header]…[next header or EOF] block from existing.
+// Walks back over a single blank-line separator preceding the block so the
+// seam doesn't leave a double-blank gap. Returns (newContent, removed).
+func removeBlock(existing, header []byte) ([]byte, bool) {
+	start, end, lines, found := findBlock(existing, header)
+	if !found {
 		return existing, false
 	}
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		if isTOMLHeaderLine(lines[i]) {
-			end = i
-			break
-		}
-	}
-	// Walk back from start over leading blank lines that belong to the block
-	// (one separator line is fair game; we keep earlier content intact).
 	prune := start
-	if prune > 0 && strings.TrimSpace(lines[prune-1]) == "" {
+	if prune > 0 && len(bytes.TrimSpace(lines[prune-1])) == 0 {
 		prune--
 	}
 	var out bytes.Buffer
-	out.Write(joinLines(lines[:prune]))
+	out.Write(bytes.Join(lines[:prune], nil))
 	if end < len(lines) {
-		out.Write(joinLines(lines[end:]))
+		out.Write(bytes.Join(lines[end:], nil))
 	}
 	return out.Bytes(), true
-}
-
-// splitLines splits b into lines, preserving each line's trailing newline
-// so that joinLines is exactly inverse. The final line has no trailing
-// newline iff b didn't end with one.
-func splitLines(b []byte) []string {
-	if len(b) == 0 {
-		return nil
-	}
-	out := []string{}
-	start := 0
-	for i := 0; i < len(b); i++ {
-		if b[i] == '\n' {
-			out = append(out, string(b[start:i+1]))
-			start = i + 1
-		}
-	}
-	if start < len(b) {
-		out = append(out, string(b[start:]))
-	}
-	return out
-}
-
-func joinLines(lines []string) []byte {
-	var b bytes.Buffer
-	for _, l := range lines {
-		b.WriteString(l)
-	}
-	return b.Bytes()
 }
 
 // isTOMLHeaderLine reports whether a line is a top-level table or
 // array-of-tables header (`[name]`, `[name.sub]`, or `[[name]]`).
 // Comment-prefixed `# [foo]` lines are not headers.
-func isTOMLHeaderLine(line string) bool {
-	trimmed := strings.TrimSpace(line)
-	return strings.HasPrefix(trimmed, "[")
-}
-
-// readBytesOrEmpty reads path or returns nil for ENOENT (mirrors
-// readOrEmpty for the JSON path; separate because this returns raw bytes).
-func readBytesOrEmpty(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
-// writeBytes writes data atomically (.tmp + rename), creating parent dirs.
-func writeBytes(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+func isTOMLHeaderLine(line []byte) bool {
+	trimmed := bytes.TrimSpace(line)
+	return len(trimmed) > 0 && trimmed[0] == '['
 }

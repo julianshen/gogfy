@@ -30,6 +30,15 @@ import (
 // one-line change here when client compatibility allows.
 const protocolVersion = "2024-11-05"
 
+// Tool names exposed via tools/list. Exported so other packages (e.g.
+// internal/installer's snippet writer) can reference them by const rather
+// than risking drift if a tool is renamed.
+const (
+	ToolGodNodes = "gogfy_god_nodes"
+	ToolExplain  = "gogfy_explain"
+	ToolQuery    = "gogfy_query"
+)
+
 // Server holds the in-memory graph + report bytes the MCP tools read from.
 //
 // Indices (nodesByID, labelMatches, outEdges, inEdges) and the cached
@@ -188,11 +197,11 @@ func (s *Server) toolsCall(req rpcRequest) []byte {
 		return jsonRPCError(req.ID, -32602, "invalid params: "+err.Error())
 	}
 	switch p.Name {
-	case "gogfy_god_nodes":
+	case ToolGodNodes:
 		return jsonRPCResult(req.ID, s.callGodNodes(p.Arguments))
-	case "gogfy_explain":
+	case ToolExplain:
 		return jsonRPCResult(req.ID, s.callExplain(p.Arguments))
-	case "gogfy_query":
+	case ToolQuery:
 		return jsonRPCResult(req.ID, s.callQuery(p.Arguments))
 	default:
 		return jsonRPCError(req.ID, -32602, "unknown tool: "+p.Name)
@@ -370,7 +379,7 @@ func (s *Server) resourcesRead(req rpcRequest) []byte {
 // minimal — agents only need them to know argument names and required-ness.
 var toolDescriptors = []map[string]any{
 	{
-		"name":        "gogfy_god_nodes",
+		"name":        ToolGodNodes,
 		"description": "List the most-connected nodes in the graph (the project's hubs).",
 		"inputSchema": map[string]any{
 			"type": "object",
@@ -380,7 +389,7 @@ var toolDescriptors = []map[string]any{
 		},
 	},
 	{
-		"name":        "gogfy_explain",
+		"name":        ToolExplain,
 		"description": "Show a node's metadata plus its incoming and outgoing edges. If the label collides across multiple nodes, the candidates are listed for ID-based disambiguation.",
 		"inputSchema": map[string]any{
 			"type": "object",
@@ -391,7 +400,7 @@ var toolDescriptors = []map[string]any{
 		},
 	},
 	{
-		"name":        "gogfy_query",
+		"name":        ToolQuery,
 		"description": "Find nodes whose label, ID, or source file contains the given substring (case-insensitive).",
 		"inputSchema": map[string]any{
 			"type": "object",

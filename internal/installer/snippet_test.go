@@ -201,6 +201,30 @@ func TestUninstallSnippetIgnoresOrphanStartMarker(t *testing.T) {
 	}
 }
 
+// TestInstallSnippetNReinstallsAreFixedPoint — protect the "consume one
+// trailing newline" branch in replaceFencedSnippet from silently
+// accumulating blank lines on repeated install.
+func TestInstallSnippetNReinstallsAreFixedPoint(t *testing.T) {
+	ws := t.TempDir()
+	path := filepath.Join(ws, "AGENTS.md")
+	if err := os.WriteFile(path, []byte("# Project\n\nKeep me.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallSnippet(path, SnippetOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := os.ReadFile(path)
+	for i := 0; i < 5; i++ {
+		if err := InstallSnippet(path, SnippetOptions{}); err != nil {
+			t.Fatalf("reinstall #%d: %v", i, err)
+		}
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(first, got) {
+		t.Fatalf("5 reinstalls drifted from 1:\nfirst:  %q\nafter5: %q", first, got)
+	}
+}
+
 func TestUninstallSnippetDeletesEmptiedFile(t *testing.T) {
 	// Edge case: the file was created entirely by InstallSnippet (no prior
 	// content). After uninstall, it should be removed rather than left as

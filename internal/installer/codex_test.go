@@ -240,6 +240,68 @@ func TestCodexUninstallFailsOnUnreadableConfig(t *testing.T) {
 	}
 }
 
+// TestCodexInstallNReinstallsAreFixedPoint — N consecutive installs must
+// produce identical bytes. Catches the "consume one trailing newline" /
+// "blank-line separator" branches accumulating whitespace silently.
+func TestCodexInstallNReinstallsAreFixedPoint(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := os.ReadFile(inst.ConfigPath(ws))
+	for i := 0; i < 5; i++ {
+		if err := inst.Install(ws, Options{}); err != nil {
+			t.Fatalf("reinstall #%d: %v", i, err)
+		}
+	}
+	got, _ := os.ReadFile(inst.ConfigPath(ws))
+	if !bytes.Equal(first, got) {
+		t.Fatalf("5 reinstalls drifted from 1:\nfirst (%d bytes): %q\nafter5 (%d bytes): %q",
+			len(first), first, len(got), got)
+	}
+}
+
+// TestCodexInstallRefusesArrayOfTablesGogfy — pre-existing
+// `[[mcp_servers.gogfy]]` is an array-of-tables shape our line editor
+// can't safely modify; appending a `[mcp_servers.gogfy]` block would
+// produce duplicate-key TOML. Surface as an error.
+func TestCodexInstallRefusesArrayOfTablesGogfy(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	hostile := []byte("[[mcp_servers.gogfy]]\ncommand = \"old\"\n")
+	if err := os.WriteFile(path, hostile, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{}); err == nil {
+		t.Fatal("expected error on pre-existing [[mcp_servers.gogfy]]")
+	}
+}
+
+// TestCodexInstallRefusesInlineTableGogfy — pre-existing inline-table
+// definition like `mcp_servers = { gogfy = ... }` is the other hazard
+// shape; refuse rather than silently produce duplicate-key TOML.
+func TestCodexInstallRefusesInlineTableGogfy(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	hostile := []byte(`mcp_servers = { gogfy = { command = "old" } }
+`)
+	if err := os.WriteFile(path, hostile, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{}); err == nil {
+		t.Fatal("expected error on inline-table mcp_servers.gogfy")
+	}
+}
+
 // TestCodexInstallCustomOutDir — Options.OutDir must flow into the args
 // list inside the TOML block (not just the JSON installers).
 func TestCodexInstallCustomOutDir(t *testing.T) {

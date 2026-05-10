@@ -136,12 +136,10 @@ func (j jsonInstaller) Uninstall(workspace string) error {
 }
 
 // readOrEmpty parses the JSON config at path, or returns an empty map if the
-// file does not exist. Any other error (parse failure, IO error) propagates.
+// file does not exist or is empty. Any other error (parse failure, IO error)
+// propagates.
 func readOrEmpty(path string) (map[string]any, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return map[string]any{}, nil
-	}
+	data, err := readFileOrEmpty(path)
 	if err != nil {
 		return nil, err
 	}
@@ -188,14 +186,21 @@ func gogfyServerEntry(opts Options) map[string]any {
 	}
 }
 
-// writeJSON marshals cfg to indented JSON and writes it atomically (.tmp +
-// rename), creating parent directories as needed.
+// writeJSON marshals cfg to indented JSON and writes it via writeFileAtomic.
 func writeJSON(path string, cfg map[string]any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, data)
+}
+
+// writeFileAtomic creates the parent directory then writes data via a sibling
+// .tmp file followed by rename, so a partial write cannot replace a previously
+// good file with a truncated one. Shared by every installer (JSON, TOML,
+// snippet).
+func writeFileAtomic(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
@@ -207,6 +212,19 @@ func writeJSON(path string, cfg map[string]any) error {
 		return err
 	}
 	return nil
+}
+
+// readFileOrEmpty reads path, returning nil for ENOENT (caller treats as
+// "no config yet"). Any other error propagates.
+func readFileOrEmpty(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // registry maps platform name → installer. Adding a new JSON-config

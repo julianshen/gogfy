@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/julianshen/gogfy/internal/serve"
 )
 
 // snippet markers fence the gogfy-managed instruction block inside a
@@ -36,12 +38,12 @@ func (s SnippetOptions) reportPath() string {
 // Otherwise the snippet is appended.
 func InstallSnippet(path string, opts SnippetOptions) error {
 	rendered := renderSnippet(opts)
-	existing, err := readBytesOrEmpty(path)
+	existing, err := readFileOrEmpty(path)
 	if err != nil {
 		return err
 	}
 	if len(existing) == 0 {
-		return writeBytes(path, rendered)
+		return writeFileAtomic(path, rendered)
 	}
 	updated, replaced := replaceFencedSnippet(existing, rendered)
 	if !replaced {
@@ -61,7 +63,7 @@ func InstallSnippet(path string, opts SnippetOptions) error {
 		// Idempotent: nothing changed, skip the rewrite to preserve mtime.
 		return nil
 	}
-	return writeBytes(path, updated)
+	return writeFileAtomic(path, updated)
 }
 
 // UninstallSnippet strips the fenced gogfy block from path. If removing it
@@ -83,7 +85,7 @@ func UninstallSnippet(path string) error {
 	if len(bytes.TrimSpace(updated)) == 0 {
 		return os.Remove(path)
 	}
-	return writeBytes(path, updated)
+	return writeFileAtomic(path, updated)
 }
 
 // renderSnippet builds the fenced markdown block, ending with a newline so
@@ -99,7 +101,8 @@ func renderSnippet(opts SnippetOptions) []byte {
 	b.WriteString("- **Surprising connections** — links between things in different files/modules, ranked by how unexpected they are.\n")
 	b.WriteString("- **Confidence summary** — counts of EXTRACTED / INFERRED / AMBIGUOUS edges, so you know what was found vs. guessed.\n")
 	b.WriteString("- **Suggested questions** — questions the graph is uniquely positioned to answer.\n\n")
-	b.WriteString("Use the gogfy MCP tools (`gogfy_god_nodes`, `gogfy_explain`, `gogfy_query`) to navigate by graph structure instead of grepping.\n")
+	fmt.Fprintf(&b, "Use the gogfy MCP tools (`%s`, `%s`, `%s`) to navigate by graph structure instead of grepping.\n",
+		serve.ToolGodNodes, serve.ToolExplain, serve.ToolQuery)
 	b.WriteString(snippetEndMarker)
 	b.WriteString("\n")
 	return []byte(b.String())
