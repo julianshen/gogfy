@@ -81,6 +81,10 @@ func dispatch(args []string, stderr io.Writer) error {
 		return installCommand(rest, false, stderr)
 	case "uninstall":
 		return installCommand(rest, true, stderr)
+	case "install-instructions":
+		return instructionsCommand(rest, false, stderr)
+	case "uninstall-instructions":
+		return instructionsCommand(rest, true, stderr)
 	case "serve":
 		return serveCommand(rest, os.Stdin, os.Stdout, stderr)
 	case "watch":
@@ -112,8 +116,47 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
 	fmt.Fprintln(w, "       gogfy serve [--graph <graph.json>] [--report <GRAPH_REPORT.md>]")
-	fmt.Fprintln(w, "       gogfy install --platform <claude|cursor|vscode|gemini> [--workspace <dir>]")
-	fmt.Fprintln(w, "       gogfy uninstall --platform <claude|cursor|vscode|gemini> [--workspace <dir>]")
+	fmt.Fprintln(w, "       gogfy install --platform <claude|codex|cursor|vscode|gemini> [--workspace <dir>] [--gogfy-bin <path>] [--out <dir>]")
+	fmt.Fprintln(w, "       gogfy uninstall --platform <claude|codex|cursor|vscode|gemini> [--workspace <dir>]")
+	fmt.Fprintln(w, "       gogfy install-instructions [--file <path>] [--report <path>]")
+	fmt.Fprintln(w, "       gogfy uninstall-instructions [--file <path>]")
+}
+
+// instructionsCommand backs `gogfy install-instructions` (and its
+// uninstall counterpart). Writes a fenced gogfy block into a project-level
+// docs file (CLAUDE.md, AGENTS.md, etc.) telling the agent to read
+// GRAPH_REPORT.md before answering codebase questions.
+func instructionsCommand(args []string, remove bool, stderr io.Writer) error {
+	op := "install-instructions"
+	if remove {
+		op = "uninstall-instructions"
+	}
+	fs := flag.NewFlagSet(op, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	file := fs.String("file", "AGENTS.md", "target docs file (e.g. CLAUDE.md, AGENTS.md, .cursorrules)")
+	report := fs.String("report", "graphify-out/GRAPH_REPORT.md", "workspace-relative path the snippet should reference")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("%s: unexpected positional arguments: %v", op, fs.Args())
+	}
+	abs, err := filepath.Abs(*file)
+	if err != nil {
+		return fmt.Errorf("%s: resolve file: %w", op, err)
+	}
+	if remove {
+		if err := installer.UninstallSnippet(abs); err != nil {
+			return fmt.Errorf("%s: %w", op, err)
+		}
+		fmt.Fprintf(stderr, "gogfy: removed instructions from %s\n", abs)
+		return nil
+	}
+	if err := installer.InstallSnippet(abs, installer.SnippetOptions{ReportPath: *report}); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	fmt.Fprintf(stderr, "gogfy: wrote instructions to %s\n", abs)
+	return nil
 }
 
 // installCommand handles both `gogfy install` and `gogfy uninstall` (the

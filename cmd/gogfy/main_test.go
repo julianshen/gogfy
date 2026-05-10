@@ -452,6 +452,59 @@ func TestDispatchInstallRequiresPlatform(t *testing.T) {
 	}
 }
 
+func TestDispatchCodexInstallWritesTOML(t *testing.T) {
+	ws := t.TempDir()
+	if err := dispatch([]string{"install", "--platform", "codex", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatalf("dispatch install codex: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(ws, ".codex", "config.toml"))
+	if !bytes.Contains(data, []byte("[mcp_servers.gogfy]")) {
+		t.Fatalf("missing [mcp_servers.gogfy] in codex config:\n%s", data)
+	}
+}
+
+func TestDispatchInstallInstructionsWritesSnippet(t *testing.T) {
+	ws := t.TempDir()
+	target := filepath.Join(ws, "AGENTS.md")
+	if err := dispatch([]string{"install-instructions", "--file", target}, os.Stderr); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	data, _ := os.ReadFile(target)
+	if !bytes.Contains(data, []byte("gogfy-graph-instructions:start")) {
+		t.Fatalf("missing snippet markers in %s:\n%s", target, data)
+	}
+	if !bytes.Contains(data, []byte("graphify-out/GRAPH_REPORT.md")) {
+		t.Fatalf("missing default report path:\n%s", data)
+	}
+}
+
+func TestDispatchUninstallInstructionsRemovesSnippet(t *testing.T) {
+	ws := t.TempDir()
+	target := filepath.Join(ws, "CLAUDE.md")
+	if err := os.WriteFile(target, []byte("# Project\n\nKeep me.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"install-instructions", "--file", target}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"uninstall-instructions", "--file", target}, os.Stderr); err != nil {
+		t.Fatalf("dispatch uninstall: %v", err)
+	}
+	data, _ := os.ReadFile(target)
+	if bytes.Contains(data, []byte("gogfy-graph-instructions")) {
+		t.Fatalf("snippet still present after uninstall:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("Keep me.")) {
+		t.Fatalf("pre-existing content erased:\n%s", data)
+	}
+}
+
+func TestDispatchInstallInstructionsRejectsStrayPositional(t *testing.T) {
+	if err := dispatch([]string{"install-instructions", "--file", "AGENTS.md", "stray"}, os.Stderr); err == nil {
+		t.Fatal("expected error for stray positional")
+	}
+}
+
 func TestServeCommandRejectsUnexpectedPositionalArgs(t *testing.T) {
 	err := serveCommand(
 		[]string{"--graph", "/tmp/x.json", "stray-arg"},

@@ -220,4 +220,5 @@ var registry = map[string]Installer{
 	"cursor": jsonInstaller{relativePath: filepath.Join(".cursor", "mcp.json"), serversKey: "mcpServers"},
 	"vscode": jsonInstaller{relativePath: filepath.Join(".vscode", "mcp.json"), serversKey: "servers"},
 	"gemini": jsonInstaller{relativePath: filepath.Join(".gemini", "settings.json"), serversKey: "mcpServers"},
+	"codex":  codexInstaller{relativePath: filepath.Join(".codex", "config.toml")},
 }

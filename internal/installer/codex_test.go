@@ -1,0 +1,255 @@
+package installer
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestCodexRegisteredAsPlatform — codex must show up alongside the JSON
+// platforms so `gogfy install --platform codex` works.
+func TestCodexRegisteredAsPlatform(t *testing.T) {
+	if _, err := For("codex"); err != nil {
+		t.Fatalf("codex platform not registered: %v", err)
+	}
+	got := SupportedPlatforms()
+	want := []string{"claude", "codex", "cursor", "gemini", "vscode"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d platforms, got %d (%v)", len(want), len(got), got)
+	}
+	for i, name := range want {
+		if got[i] != name {
+			t.Fatalf("platform[%d]: expected %q, got %q", i, name, got[i])
+		}
+	}
+}
+
+// TestCodexConfigPath — ~/.codex/config.toml is user-level on graphify, but
+// we use workspace-local for parity with the other platforms.
+func TestCodexConfigPath(t *testing.T) {
+	inst, _ := For("codex")
+	got := inst.ConfigPath("/ws")
+	want := filepath.Join("/ws", ".codex", "config.toml")
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// TestCodexInstallWritesBlock — install on an empty workspace must create
+// `.codex/config.toml` with a `[mcp_servers.gogfy]` block.
+func TestCodexInstallWritesBlock(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(inst.ConfigPath(ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "[mcp_servers.gogfy]") {
+		t.Fatalf("missing [mcp_servers.gogfy] header:\n%s", s)
+	}
+	if !strings.Contains(s, `command = "gogfy"`) {
+		t.Fatalf("missing command line:\n%s", s)
+	}
+	wantGraph := filepath.Join("graphify-out", "graph.json")
+	if !strings.Contains(s, wantGraph) {
+		t.Fatalf("missing relative graph path %q:\n%s", wantGraph, s)
+	}
+}
+
+// TestCodexInstallPreservesExistingTOML — adding the gogfy block must not
+// disturb other tables, comments, or top-level keys in the user's config.
+func TestCodexInstallPreservesExistingTOML(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	existing := `# user-managed config — do not lose this comment
+
+[features]
+multi_agent = true
+
+[mcp_servers.other]
+command = "other-mcp"
+args = ["--foo"]
+`
+	if err := os.WriteFile(path, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	s := string(data)
+	for _, must := range []string{
+		"# user-managed config — do not lose this comment",
+		"[features]",
+		"multi_agent = true",
+		"[mcp_servers.other]",
+		`command = "other-mcp"`,
+		"[mcp_servers.gogfy]",
+	} {
+		if !strings.Contains(s, must) {
+			t.Fatalf("missing %q in result:\n%s", must, s)
+		}
+	}
+}
+
+// TestCodexInstallReplacesExistingGogfyBlock — re-running install must
+// refresh the gogfy block in place, not append a duplicate.
+func TestCodexInstallReplacesExistingGogfyBlock(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{Bin: "/opt/bin/gogfy"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(inst.ConfigPath(ws))
+	s := string(data)
+	if got := strings.Count(s, "[mcp_servers.gogfy]"); got != 1 {
+		t.Fatalf("expected exactly one [mcp_servers.gogfy] block, got %d:\n%s", got, s)
+	}
+	if !strings.Contains(s, `command = "/opt/bin/gogfy"`) {
+		t.Fatalf("custom Bin not persisted on re-install:\n%s", s)
+	}
+}
+
+// TestCodexUninstallRemovesOnlyGogfyBlock — uninstall must drop the gogfy
+// block and leave everything else intact.
+func TestCodexUninstallRemovesOnlyGogfyBlock(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	// Add an unrelated block by hand.
+	path := inst.ConfigPath(ws)
+	data, _ := os.ReadFile(path)
+	extra := "\n[mcp_servers.other]\ncommand = \"other\"\n"
+	if err := os.WriteFile(path, append(data, []byte(extra)...), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Uninstall(ws); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := os.ReadFile(path)
+	s := string(out)
+	if strings.Contains(s, "[mcp_servers.gogfy]") {
+		t.Fatalf("gogfy block still present:\n%s", s)
+	}
+	if !strings.Contains(s, "[mcp_servers.other]") {
+		t.Fatalf("other block erased:\n%s", s)
+	}
+}
+
+// TestCodexUninstallNoOpWhenMissing — symmetric with the JSON installers:
+// uninstalling without a config must not error.
+func TestCodexUninstallNoOpWhenMissing(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	if err := inst.Uninstall(ws); err != nil {
+		t.Fatalf("expected no-op, got %v", err)
+	}
+}
+
+// TestCodexUninstallWhenNoGogfyBlock — file exists but has no gogfy block:
+// must leave the file byte-identical (no rewrite, no churn).
+func TestCodexUninstallWhenNoGogfyBlock(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("[features]\nmulti_agent = true\n")
+	if err := os.WriteFile(path, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Uninstall(ws); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, original) {
+		t.Fatalf("uninstall rewrote file when no gogfy block to remove:\nbefore: %s\nafter:  %s", original, got)
+	}
+}
+
+// TestCodexInstallFailsWhenParentIsAFile — MkdirAll under writeBytes must
+// surface its error rather than silently no-op.
+func TestCodexInstallFailsWhenParentIsAFile(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, ".codex"), []byte("blocker"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ := For("codex")
+	if err := inst.Install(ws, Options{}); err == nil {
+		t.Fatal("expected MkdirAll error when .codex is a file")
+	}
+}
+
+// TestCodexInstallReadsExistingFile — readBytesOrEmpty must return the
+// file's actual bytes (not nil) when it exists. Verified indirectly through
+// TestCodexInstallPreservesExistingTOML, but a direct read-fail path is
+// still uncovered. Trigger it with an unreadable file.
+func TestCodexInstallFailsOnUnreadableConfig(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("[a]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0); err != nil {
+		t.Skipf("chmod 0 not honored: %v", err)
+	}
+	defer os.Chmod(path, 0644)
+	if err := inst.Install(ws, Options{}); err == nil {
+		t.Fatal("expected read error on unreadable config")
+	}
+}
+
+// TestCodexUninstallFailsOnUnreadableConfig — symmetric path through
+// Uninstall's os.ReadFile.
+func TestCodexUninstallFailsOnUnreadableConfig(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("[mcp_servers.gogfy]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0); err != nil {
+		t.Skipf("chmod 0 not honored: %v", err)
+	}
+	defer os.Chmod(path, 0644)
+	if err := inst.Uninstall(ws); err == nil {
+		t.Fatal("expected read error on unreadable config")
+	}
+}
+
+// TestCodexInstallCustomOutDir — Options.OutDir must flow into the args
+// list inside the TOML block (not just the JSON installers).
+func TestCodexInstallCustomOutDir(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	if err := inst.Install(ws, Options{OutDir: "custom-out"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(inst.ConfigPath(ws))
+	if !strings.Contains(string(data), filepath.Join("custom-out", "graph.json")) {
+		t.Fatalf("custom OutDir not propagated:\n%s", data)
+	}
+}
