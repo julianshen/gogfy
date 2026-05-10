@@ -60,14 +60,25 @@ func dispatch(args []string, stderr io.Writer) error {
 		directed := fs.Bool("directed", false, "render edges with arrowheads in graph.html")
 		graphml := fs.Bool("graphml", false, "also emit graph.graphml (Gephi/yEd)")
 		cypher := fs.Bool("cypher", false, "also emit graph.cypher (Neo4j MERGE script)")
+		clusterOnly := fs.Bool("cluster-only", false, "skip extraction; re-cluster the existing graph.json under --out")
+		noViz := fs.Bool("no-viz", false, "skip graph.html (faster runs, smaller artifact set)")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
-		if fs.NArg() < 1 {
+		if !*clusterOnly && fs.NArg() < 1 {
 			usage(stderr)
 			return fmt.Errorf("run: missing <root>")
 		}
-		return runPipeline(fs.Arg(0), *out, *update, *directed, runOptions{GraphML: *graphml, Cypher: *cypher})
+		root := ""
+		if fs.NArg() >= 1 {
+			root = fs.Arg(0)
+		}
+		return runPipeline(root, *out, *update, *directed, runOptions{
+			GraphML:     *graphml,
+			Cypher:      *cypher,
+			ClusterOnly: *clusterOnly,
+			NoViz:       *noViz,
+		})
 	case "validate":
 		if len(rest) < 1 {
 			usage(stderr)
@@ -120,7 +131,8 @@ func dispatch(args []string, stderr io.Writer) error {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed] [--graphml] [--cypher]")
+	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed] [--graphml] [--cypher] [--no-viz]")
+	fmt.Fprintln(w, "       gogfy run --cluster-only [--out dir] [--directed] [--no-viz]")
 	fmt.Fprintln(w, "       gogfy watch <root> [--out dir] [--directed]")
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
@@ -486,9 +498,86 @@ func supportedExtensionsList() []string {
 type runOptions struct {
 	GraphML bool
 	Cypher  bool
+	// ClusterOnly skips extraction and re-clusters an existing graph.json
+	// from `out`. Useful when iterating on community-detection tuning.
+	ClusterOnly bool
+	// NoViz skips the graph.html artifact. Pure JSON/report runs are
+	// faster and produce smaller artifact sets — useful in CI.
+	NoViz bool
+}
+
+// runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
+// rendering, and rewrites the artifact set without re-extracting any
+// source files. Useful when iterating on community-detection tuning where
+// extraction is the expensive step we want to skip.
+func runClusterOnly(out string, directed bool, opts runOptions) error {
+	g, err := loadGraph(filepath.Join(out, "graph.json"))
+	if err != nil {
+		return fmt.Errorf("cluster-only: %w", err)
+	}
+	clustered, err := cluster.NewLeidenClusterer().Cluster(g.Nodes, g.Edges)
+	if err != nil {
+		return fmt.Errorf("cluster-only: cluster: %w", err)
+	}
+	reportData := analyze.NewAnalyzer().Analyze(clustered, g.Edges)
+	reportBytes, err := report.Render(reportData)
+	if err != nil {
+		return fmt.Errorf("cluster-only: report: %w", err)
+	}
+	exportGraph := export.GraphExport{Nodes: clustered, Edges: g.Edges}
+	jsonBytes, err := export.ExportJSON(exportGraph)
+	if err != nil {
+		return fmt.Errorf("cluster-only: export json: %w", err)
+	}
+	artifacts := []struct {
+		name string
+		data []byte
+	}{
+		{"graph.json", jsonBytes},
+		{"GRAPH_REPORT.md", reportBytes},
+	}
+	if !opts.NoViz {
+		htmlBytes, err := export.ExportHTML(exportGraph, export.HTMLOptions{Directed: directed})
+		if err != nil {
+			return fmt.Errorf("cluster-only: export html: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.html", htmlBytes})
+	}
+	if opts.GraphML {
+		b, err := export.ExportGraphML(exportGraph)
+		if err != nil {
+			return fmt.Errorf("cluster-only: export graphml: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.graphml", b})
+	}
+	if opts.Cypher {
+		b, err := export.ExportCypher(exportGraph)
+		if err != nil {
+			return fmt.Errorf("cluster-only: export cypher: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.cypher", b})
+	}
+	for _, a := range artifacts {
+		if err := atomicWrite(filepath.Join(out, a.name), a.data); err != nil {
+			return fmt.Errorf("cluster-only: write %s: %w", a.name, err)
+		}
+	}
+	return nil
 }
 
 func runPipeline(root, out string, update, directed bool, opts runOptions) error {
+	if opts.ClusterOnly {
+		return runClusterOnly(out, directed, opts)
+	}
 	files, err := detect.CollectFiles(root, supportedExtensionsList())
 	if err != nil {
 		return fmt.Errorf("detect: %w", err)
@@ -505,7 +594,7 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		// No-op --update must leave prior artifacts untouched, but only if they
 		// actually exist — on a first run (empty corpus or fresh out dir) we
 		// must still produce the standard artifacts.
-		if len(changed) == 0 && artifactsExist(out) {
+		if len(changed) == 0 && artifactsExist(out, opts.NoViz) {
 			fmt.Println("No files changed, skipping extraction")
 			return nil
 		}
@@ -566,11 +655,6 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		return fmt.Errorf("export json: %w", err)
 	}
 
-	htmlBytes, err := export.ExportHTML(exportGraph, export.HTMLOptions{Directed: directed})
-	if err != nil {
-		return fmt.Errorf("export html: %w", err)
-	}
-
 	if err := os.MkdirAll(out, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -581,7 +665,16 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	}{
 		{"graph.json", jsonBytes},
 		{"GRAPH_REPORT.md", reportBytes},
-		{"graph.html", htmlBytes},
+	}
+	if !opts.NoViz {
+		htmlBytes, err := export.ExportHTML(exportGraph, export.HTMLOptions{Directed: directed})
+		if err != nil {
+			return fmt.Errorf("export html: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.html", htmlBytes})
 	}
 	if opts.GraphML {
 		b, err := export.ExportGraphML(exportGraph)
@@ -668,7 +761,8 @@ func groupRunFlags(args []string) ([]string, error) {
 		a := args[i]
 		switch {
 		case a == "--update", a == "-update", a == "--directed", a == "-directed",
-			a == "--graphml", a == "-graphml", a == "--cypher", a == "-cypher":
+			a == "--graphml", a == "-graphml", a == "--cypher", a == "-cypher",
+			a == "--cluster-only", a == "-cluster-only", a == "--no-viz", a == "-no-viz":
 			flags = append(flags, a)
 		case a == "--out", a == "-out":
 			if i+1 >= len(args) {
@@ -680,7 +774,9 @@ func groupRunFlags(args []string) ([]string, error) {
 			strings.HasPrefix(a, "--update="), strings.HasPrefix(a, "-update="),
 			strings.HasPrefix(a, "--directed="), strings.HasPrefix(a, "-directed="),
 			strings.HasPrefix(a, "--graphml="), strings.HasPrefix(a, "-graphml="),
-			strings.HasPrefix(a, "--cypher="), strings.HasPrefix(a, "-cypher="):
+			strings.HasPrefix(a, "--cypher="), strings.HasPrefix(a, "-cypher="),
+			strings.HasPrefix(a, "--cluster-only="), strings.HasPrefix(a, "-cluster-only="),
+			strings.HasPrefix(a, "--no-viz="), strings.HasPrefix(a, "-no-viz="):
 			flags = append(flags, a)
 		case strings.HasPrefix(a, "-"):
 			return nil, fmt.Errorf("unknown flag: %s", a)
@@ -691,8 +787,15 @@ func groupRunFlags(args []string) ([]string, error) {
 	return append(flags, positional...), nil
 }
 
-func artifactsExist(out string) bool {
-	for _, name := range []string{"graph.json", "GRAPH_REPORT.md", "graph.html"} {
+// artifactsExist reports whether the standard output set is already on
+// disk. With noViz=true, graph.html is excluded from the check (it
+// wasn't written and should not be required for no-op detection).
+func artifactsExist(out string, noViz bool) bool {
+	required := []string{"graph.json", "GRAPH_REPORT.md"}
+	if !noViz {
+		required = append(required, "graph.html")
+	}
+	for _, name := range required {
 		if _, err := os.Stat(filepath.Join(out, name)); err != nil {
 			return false
 		}

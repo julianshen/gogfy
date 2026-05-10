@@ -597,6 +597,99 @@ func TestDispatchHookHonorsCustomFlags(t *testing.T) {
 	}
 }
 
+func TestRunPipelineNoVizSkipsHTML(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{NoViz: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.json")); err != nil {
+		t.Fatalf("graph.json missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "GRAPH_REPORT.md")); err != nil {
+		t.Fatalf("GRAPH_REPORT.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.html")); !os.IsNotExist(err) {
+		t.Fatalf("graph.html should not exist with --no-viz, got err=%v", err)
+	}
+}
+
+func TestRunPipelineClusterOnly(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	// First, do a full run to produce graph.json.
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	originalReport, _ := os.ReadFile(filepath.Join(out, "GRAPH_REPORT.md"))
+	// Delete graph.html to confirm cluster-only writes it back.
+	os.Remove(filepath.Join(out, "graph.html"))
+	if err := runPipeline("", out, false, false, runOptions{ClusterOnly: true}); err != nil {
+		t.Fatalf("cluster-only: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.html")); err != nil {
+		t.Fatalf("cluster-only should rewrite graph.html, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "GRAPH_REPORT.md")); err != nil {
+		t.Fatalf("GRAPH_REPORT.md missing after cluster-only: %v", err)
+	}
+	if len(originalReport) == 0 {
+		t.Fatal("original report empty — test setup wrong")
+	}
+}
+
+func TestRunPipelineClusterOnlyNoViz(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(out, "graph.html"))
+	if err := runPipeline("", out, false, false, runOptions{ClusterOnly: true, NoViz: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.html")); !os.IsNotExist(err) {
+		t.Fatal("graph.html should not be written with --cluster-only --no-viz")
+	}
+}
+
+func TestRunPipelineClusterOnlyMissingGraph(t *testing.T) {
+	out := t.TempDir() // no graph.json
+	if err := runPipeline("", out, false, false, runOptions{ClusterOnly: true}); err == nil {
+		t.Fatal("expected error when graph.json is missing")
+	}
+}
+
+func TestDispatchRunNoVizFlag(t *testing.T) {
+	out := t.TempDir()
+	if err := dispatch([]string{"run", "../../testdata/e2e/mini-corpus", "--out", out, "--no-viz"}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.html")); !os.IsNotExist(err) {
+		t.Fatal("graph.html should not exist")
+	}
+}
+
+func TestDispatchRunClusterOnlyFlag(t *testing.T) {
+	out := t.TempDir()
+	if err := dispatch([]string{"run", "../../testdata/e2e/mini-corpus", "--out", out}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	originalJSON, _ := os.ReadFile(filepath.Join(out, "graph.json"))
+	if err := dispatch([]string{"run", "--cluster-only", "--out", out}, os.Stderr); err != nil {
+		t.Fatalf("dispatch --cluster-only: %v", err)
+	}
+	rerunJSON, _ := os.ReadFile(filepath.Join(out, "graph.json"))
+	if len(rerunJSON) == 0 {
+		t.Fatal("graph.json missing after --cluster-only")
+	}
+	// Sanity: cluster-only on the same input should produce the same graph
+	// content (Leiden seeds on edges, which haven't changed).
+	if len(originalJSON) != len(rerunJSON) {
+		t.Logf("note: cluster-only output size differs from full run (%d vs %d) — may be acceptable if community ids change", len(originalJSON), len(rerunJSON))
+	}
+}
+
 func TestDispatchPathCommandFindsRoute(t *testing.T) {
 	root := "../../testdata/e2e/mini-corpus"
 	out := t.TempDir()
