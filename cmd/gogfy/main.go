@@ -150,13 +150,21 @@ func pathCommand(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("path: %w", err)
 	}
 	srv := serve.New(g, nil)
-	src, _, ok := srv.FindNode(fs.Arg(0))
+	src, srcCands, ok := srv.FindNode(fs.Arg(0))
 	if !ok {
 		return fmt.Errorf("path: source not found: %q", fs.Arg(0))
 	}
-	tgt, _, ok := srv.FindNode(fs.Arg(1))
+	if len(srcCands) > 1 {
+		fmt.Fprintf(stderr, "path: source label %q matches %d nodes; using %s. Pass the full ID to disambiguate.\n",
+			fs.Arg(0), len(srcCands), src.ID)
+	}
+	tgt, tgtCands, ok := srv.FindNode(fs.Arg(1))
 	if !ok {
 		return fmt.Errorf("path: target not found: %q", fs.Arg(1))
+	}
+	if len(tgtCands) > 1 {
+		fmt.Fprintf(stderr, "path: target label %q matches %d nodes; using %s. Pass the full ID to disambiguate.\n",
+			fs.Arg(1), len(tgtCands), tgt.ID)
 	}
 	hops := srv.ShortestPath(src.ID, tgt.ID)
 	if len(hops) == 0 {
