@@ -24,7 +24,7 @@ func readJSON(t *testing.T, path string) map[string]any {
 
 func TestRegistryListsAllSupportedPlatforms(t *testing.T) {
 	got := SupportedPlatforms()
-	want := []string{"claude", "cursor", "gemini", "vscode"}
+	want := []string{"claude", "codex", "cursor", "gemini", "vscode"}
 	if len(got) != len(want) {
 		t.Fatalf("expected %d platforms, got %d (%v)", len(want), len(got), got)
 	}
@@ -80,11 +80,15 @@ func assertGogfyServerEntry(t *testing.T, m map[string]any, platform string) {
 	}
 }
 
-// TestInstallEachPlatformWritesValidConfig verifies every supported platform
-// produces a JSON config with an `mcpServers.gogfy` entry pointing at the
-// workspace's graph artifacts.
+// TestInstallEachPlatformWritesValidConfig verifies every JSON-config
+// platform produces a config with the platform-native servers key + a
+// gogfy entry pointing at the workspace's graph artifacts. Codex (TOML)
+// is exercised by codex_test.go.
 func TestInstallEachPlatformWritesValidConfig(t *testing.T) {
 	for _, name := range SupportedPlatforms() {
+		if name == "codex" {
+			continue // TOML format; covered in codex_test.go.
+		}
 		t.Run(name, func(t *testing.T) {
 			ws := t.TempDir()
 			inst, err := For(name)
