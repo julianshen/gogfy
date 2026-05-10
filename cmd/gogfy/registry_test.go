@@ -12,7 +12,7 @@ func TestSupportedExtensionsRegistered(t *testing.T) {
 	required := []string{
 		".go", ".py", ".js", ".ts", ".java", ".c", ".cpp", ".rs", ".rb",
 		".md", ".html", ".txt", ".rst", ".docx", ".xlsx", ".pdf", ".pptx",
-		".r", ".R",
+		".r", ".R", ".erl", ".hrl",
 	}
 	for _, ext := range required {
 		if _, ok := supportedExtensions[ext]; !ok {

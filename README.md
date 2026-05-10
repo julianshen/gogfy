@@ -71,9 +71,9 @@ Plus a `gogfy://report` resource pointing at `GRAPH_REPORT.md`, which the agent 
 
 ## Languages and document formats supported
 
-**Code (28 languages)** — AST-based via tree-sitter:
+**Code (29 languages)** — AST-based via tree-sitter:
 
-Go · Python · JavaScript · TypeScript · Java · C · C++ · Rust · Ruby · YAML · TOML · Kotlin · Scala · PHP · Lua · Zig · Julia · Bash · C# · Haskell · OCaml · Svelte · Fortran · Elixir · Dart · Swift · R
+Go · Python · JavaScript · TypeScript · Java · C · C++ · Rust · Ruby · YAML · TOML · Kotlin · Scala · PHP · Lua · Zig · Julia · Bash · C# · Haskell · OCaml · Svelte · Fortran · Elixir · Dart · Swift · R · Erlang
 
 **Documents (8, growing)** — pure-Go, no Python or LLM dependency:
 
@@ -88,7 +88,7 @@ Go · Python · JavaScript · TypeScript · Java · C · C++ · Rust · Ruby · 
 
 All eight emit a consistent module + reference-edges shape (most also emit section nodes) so cross-format links compose seamlessly.
 
-File extensions: `.go .py .js .jsx .mjs .cjs .ts .tsx .java .c .h .cpp .cc .cxx .hpp .hxx .hh .rs .rb .yaml .yml .toml .kt .kts .scala .sc .php .lua .zig .jl .sh .bash .cs .hs .ml .mli .svelte .f .f90 .f95 .f03 .f08 .ex .exs .dart .swift .r .R .md .mdx .markdown .html .htm .rst .txt .docx .xlsx .pdf .pptx`
+File extensions: `.go .py .js .jsx .mjs .cjs .ts .tsx .java .c .h .cpp .cc .cxx .hpp .hxx .hh .rs .rb .yaml .yml .toml .kt .kts .scala .sc .php .lua .zig .jl .sh .bash .cs .hs .ml .mli .svelte .f .f90 .f95 .f03 .f08 .ex .exs .dart .swift .r .R .erl .hrl .md .mdx .markdown .html .htm .rst .txt .docx .xlsx .pdf .pptx`
 
 ---
 
