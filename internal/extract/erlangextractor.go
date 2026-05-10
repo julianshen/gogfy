@@ -51,11 +51,11 @@ func walkErlang(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		// passing function refs to higher-order functions silently
 		// produces no call edge.
 		if mod, fn := erlangExternalFunName(node, src); fn != "" {
-			target := fn
 			if mod != "" {
-				target = mod + ":" + fn
+				state.addCall(mod + ":" + fn)
+			} else {
+				state.addCall(fn)
 			}
-			state.addCall(target)
 		}
 	case "remote":
 		// Qualified call `Module:Fn(args)`. Emit one edge to "Mod:Fn"
@@ -65,11 +65,11 @@ func walkErlang(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		mod := erlangAtomChild(firstChildOfKind(node, "remote_module"), src)
 		fn := erlangAtomChild(firstChildOfKind(node, "call"), src)
 		if fn != "" {
-			target := fn
 			if mod != "" {
-				target = mod + ":" + fn
+				state.addCall(mod + ":" + fn)
+			} else {
+				state.addCall(fn)
 			}
-			state.addCall(target)
 		}
 	case "call":
 		// Skip if this `call` is the inner half of a `remote` — the
