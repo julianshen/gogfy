@@ -1627,6 +1627,54 @@ go() -> io:format("hi~n", []).
 	}
 }
 
+func TestErlangExtractorExportListIgnored(t *testing.T) {
+	// `-export([f/2, g/0]).` lists FA-pairs (atoms with arity). These
+	// must NOT be treated as call edges or imports — they're metadata
+	// declaring which functions are exported, distinct from the
+	// fun_decl that defines them.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.erl")
+	source := `-module(x).
+-export([alpha/0, beta/1]).
+alpha() -> ok.
+beta(X) -> X.
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ErlangExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" {
+			t.Fatalf("export-attribute atoms must not produce call edges: %+v", e)
+		}
+		if e.Relation == "imports" {
+			t.Fatalf("export-attribute atoms must not produce import edges: %+v", e)
+		}
+	}
+}
+
+func TestErlangExtractorNestedQualifiedCallInArgs(t *testing.T) {
+	// A qualified call's argument list can contain other (qualified)
+	// calls. The remote case relies on walkChildren still recursing into
+	// expr_args; without that, nested calls would be silently dropped.
+	runExtractorCase(t, extractorCase{
+		name:     "erlang nested remote call",
+		filename: "n.erl",
+		source: `-module(n).
+go(L) ->
+    io:format("~p~n", [lists:sort(L)]).
+`,
+		extractor: ErlangExtractor{}.Extract,
+		wantEdges: []string{
+			"erlang:call:io:format",
+			"erlang:call:lists:sort",
+		},
+	})
+}
+
 func TestErlangExtractorModuleLabel(t *testing.T) {
 	// -module(myapp) should rewrite the file's module-node label to
 	// "myapp" (mirrors how Go and Python use package/module names).
