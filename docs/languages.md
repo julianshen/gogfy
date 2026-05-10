@@ -2,7 +2,7 @@
 
 gogfy uses tree-sitter for AST extraction. A language is supported when (a) someone publishes a maintained tree-sitter grammar, (b) that grammar's repo carries a `bindings/go/` directory with cgo wrappers, and (c) the published Go module compiles cleanly. Most graphify-listed languages clear all three; some don't.
 
-## Supported (27)
+## Supported (27 code + 1 document format)
 
 | Language | Extensions | Grammar source |
 |----------|------------|----------------|
@@ -33,6 +33,12 @@ gogfy uses tree-sitter for AST extraction. A language is supported when (a) some
 | Dart | `.dart` | `github.com/UserNobody14/tree-sitter-dart` |
 | Swift | `.swift` | `github.com/julianshen/tree-sitter-swift` (fork of `alex-pinkus/tree-sitter-swift` with `parser.c` committed — upstream's `.gitignore` excludes the generated artifact) |
 
+### Document formats
+
+| Format | Extensions | Approach |
+|--------|------------|----------|
+| Markdown | `.md` `.mdx` `.markdown` | Pure-Go via [goldmark](https://github.com/yuin/goldmark). Emits a module node per file (label = first H1 or basename), one section node per H1/H2/H3, and `references`-relation edges for every link. No Python, no LLM, no cgo. |
+
 ## Not supported (graphify lists; we don't)
 
 Each entry below has been **probed** with `go get`. Status reflects what the upstream fork currently ships at the time of probe — third-party fork state changes over time, so the specific blockers below may move; the table records the gap, not a permanent verdict.
@@ -57,14 +63,22 @@ Each entry below has been **probed** with `go get`. Status reflects what the ups
 
 ## Tier 1 wishlist (next up)
 
-Remaining, in approximate order of demand vs. effort:
+**Code grammars** — each needs a fork repo under `julianshen/tree-sitter-<lang>`. Swift is the precedent:
 
 1. **R** (Hatch 2 — fork-and-include-scanner; trivial change)
 2. **Erlang** (Hatch 2 — fork + scanner include + binding stub)
 3. **Objective-C** (Hatch 2 — fork + add binding stub)
 4. **Groovy** (Hatch 2 — fork + add binding stub)
 
-Each remaining Tier-1 language needs a fork repo under `julianshen/tree-sitter-<lang>`. Swift is the precedent — see `julianshen/tree-sitter-swift` for the workflow (commit the generated `parser.c`, set the go.mod path, FORK_NOTES.md documenting sync from upstream).
+**Document formats** — building Go-native, no Python (no markitdown dep). Markdown shipped; following the same shape:
+
+1. **HTML** — `golang.org/x/net/html` for parsing; same module + section + link schema as Markdown.
+2. **Plain text** (`.txt` / `.rst`) — naive: file as module, paragraphs not surfaced individually but URLs in the body extracted as link edges via regex.
+3. **`.docx`** — OOXML is just zipped XML; pure-Go via `archive/zip` + `encoding/xml` or `github.com/nguyenthenguyen/docx`.
+4. **`.xlsx`** — `github.com/xuri/excelize/v2`. Each sheet → module; rows that look like cross-references → edges.
+5. **PDF** — `github.com/ledongthuc/pdf` for text-only extraction. Layout-complex PDFs may need `pdfcpu`.
+6. **Images** — Tesseract OCR via cgo. Opt-in build tag; not core.
+7. **Audio / video** — `whisper.cpp` via cgo. Opt-in build tag.
 
 ## Adding a language
 

@@ -75,6 +75,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		ElixirExtractor{},
 		DartExtractor{},
 		SwiftExtractor{},
+		MarkdownExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -872,6 +873,145 @@ func TestSwiftExtractorLambda(t *testing.T) {
 			"swift:call:print",
 		},
 	})
+}
+
+func TestMarkdownExtractorHeadingsAndLinks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	source := `# Project Title
+
+Intro paragraph.
+
+## Installation
+
+See [the docs](https://example.com/docs) and [setup](./setup.md).
+
+## Usage
+
+Refer to <https://example.com/api> for details.
+
+### Detail
+
+Extra detail (H3, captured as section).
+
+#### Sub-detail
+
+Too deep — folded into Detail's scope, not its own node.
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := MarkdownExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, n := range res.Nodes {
+		labels[n.Label] = true
+	}
+	// Module label should be the H1, not the filename.
+	if !labels["Project Title"] {
+		t.Fatalf("expected module label 'Project Title', got labels=%v", labels)
+	}
+	for _, want := range []string{"Installation", "Usage", "Detail"} {
+		if !labels[want] {
+			t.Fatalf("missing section %q in %v", want, labels)
+		}
+	}
+	// H4 must NOT produce a section node.
+	if labels["Sub-detail"] {
+		t.Fatalf("H4 'Sub-detail' should not be a section node: %v", labels)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "references" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{
+		"markdown:link:https://example.com/docs",
+		"markdown:link:./setup.md",
+		"markdown:link:https://example.com/api",
+	} {
+		if !targets[want] {
+			t.Fatalf("missing reference target %q in %v", want, targets)
+		}
+	}
+}
+
+func TestMarkdownExtractorFallsBackToBasenameWhenNoH1(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "no_h1.md")
+	source := `Just some prose.
+
+## Section without title above
+
+Some content.
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := MarkdownExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundFilename := false
+	for _, n := range res.Nodes {
+		if n.Label == "no_h1.md" {
+			foundFilename = true
+		}
+	}
+	if !foundFilename {
+		t.Fatalf("expected basename fallback for module label, got %+v", res.Nodes)
+	}
+}
+
+func TestMarkdownExtractorLinksAttributedToEnclosingSection(t *testing.T) {
+	// A link inside a section should be sourced from that section's node,
+	// not from the document. This is what makes the surprising-connections
+	// analysis useful for docs — it shows which section references what.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.md")
+	source := `# Top
+
+## Sec A
+
+[a-link](https://a.example)
+
+## Sec B
+
+[b-link](https://b.example)
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := MarkdownExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Find the section node IDs.
+	var secAID, secBID string
+	for _, n := range res.Nodes {
+		if n.Label == "Sec A" {
+			secAID = n.ID
+		}
+		if n.Label == "Sec B" {
+			secBID = n.ID
+		}
+	}
+	if secAID == "" || secBID == "" {
+		t.Fatalf("missing section node IDs: %+v", res.Nodes)
+	}
+	srcByTarget := map[string]string{}
+	for _, e := range res.Edges {
+		srcByTarget[e.Target] = e.Source
+	}
+	if srcByTarget["markdown:link:https://a.example"] != secAID {
+		t.Fatalf("a-link should source from Sec A, got %s", srcByTarget["markdown:link:https://a.example"])
+	}
+	if srcByTarget["markdown:link:https://b.example"] != secBID {
+		t.Fatalf("b-link should source from Sec B, got %s", srcByTarget["markdown:link:https://b.example"])
+	}
 }
 
 func TestSwiftExtractorBasic(t *testing.T) {

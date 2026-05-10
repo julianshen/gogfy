@@ -37,6 +37,7 @@ require (
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/stadelmanma/tree-sitter-fortran v0.6.0 // indirect
 	github.com/tree-sitter/tree-sitter-elixir v0.0.0-00010101000000-000000000000 // indirect
+	github.com/yuin/goldmark v1.8.2 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 )
 
