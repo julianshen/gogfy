@@ -2,6 +2,7 @@ package extract
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"path/filepath"
@@ -10,18 +11,13 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
-// PPTXExtractor handles PowerPoint .pptx files. Same OOXML-zip approach
-// as docx/xlsx: ppt/presentation.xml lists slide r:ids, the presentation
-// rels resolve those to slide part paths, and each slide has its own
-// rels file for hyperlinks.
-//
-// Schema mirrors XlsxExtractor: presentation → module node (label =
-// basename); each slide → section node (label = slide title placeholder
-// text, or "Slide N" if the title shape has no text); external hyperlinks
-// → reference edges sourced from the owning slide section.
+// PPTXExtractor handles PowerPoint .pptx files. Architecture mirrors
+// XlsxExtractor — see that file for the OOXML zip-of-XML rationale and
+// the unconditional-section-emission policy. The pptx-specific quirk is
+// that slide title text is buried inside <p:sp>/<p:nvSpPr>/<p:nvPr>/<p:ph
+// type="title">, deep enough that struct-tag unmarshalling can't express
+// the descendant-only constraint cleanly — we walk tokens instead.
 type PPTXExtractor struct{}
-
-const relTypeSlide = "/slide"
 
 func (PPTXExtractor) Extract(path string) (Result, error) {
 	abs, err := filepath.Abs(path)
@@ -73,27 +69,26 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 	slideRIDs := parsePresentationSlideRIDs(presXML)
 
 	for i, rid := range slideRIDs {
-		// Section emission is unconditional; structural data shouldn't
-		// depend on rels resolution. Title text is best-effort — if the
-		// slide part is unreadable, we fall back to "Slide N" so the
-		// section still appears.
 		title := fmt.Sprintf("Slide %d", i+1)
-		var sheetRels map[string]string
+		var slideRels map[string]string
 		var hyperlinkRIDs []string
 
 		if target, ok := presRels[rid]; ok {
 			slidePath := "ppt/" + strings.TrimPrefix(target, "/")
-			if slideXML, err := readPart(slidePath); err == nil && len(slideXML) > 0 {
-				if t := pptxSlideTitle(slideXML); t != "" {
+			slideXML, err := readPart(slidePath)
+			if err != nil {
+				return Result{}, err
+			}
+			if len(slideXML) > 0 {
+				t, links := pptxSlideContent(slideXML)
+				if t != "" {
 					title = t
 				}
-				hyperlinkRIDs = pptxSlideHyperlinks(slideXML)
+				hyperlinkRIDs = links
 				dir, file := filepath.Split(slidePath)
 				if rxml, err := readPart(dir + "_rels/" + file + ".rels"); err == nil {
-					sheetRels = parseOOXMLRels(rxml, relTypeHyperlink)
+					slideRels = parseOOXMLRels(rxml, relTypeHyperlink)
 				}
-			} else if err != nil {
-				return Result{}, err
 			}
 		}
 
@@ -104,7 +99,7 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 			SourceFile: abs,
 		})
 		for _, hrid := range hyperlinkRIDs {
-			url, ok := sheetRels[hrid]
+			url, ok := slideRels[hrid]
 			if !ok || url == "" {
 				continue
 			}
@@ -121,15 +116,13 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 }
 
 // parsePresentationSlideRIDs returns the r:id of each slide listed in
-// ppt/presentation.xml's <p:sldIdLst>, in document order. The numeric
-// /id attribute is internal and not used; slide ordering is what binds
-// the section labels to "Slide N" fallbacks.
+// ppt/presentation.xml's <p:sldIdLst>, in document order.
 func parsePresentationSlideRIDs(data []byte) []string {
 	if len(data) == 0 {
 		return nil
 	}
 	type sldID struct {
-		RelID string `xml:"id,attr"` // r:id — Go matches namespaced attrs by local name
+		RelID string `xml:"id,attr"`
 	}
 	type presentation struct {
 		Slides []sldID `xml:"sldIdLst>sldId"`
@@ -147,20 +140,17 @@ func parsePresentationSlideRIDs(data []byte) []string {
 	return out
 }
 
-// pptxSlideTitle returns the concatenated text of the slide's title
-// placeholder (<p:ph type="title"/> or "ctrTitle"), or "" if the slide
-// has no title shape. Walks the slide XML token-by-token rather than
-// unmarshalling into a struct tree because the title shape is buried
-// inside <p:sp>/<p:nvSpPr>/<p:nvPr>/<p:ph> and Go's xml decoder doesn't
-// have a clean way to express "any descendant ph element" via struct
-// tags without flattening the surrounding shape structure.
-func pptxSlideTitle(data []byte) string {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+// pptxSlideContent walks the slide XML once, returning the title-
+// placeholder text (first title shape wins; <a:hlinkClick> is collected
+// throughout regardless). Single-pass replaces what was two independent
+// walks of the same bytes — meaningful on decks with many slides.
+func pptxSlideContent(data []byte) (title string, hyperlinkRIDs []string) {
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	var (
-		inShape, inTxBody, inText  bool
-		inTitleShape, sawTitlePh   bool
-		text                       strings.Builder
-		paraSep                    bool // emit a space between paragraphs
+		inShape, inTxBody, inText, sawTitlePh bool
+		titleDone                             bool
+		text                                  strings.Builder
+		paraSep                               bool
 	)
 	for {
 		tok, err := dec.Token()
@@ -181,20 +171,21 @@ func pptxSlideTitle(data []byte) string {
 					}
 				}
 			case "txBody":
-				if inShape && sawTitlePh {
+				if inShape && sawTitlePh && !titleDone {
 					inTxBody = true
-					inTitleShape = true
 				}
 			case "p":
-				if inTxBody {
-					if paraSep && text.Len() > 0 {
-						text.WriteByte(' ')
-					}
-					paraSep = false
+				if inTxBody && paraSep && text.Len() > 0 {
+					text.WriteByte(' ')
 				}
+				paraSep = false
 			case "t":
-				if inTitleShape {
+				if inTxBody {
 					inText = true
+				}
+			case "hlinkClick":
+				if rid := attrValue(t.Attr, "id"); rid != "" {
+					hyperlinkRIDs = append(hyperlinkRIDs, rid)
 				}
 			}
 		case xml.CharData:
@@ -206,12 +197,10 @@ func pptxSlideTitle(data []byte) string {
 			case "sp":
 				inShape = false
 				sawTitlePh = false
-				inTitleShape = false
 			case "txBody":
-				inTxBody = false
-				inTitleShape = false
-				if text.Len() > 0 {
-					return strings.TrimSpace(text.String())
+				if inTxBody {
+					titleDone = true // first title shape wins; later ones can't override
+					inTxBody = false
 				}
 			case "p":
 				if inTxBody {
@@ -222,30 +211,5 @@ func pptxSlideTitle(data []byte) string {
 			}
 		}
 	}
-	return strings.TrimSpace(text.String())
-}
-
-// pptxSlideHyperlinks returns the r:id of every <a:hlinkClick> element
-// in the slide. Hyperlinks live inside run properties and click actions
-// on shapes; we don't care which run, just which rIDs need URL lookup.
-func pptxSlideHyperlinks(data []byte) []string {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
-	var out []string
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			break
-		}
-		se, ok := tok.(xml.StartElement)
-		if !ok {
-			continue
-		}
-		if se.Name.Local != "hlinkClick" {
-			continue
-		}
-		if rid := attrValue(se.Attr, "id"); rid != "" {
-			out = append(out, rid)
-		}
-	}
-	return out
+	return strings.TrimSpace(text.String()), hyperlinkRIDs
 }

@@ -116,6 +116,7 @@ func readZipFile(f *zip.File) ([]byte, error) {
 const (
 	relTypeHyperlink = "/hyperlink"
 	relTypeWorksheet = "/worksheet"
+	relTypeSlide     = "/slide"
 )
 
 // parseOOXMLRels parses an OOXML _rels file into Id→Target. If wantSuffix
