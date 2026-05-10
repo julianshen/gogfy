@@ -11,6 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/julianshen/gogfy/internal/fence"
+	"github.com/julianshen/gogfy/internal/fsutil"
 )
 
 // Sentinel comments that fence the gogfy-managed region inside
@@ -194,7 +197,7 @@ func Install(repoRoot string, opts Options) error {
 		return fmt.Errorf("install hook: hooks directory %s missing — submodule/worktree may not be initialized", hooksDir)
 	}
 	path := filepath.Join(hooksDir, "post-commit")
-	existing, err := readOrEmpty(path)
+	existing, err := fsutil.ReadFileOrEmpty(path)
 	if err != nil {
 		return err
 	}
@@ -208,7 +211,7 @@ func Install(repoRoot string, opts Options) error {
 		// is set in case the file was made non-executable by hand.
 		return ensureExecutable(path)
 	}
-	if err := writeAtomic(path, updated); err != nil {
+	if err := fsutil.WriteFileAtomic(path, updated, 0755); err != nil {
 		return err
 	}
 	return ensureExecutable(path)
@@ -227,9 +230,9 @@ func Uninstall(repoRoot string) error {
 	if err != nil {
 		return err
 	}
-	updated, removed, err := stripHookBlock(existing)
+	updated, removed, err := fence.Strip(existing, []byte(hookStartMarker), []byte(hookEndMarker))
 	if err != nil {
-		return err
+		return fmt.Errorf("hook uninstall: %w", err)
 	}
 	if !removed {
 		return nil
@@ -237,7 +240,7 @@ func Uninstall(repoRoot string) error {
 	if hookContentIsEmpty(updated) {
 		return os.Remove(path)
 	}
-	if err := writeAtomic(path, updated); err != nil {
+	if err := fsutil.WriteFileAtomic(path, updated, 0755); err != nil {
 		return err
 	}
 	return ensureExecutable(path)
@@ -303,9 +306,9 @@ func mergeHookContent(existing, rendered []byte) ([]byte, error) {
 		buf.Write(rendered)
 		return buf.Bytes(), nil
 	}
-	updated, replaced, err := replaceFencedBlock(existing, rendered)
+	updated, replaced, err := fence.Replace(existing, []byte(hookStartMarker), []byte(hookEndMarker), rendered)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("hook install: %w", err)
 	}
 	if replaced {
 		return updated, nil
@@ -321,65 +324,6 @@ func mergeHookContent(existing, rendered []byte) ([]byte, error) {
 	}
 	buf.Write(rendered)
 	return buf.Bytes(), nil
-}
-
-// replaceFencedBlock replaces the content between the gogfy hook markers
-// with rendered. Returns (updated, true, nil) on a single matched pair,
-// (existing, false, nil) when no markers are present, or (existing, false,
-// err) for any mismatched state — refuse to guess and risk deleting user
-// content (same hazard the snippet writer guards against).
-func replaceFencedBlock(existing, rendered []byte) ([]byte, bool, error) {
-	starts := indexAll(existing, []byte(hookStartMarker))
-	ends := indexAll(existing, []byte(hookEndMarker))
-	if len(starts) == 0 && len(ends) == 0 {
-		return existing, false, nil
-	}
-	if len(starts) != 1 || len(ends) != 1 {
-		return existing, false, fmt.Errorf("hook install: expected exactly one fenced gogfy block in post-commit (found %d start, %d end markers); fix the file by hand and re-run", len(starts), len(ends))
-	}
-	startIdx, endStart := starts[0], ends[0]
-	if endStart < startIdx {
-		return existing, false, fmt.Errorf("hook install: end marker appears before start marker — fix the file by hand and re-run")
-	}
-	endIdx := endStart + len(hookEndMarker)
-	if endIdx < len(existing) && existing[endIdx] == '\n' {
-		endIdx++
-	}
-	var buf bytes.Buffer
-	buf.Write(existing[:startIdx])
-	buf.Write(rendered)
-	buf.Write(existing[endIdx:])
-	return buf.Bytes(), true, nil
-}
-
-// stripHookBlock mirrors replaceFencedBlock but removes the fenced region
-// instead of replacing it. Drops one preceding blank-line separator so the
-// seam doesn't leave a double-blank gap.
-func stripHookBlock(existing []byte) ([]byte, bool, error) {
-	starts := indexAll(existing, []byte(hookStartMarker))
-	ends := indexAll(existing, []byte(hookEndMarker))
-	if len(starts) == 0 && len(ends) == 0 {
-		return existing, false, nil
-	}
-	if len(starts) != 1 || len(ends) != 1 {
-		return existing, false, fmt.Errorf("hook uninstall: expected exactly one fenced gogfy block (found %d start, %d end markers); fix the file by hand and re-run", len(starts), len(ends))
-	}
-	startIdx, endStart := starts[0], ends[0]
-	if endStart < startIdx {
-		return existing, false, fmt.Errorf("hook uninstall: end marker appears before start marker — fix the file by hand and re-run")
-	}
-	endIdx := endStart + len(hookEndMarker)
-	if endIdx < len(existing) && existing[endIdx] == '\n' {
-		endIdx++
-	}
-	cut := startIdx
-	if cut >= 2 && existing[cut-1] == '\n' && existing[cut-2] == '\n' {
-		cut--
-	}
-	var buf bytes.Buffer
-	buf.Write(existing[:cut])
-	buf.Write(existing[endIdx:])
-	return buf.Bytes(), true, nil
 }
 
 // hookContentIsEmpty reports whether buf is "effectively empty" — nothing
@@ -400,52 +344,6 @@ func hookContentIsEmpty(buf []byte) bool {
 	}
 	return false
 }
-
-// indexAll returns every starting index of needle within hay.
-func indexAll(hay, needle []byte) []int {
-	var out []int
-	for offset := 0; ; {
-		i := bytes.Index(hay[offset:], needle)
-		if i < 0 {
-			return out
-		}
-		out = append(out, offset+i)
-		offset += i + len(needle)
-	}
-}
-
-// readOrEmpty reads path or returns nil for ENOENT. Local copy because
-// internal/installer's helper isn't exported and we don't want to widen
-// that package's API just for one consumer.
-func readOrEmpty(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
-// writeAtomic writes data via .tmp + rename, with parent-dir creation.
-// Same semantics as installer.writeFileAtomic; avoids exporting that
-// helper purely for symmetry.
-func writeAtomic(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0755); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
 // ensureExecutable sets the user/group/other execute bits on path so git
 // can run the hook. Idempotent.
 func ensureExecutable(path string) error {

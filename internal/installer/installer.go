@@ -19,6 +19,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/julianshen/gogfy/internal/fsutil"
 )
 
 // Options tunes the gogfy server entry the installer writes. Zero-value is
@@ -139,7 +141,7 @@ func (j jsonInstaller) Uninstall(workspace string) error {
 // file does not exist or is empty. Any other error (parse failure, IO error)
 // propagates.
 func readOrEmpty(path string) (map[string]any, error) {
-	data, err := readFileOrEmpty(path)
+	data, err := fsutil.ReadFileOrEmpty(path)
 	if err != nil {
 		return nil, err
 	}
@@ -186,45 +188,13 @@ func gogfyServerEntry(opts Options) map[string]any {
 	}
 }
 
-// writeJSON marshals cfg to indented JSON and writes it via writeFileAtomic.
+// writeJSON marshals cfg to indented JSON and writes it atomically.
 func writeJSON(path string, cfg map[string]any) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(path, data)
-}
-
-// writeFileAtomic creates the parent directory then writes data via a sibling
-// .tmp file followed by rename, so a partial write cannot replace a previously
-// good file with a truncated one. Shared by every installer (JSON, TOML,
-// snippet).
-func writeFileAtomic(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-// readFileOrEmpty reads path, returning nil for ENOENT (caller treats as
-// "no config yet"). Any other error propagates.
-func readFileOrEmpty(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+	return fsutil.WriteFileAtomic(path, data, 0644)
 }
 
 // registry maps platform name → installer. Adding a new JSON-config
