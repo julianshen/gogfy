@@ -92,6 +92,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return hookCommand(rest, stderr)
 	case "serve":
 		return serveCommand(rest, os.Stdin, os.Stdout, stderr)
+	case "path":
+		return pathCommand(rest, os.Stdout, stderr)
 	case "merge-graphs":
 		return mergeGraphsCommand(rest, os.Stdout, stderr)
 	case "watch":
@@ -129,13 +131,59 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy uninstall-instructions [--file <path>]")
 	fmt.Fprintln(w, "       gogfy hook install [--repo <dir>] [--gogfy-bin <path>] [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy hook uninstall [--repo <dir>]")
+	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
+}
+
+// pathCommand finds the shortest connectivity path between two nodes
+// (treating edges as undirected, same semantics as the gogfy_path MCP tool).
+// Reads the graph from --graph (default graphify-out/graph.json) and prints
+// the path as a numbered list to stdout, or "no path" if disconnected.
+func pathCommand(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("path", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	graphPath := fs.String("graph", "graphify-out/graph.json", "path to graph.json")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return fmt.Errorf("path: expected <source> <target>, got %d positional argument(s)", fs.NArg())
+	}
+	g, err := loadGraph(*graphPath)
+	if err != nil {
+		return fmt.Errorf("path: %w", err)
+	}
+	srv := serve.New(g, nil)
+	src, srcCands, ok := srv.FindNode(fs.Arg(0))
+	if !ok {
+		return fmt.Errorf("path: source not found: %q", fs.Arg(0))
+	}
+	if len(srcCands) > 1 {
+		fmt.Fprintf(stderr, "path: source label %q matches %d nodes; using %s. Pass the full ID to disambiguate.\n",
+			fs.Arg(0), len(srcCands), src.ID)
+	}
+	tgt, tgtCands, ok := srv.FindNode(fs.Arg(1))
+	if !ok {
+		return fmt.Errorf("path: target not found: %q", fs.Arg(1))
+	}
+	if len(tgtCands) > 1 {
+		fmt.Fprintf(stderr, "path: target label %q matches %d nodes; using %s. Pass the full ID to disambiguate.\n",
+			fs.Arg(1), len(tgtCands), tgt.ID)
+	}
+	hops := srv.ShortestPath(src.ID, tgt.ID)
+	if len(hops) == 0 {
+		fmt.Fprintf(stdout, "no path from %q to %q\n", src.Label, tgt.Label)
+		return nil
+	}
+	for i, id := range hops {
+		fmt.Fprintf(stdout, "%d. %s (%s)\n", i+1, srv.LabelFor(id), id)
+	}
+	return nil
 }
 
 // mergeGraphsCommand unions two or more graph.json inputs into a single
 // graph and writes it (atomically) to --out, or to stdout if --out is
-// omitted. Useful for building cross-repo graphs and as the foundation
-// for an eventual git merge driver on graph.json.
+// omitted.
 func mergeGraphsCommand(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("merge-graphs", flag.ContinueOnError)
 	fs.SetOutput(stderr)

@@ -393,6 +393,82 @@ func TestGodNodesRejectsMalformedArgs(t *testing.T) {
 	}
 }
 
+func TestToolCallPathFindsShortestRoute(t *testing.T) {
+	// foo -> hub <- bar (sample graph). Path foo→bar should be foo, hub, bar.
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_path",
+		"arguments": map[string]any{"source": "foo", "target": "bar"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "foo") || !strings.Contains(text, "hub") || !strings.Contains(text, "bar") {
+		t.Fatalf("expected foo, hub, bar in path, got %q", text)
+	}
+}
+
+func TestToolCallPathSourceEqualsTarget(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_path",
+		"arguments": map[string]any{"source": "hub", "target": "hub"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "hub") {
+		t.Fatalf("trivial self-path should include the node, got %q", text)
+	}
+}
+
+func TestToolCallPathNoConnection(t *testing.T) {
+	srv := New(export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "a", Label: "a"}, {ID: "b", Label: "b"},
+		},
+	}, nil)
+	resp := runOnce(t, srv, jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_path",
+		"arguments": map[string]any{"source": "a", "target": "b"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "no path") {
+		t.Fatalf("expected 'no path' message, got %q", text)
+	}
+}
+
+func TestToolCallPathRejectsMissingArgs(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_path",
+		"arguments": map[string]any{"source": "foo"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	if isErr, _ := result["isError"].(bool); !isErr {
+		t.Fatalf("expected isError when target missing")
+	}
+}
+
+func TestToolCallPathSourceNotFound(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_path",
+		"arguments": map[string]any{"source": "nope", "target": "hub"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	if isErr, _ := result["isError"].(bool); !isErr {
+		t.Fatalf("expected isError on unknown source")
+	}
+}
+
+func TestToolsListIncludesPath(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/list", nil))
+	result := resp[0]["result"].(map[string]any)
+	tools := result["tools"].([]any)
+	for _, tool := range tools {
+		if tool.(map[string]any)["name"].(string) == "gogfy_path" {
+			return
+		}
+	}
+	t.Fatalf("gogfy_path missing from tools/list: %v", tools)
+}
+
 func TestNotificationInitializedProducesNoResponse(t *testing.T) {
 	// Notifications (no "id" field) MUST NOT produce a response per JSON-RPC 2.0.
 	in := bytes.NewBufferString(`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n")
