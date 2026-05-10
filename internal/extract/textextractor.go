@@ -28,13 +28,6 @@ func (TextExtractor) Extract(path string) (Result, error) {
 		ID:    moduleID,
 		Label: filepath.Base(abs),
 	})
-	for _, u := range extractURLs(string(data)) {
-		state.edges = append(state.edges, schema.Edge{
-			Source:     moduleID,
-			Target:     schema.LangID("text", "link", u),
-			Relation:   "references",
-			Confidence: schema.Extracted,
-		})
-	}
+	state.edges = append(state.edges, urlEdges("text", moduleID, string(data))...)
 	return Result{Nodes: state.nodes, Edges: state.edges}, nil
 }
