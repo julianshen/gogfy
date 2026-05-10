@@ -109,10 +109,12 @@ func readZipFile(f *zip.File) ([]byte, error) {
 	return io.ReadAll(rc)
 }
 
-// parseDocxRels parses word/_rels/document.xml.rels into Id→Target. Only
-// hyperlink relationships are interesting for the reference graph; image
-// and embed relationships are ignored.
-func parseDocxRels(data []byte) map[string]string {
+// parseOOXMLRels parses an OOXML _rels file (e.g. word/_rels/document.xml.rels
+// or xl/_rels/workbook.xml.rels) into Id→Target. If `wantSuffix` is non-empty,
+// only relationships whose Type ends with that suffix are returned; otherwise
+// every relationship is included. Suffix filtering keeps image/embed
+// relationships out of hyperlink lookups.
+func parseOOXMLRels(data []byte, wantSuffix string) map[string]string {
 	out := map[string]string{}
 	if len(data) == 0 {
 		return out
@@ -130,11 +132,17 @@ func parseDocxRels(data []byte) map[string]string {
 		return out
 	}
 	for _, r := range rs.Items {
-		if strings.HasSuffix(r.Type, "/hyperlink") {
-			out[r.ID] = r.Target
+		if wantSuffix != "" && !strings.HasSuffix(r.Type, wantSuffix) {
+			continue
 		}
+		out[r.ID] = r.Target
 	}
 	return out
+}
+
+// parseDocxRels is the docx-specific shorthand: hyperlinks only.
+func parseDocxRels(data []byte) map[string]string {
+	return parseOOXMLRels(data, "/hyperlink")
 }
 
 // walkDocxBody streams document.xml, accumulating per-paragraph text
