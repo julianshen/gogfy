@@ -67,6 +67,9 @@ func TestExtractorsMissingFile(t *testing.T) {
 		ZigExtractor{},
 		JuliaExtractor{},
 		BashExtractor{},
+		CSharpExtractor{},
+		HaskellExtractor{},
+		OCamlExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -485,6 +488,106 @@ function bye { echo bye; }
 `,
 		wantNodes: []string{"build.sh", "greet", "bye"},
 		wantEdges: []string{"bash:import:./lib.sh", "bash:import:./other.sh"},
+	})
+}
+
+func TestCSharpExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "csharp basic",
+		filename: "Program.cs",
+		source: `using System;
+using System.Collections.Generic;
+
+namespace MyApp.Core
+{
+    public class Greeter
+    {
+        public void Greet(string name)
+        {
+            Console.WriteLine("Hello " + name);
+        }
+    }
+}
+`,
+		extractor: CSharpExtractor{}.Extract,
+		wantNodes: []string{"MyApp.Core", "Greeter", "Greet"},
+		wantEdges: []string{
+			"csharp:import:System",
+			"csharp:import:System.Collections.Generic",
+		},
+	})
+}
+
+func TestCSharpExtractorEmitsCalls(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Calls.cs")
+	source := `class C {
+    void M() {
+        Helper();
+        obj.Other();
+    }
+}
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := CSharpExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{"csharp:call:Helper", "csharp:call:Other"} {
+		if !targets[want] {
+			t.Fatalf("missing call target %q in %v", want, targets)
+		}
+	}
+}
+
+func TestHaskellExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "haskell basic",
+		filename: "Main.hs",
+		source: `module Main where
+import Data.List
+import qualified Data.Map as Map
+
+greet :: String -> String
+greet name = "Hello " ++ name
+
+main :: IO ()
+main = putStrLn (greet "world")
+`,
+		extractor: HaskellExtractor{}.Extract,
+		wantNodes: []string{"Main", "greet", "main"},
+		wantEdges: []string{
+			"haskell:import:Data.List",
+			"haskell:import:Data.Map",
+		},
+	})
+}
+
+func TestOCamlExtractor(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "ocaml basic",
+		filename: "main.ml",
+		source: `open Printf
+open List
+
+let greet name = "Hello " ^ name
+
+let main () = print_endline (greet "world")
+`,
+		extractor: OCamlExtractor{}.Extract,
+		wantNodes: []string{"greet", "main"},
+		wantEdges: []string{
+			"ocaml:import:Printf",
+			"ocaml:import:List",
+		},
 	})
 }
 
