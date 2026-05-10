@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"github.com/julianshen/gogfy/internal/graph"
 	"github.com/julianshen/gogfy/internal/report"
 	"github.com/julianshen/gogfy/internal/resolve"
+	"github.com/julianshen/gogfy/internal/serve"
 	"github.com/julianshen/gogfy/internal/watch"
 )
 
@@ -74,6 +76,8 @@ func dispatch(args []string, stderr io.Writer) error {
 			return fmt.Errorf("report: missing <graph.json>")
 		}
 		return reportCommand(rest[0], os.Stdout)
+	case "serve":
+		return serveCommand(rest, os.Stdin, os.Stdout, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -102,6 +106,33 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy watch <root> [--out dir] [--directed]")
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
+	fmt.Fprintln(w, "       gogfy serve [--graph <graph.json>] [--report <GRAPH_REPORT.md>]")
+}
+
+// serveCommand runs the MCP server over stdio. The server reads the graph
+// snapshot and rendered report from disk once at startup; rebuilding is the
+// caller's job (`gogfy run` or `gogfy watch`).
+func serveCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	graphPath := fs.String("graph", "graphify-out/graph.json", "path to graph.json")
+	reportPath := fs.String("report", "graphify-out/GRAPH_REPORT.md", "path to GRAPH_REPORT.md")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	g, err := loadGraph(*graphPath)
+	if err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
+	report, err := os.ReadFile(*reportPath)
+	if err != nil {
+		// Report is best-effort: a missing report should not kill the server,
+		// since tools still work against the graph alone.
+		fmt.Fprintf(stderr, "gogfy serve: report not loaded: %v\n", err)
+		report = []byte("# Graph Report\n\n(report not available)\n")
+	}
+	srv := serve.New(g, report)
+	return srv.Serve(context.Background(), stdin, stdout)
 }
 
 // watchCommand runs an initial pipeline build, then keeps the artifact set

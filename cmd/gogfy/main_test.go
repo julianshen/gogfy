@@ -347,6 +347,59 @@ func TestRunPipelineDoesNotWriteOptionalArtifactsByDefault(t *testing.T) {
 	}
 }
 
+func TestServeCommandFailsOnMissingGraph(t *testing.T) {
+	err := serveCommand(
+		[]string{"--graph", "/nonexistent/graph.json"},
+		bytes.NewBuffer(nil),
+		io.Discard,
+		os.Stderr,
+	)
+	if err == nil {
+		t.Fatal("expected error for missing graph file")
+	}
+}
+
+func TestServeCommandTolerantOfMissingReport(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// Delete the report so the fallback path runs.
+	if err := os.Remove(filepath.Join(out, "GRAPH_REPORT.md")); err != nil {
+		t.Fatal(err)
+	}
+	stdin := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"gogfy://report"}}` + "\n")
+	var stdout, stderr bytes.Buffer
+	if err := serveCommand(
+		[]string{"--graph", filepath.Join(out, "graph.json"), "--report", filepath.Join(out, "GRAPH_REPORT.md")},
+		stdin, &stdout, &stderr,
+	); err != nil {
+		t.Fatalf("serveCommand: %v", err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("report not available")) {
+		t.Fatalf("expected fallback report text, got %q", stdout.String())
+	}
+}
+
+func TestDispatchServeSubcommandHandlesInitialize(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatalf("pipeline: %v", err)
+	}
+	// Serve a single initialize request and capture the response.
+	req := []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n")
+	stdin := bytes.NewBuffer(req)
+	var stdout bytes.Buffer
+	if err := serveCommand([]string{"--graph", filepath.Join(out, "graph.json"), "--report", filepath.Join(out, "GRAPH_REPORT.md")}, stdin, &stdout, os.Stderr); err != nil {
+		t.Fatalf("serveCommand: %v", err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"name":"gogfy"`)) {
+		t.Fatalf("expected serverInfo.name=gogfy in response, got %q", stdout.String())
+	}
+}
+
 func excerptBytes(b []byte) string {
 	if len(b) > 200 {
 		b = b[:200]
