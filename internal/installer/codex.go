@@ -93,10 +93,10 @@ func guardAgainstAlternateGogfyForms(existing []byte, path string) error {
 	return nil
 }
 
-// hasGogfyHeader reports whether code is `[mcp_servers.gogfy]` or
-// `[mcp_servers.gogfy] # ...` already stripped to its bracketed form.
+// hasGogfyHeader reports whether code is `[mcp_servers.gogfy]` (or any
+// whitespace-tolerant variant TOML accepts as the same header).
 func hasGogfyHeader(code []byte) bool {
-	return bytes.Equal(code, []byte("[mcp_servers.gogfy]"))
+	return bytes.Equal(normalizeHeader(code), []byte("[mcp_servers.gogfy]"))
 }
 
 // isAlternateGogfyAssignment reports whether code's KEY position defines
@@ -114,11 +114,44 @@ func isAlternateGogfyAssignment(code []byte) bool {
 	if bytes.Equal(lhs, []byte("mcp_servers.gogfy")) {
 		return true
 	}
-	// `mcp_servers = { gogfy = ... }` — the inline opener. We only catch
-	// the case where the inline table opens on the same line as the
-	// `mcp_servers` key and the literal `gogfy = ` appears inside it.
-	if bytes.Equal(lhs, []byte("mcp_servers")) && bytes.HasPrefix(rhs, []byte("{")) && bytes.Contains(rhs, []byte("gogfy")) && bytes.Contains(rhs, []byte("=")) {
+	// `mcp_servers = { gogfy = ... }` — the inline opener. Match only when
+	// `gogfy` appears as a real key (followed by optional whitespace then
+	// `=`), so server names that merely contain "gogfy" as a substring
+	// (e.g., `mygogfyproxy = {...}`) don't trigger a false refusal.
+	if bytes.Equal(lhs, []byte("mcp_servers")) && bytes.HasPrefix(rhs, []byte("{")) && containsGogfyKey(rhs) {
 		return true
+	}
+	return false
+}
+
+// containsGogfyKey reports whether buf contains a TOML key named exactly
+// `gogfy` followed by `=` (with any amount of whitespace). Avoids matching
+// substrings like `mygogfyproxy`.
+func containsGogfyKey(buf []byte) bool {
+	for i := 0; i < len(buf); i++ {
+		j := bytes.Index(buf[i:], []byte("gogfy"))
+		if j < 0 {
+			return false
+		}
+		j += i
+		// Preceding char must be a key boundary: `{`, `,`, whitespace, or
+		// the buffer start.
+		if j > 0 {
+			prev := buf[j-1]
+			if prev != '{' && prev != ',' && prev != ' ' && prev != '\t' && prev != '\n' {
+				i = j + 1
+				continue
+			}
+		}
+		// Following content (after `gogfy`, skipping whitespace) must be `=`.
+		k := j + len("gogfy")
+		for k < len(buf) && (buf[k] == ' ' || buf[k] == '\t') {
+			k++
+		}
+		if k < len(buf) && buf[k] == '=' {
+			return true
+		}
+		i = j + 1
 	}
 	return false
 }
@@ -151,7 +184,7 @@ func findBlock(existing []byte, header []byte) (start, end int, lines [][]byte, 
 	lines = bytes.SplitAfter(existing, []byte("\n"))
 	start = -1
 	for i, line := range lines {
-		if bytes.Equal(stripTrailingComment(bytes.TrimSpace(line)), header) {
+		if bytes.Equal(normalizeHeader(stripTrailingComment(bytes.TrimSpace(line))), header) {
 			start = i
 			break
 		}
@@ -167,6 +200,28 @@ func findBlock(existing []byte, header []byte) (start, end int, lines [][]byte, 
 		}
 	}
 	return start, end, lines, true
+}
+
+// normalizeHeader collapses whitespace inside a TOML table header so that
+// `[ mcp_servers.gogfy ]` and `[mcp_servers . gogfy]` (both TOML-valid)
+// match the canonical `[mcp_servers.gogfy]` shape. Returns line unchanged
+// when it isn't a `[...]` form.
+func normalizeHeader(line []byte) []byte {
+	if len(line) < 2 || line[0] != '[' || line[len(line)-1] != ']' {
+		return line
+	}
+	// Strip space/tab characters from inside the brackets only.
+	inner := line[1 : len(line)-1]
+	var b bytes.Buffer
+	b.WriteByte('[')
+	for _, c := range inner {
+		if c == ' ' || c == '\t' {
+			continue
+		}
+		b.WriteByte(c)
+	}
+	b.WriteByte(']')
+	return b.Bytes()
 }
 
 // stripTrailingComment drops a `# ...` suffix from a TOML line, ignoring

@@ -398,6 +398,62 @@ func TestCodexInstallToleratesUnrelatedMentionOfBothWords(t *testing.T) {
 	}
 }
 
+// TestCodexInstallToleratesWhitespaceInHeader — `[ mcp_servers.gogfy ]`
+// and `[mcp_servers . gogfy]` are TOML-equivalent to the canonical form.
+// Reinstall must match them in place rather than appending a duplicate
+// header (which would yield duplicate-key TOML).
+func TestCodexInstallToleratesWhitespaceInHeader(t *testing.T) {
+	cases := map[string]string{
+		"spaces inside brackets": "[ mcp_servers.gogfy ]\ncommand = \"old\"\n",
+		"spaces around dots":     "[mcp_servers . gogfy]\ncommand = \"old\"\n",
+	}
+	for name, existing := range cases {
+		t.Run(name, func(t *testing.T) {
+			ws := t.TempDir()
+			inst, _ := For("codex")
+			path := inst.ConfigPath(ws)
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(existing), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := inst.Install(ws, Options{}); err != nil {
+				t.Fatalf("install: %v", err)
+			}
+			got, _ := os.ReadFile(path)
+			// Should have exactly one header now (the canonical replacement),
+			// and the old `command = "old"` must be gone.
+			if c := bytes.Count(got, []byte("[mcp_servers.gogfy]")); c != 1 {
+				t.Fatalf("expected one canonical header, got %d:\n%s", c, got)
+			}
+			if bytes.Contains(got, []byte(`command = "old"`)) {
+				t.Fatalf("old block not replaced:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestCodexInstallToleratesGogfySubstringInOtherServerName — a server
+// named `mygogfyproxy` (containing the substring `gogfy`) inside an
+// inline-table mcp_servers definition must NOT trip the alternate-form
+// guard. Only an actual `gogfy = ` key should.
+func TestCodexInstallToleratesGogfySubstringInOtherServerName(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	existing := []byte("mcp_servers = { mygogfyproxy = { command = \"x\" } }\n")
+	if err := os.WriteFile(path, existing, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatalf("install rejected mygogfyproxy as if it defined gogfy: %v", err)
+	}
+}
+
 // TestCodexInstallCustomOutDir — Options.OutDir must flow into the args
 // list inside the TOML block (not just the JSON installers).
 func TestCodexInstallCustomOutDir(t *testing.T) {
