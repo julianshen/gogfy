@@ -70,6 +70,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		CSharpExtractor{},
 		HaskellExtractor{},
 		OCamlExtractor{},
+		SvelteExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -631,6 +632,29 @@ let main () = print_endline (greet "world")
 		wantEdges: []string{
 			"ocaml:import:Printf",
 			"ocaml:import:List",
+		},
+	})
+}
+
+func TestSvelteExtractorImports(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "svelte basic",
+		filename: "App.svelte",
+		source: `<script lang="ts">
+  import { onMount } from 'svelte';
+  import Button from './Button.svelte';
+  import "side-effect.css";
+  let count = 0;
+</script>
+
+<button on:click={() => count++}>{count}</button>
+`,
+		extractor: SvelteExtractor{}.Extract,
+		wantNodes: []string{"App.svelte"},
+		wantEdges: []string{
+			"svelte:import:svelte",
+			"svelte:import:./Button.svelte",
+			"svelte:import:side-effect.css",
 		},
 	})
 }

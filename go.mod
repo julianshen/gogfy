@@ -29,10 +29,20 @@ require (
 )
 
 require (
+	github.com/UserNobody14/tree-sitter-dart v0.0.0-20260508020638-507c5546dc73 // indirect
+	github.com/elm-tooling/tree-sitter-elm v5.7.0+incompatible // indirect
+	github.com/ikatyang/tree-sitter-vue v0.2.1 // indirect
+	github.com/m-novikov/tree-sitter-sql v0.0.0-20240306115507-587f30d184b0 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
+	github.com/tree-sitter-grammars/tree-sitter-hcl v1.2.0 // indirect
+	github.com/tree-sitter-grammars/tree-sitter-make v1.1.1 // indirect
+	github.com/tree-sitter-grammars/tree-sitter-svelte v1.0.2 // indirect
+	github.com/tree-sitter-grammars/tree-sitter-vue v0.0.0-20260124095733-ce8011a414fd // indirect
+	github.com/tree-sitter/tree-sitter-css v0.25.0 // indirect
 	github.com/tree-sitter/tree-sitter-embedded-template v0.25.0 // indirect
 	github.com/tree-sitter/tree-sitter-haskell v0.23.1 // indirect
+	github.com/tree-sitter/tree-sitter-html v0.23.2 // indirect
 	github.com/tree-sitter/tree-sitter-ocaml v0.25.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 )
