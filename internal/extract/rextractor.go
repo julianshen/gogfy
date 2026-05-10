@@ -39,8 +39,9 @@ func walkR(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 }
 
 // rImportTarget detects library/require/requireNamespace calls and returns
-// the package name. R accepts both NSE (`library(dplyr)`, argument is an
-// identifier) and quoted (`library("dplyr")`) forms; both are common.
+// the package name. R accepts both unquoted (`library(dplyr)`, evaluated
+// via NSE — the callee captures the bare identifier) and quoted
+// (`library("dplyr")`) forms; both are common.
 func rImportTarget(call *sitter.Node, src []byte) (string, bool) {
 	fn := call.ChildByFieldName("function")
 	if fn == nil || fn.Kind() != "identifier" {
@@ -54,8 +55,9 @@ func rImportTarget(call *sitter.Node, src []byte) (string, bool) {
 	if args == nil {
 		return "", false
 	}
-	// NamedChild iteration skips the surrounding parens and commas at the
-	// CGo boundary — half the C calls vs. ChildCount/Child.
+	// NamedChild iteration skips anonymous tokens like the surrounding
+	// parens. tree-sitter-r exposes `comma` as a named child of
+	// `arguments`, so the kind-check below still has to discard those.
 	n := args.NamedChildCount()
 	for i := uint(0); i < n; i++ {
 		a := args.NamedChild(i)

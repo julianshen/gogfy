@@ -1327,11 +1327,11 @@ requireNamespace("jsonlite")
 }
 
 func TestRExtractorAlternateAssignmentForms(t *testing.T) {
-	// R has three assignment operators that all parse as binary_operator:
-	// `<-` (canonical), `=` (also valid for top-level decls), and `<<-`
-	// (super-assignment). All three must be recognized as function decls
-	// when the rhs is a function_definition. Pins the doc claim that the
-	// "<-/=/<<-" set is uniformly handled.
+	// All three R assignment operators (`<-`, `=`, `<<-`) parse to
+	// binary_operator and must be recognized as function decls when
+	// the rhs is a function_definition. Exercises each form as a decl
+	// site so a future regression that narrowed handling to one
+	// operator would surface here.
 	runExtractorCase(t, extractorCase{
 		name:     "r assignment forms",
 		filename: "ops.R",
@@ -1341,6 +1341,51 @@ f_super <<- function(x) x
 `,
 		extractor: RExtractor{}.Extract,
 		wantNodes: []string{"f_arrow", "f_eq", "f_super"},
+	})
+}
+
+func TestRExtractorNonFunctionAssignmentsNotEmittedAsDecls(t *testing.T) {
+	// Pin that the binary_operator handler ONLY treats fn-rhs assignments
+	// as decls. A future loosening of the rhs check (e.g. emitting a node
+	// whenever lhs is an identifier) would silently produce phantom
+	// "function" nodes for value bindings.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vals.R")
+	source := `x <- 1
+y <- "hello"
+g <- some_other_fn
+result <- f(2)
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range res.Nodes {
+		switch n.Label {
+		case "x", "y", "g", "result":
+			t.Fatalf("non-function assignment must not produce a decl node: %+v", n)
+		}
+	}
+}
+
+func TestRExtractorNestedFunctionDefinitions(t *testing.T) {
+	// Inner function defs inside a function body must also be emitted as
+	// decls; this pins walkFnScope's recursion through walkR rather than
+	// just the top-level decl path.
+	runExtractorCase(t, extractorCase{
+		name:     "r nested fn",
+		filename: "nested.R",
+		source: `outer <- function() {
+  inner <- function(x) x + 1
+  inner(2)
+}
+`,
+		extractor: RExtractor{}.Extract,
+		wantNodes: []string{"outer", "inner"},
+		wantEdges: []string{"r:call:inner"},
 	})
 }
 

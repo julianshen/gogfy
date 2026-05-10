@@ -32,7 +32,7 @@ gogfy uses tree-sitter for AST extraction. A language is supported when (a) some
 | Elixir | `.ex` `.exs` | `github.com/elixir-lang/tree-sitter-elixir` (via go.mod `replace` from the declared `github.com/tree-sitter/tree-sitter-elixir` path, which is unmaintained) |
 | Dart | `.dart` | `github.com/UserNobody14/tree-sitter-dart` |
 | Swift | `.swift` | `github.com/julianshen/tree-sitter-swift` (fork of `alex-pinkus/tree-sitter-swift` with `parser.c` committed — upstream's `.gitignore` excludes the generated artifact) |
-| R | `.r` `.R` | `github.com/julianshen/tree-sitter-r` (fork of `r-lib/tree-sitter-r`; upstream's released v1.2.0 ships `bindings/go/binding.go` without the external-scanner `#include`, so the cgo binding fails to link — the fork's `main` branch carries the fix and re-modules under julianshen/) |
+| R | `.r` `.R` | `github.com/julianshen/tree-sitter-r` (fork of `r-lib/tree-sitter-r` carrying an external-scanner `#include` fix not yet in an upstream release) |
 
 ### Document formats
 
