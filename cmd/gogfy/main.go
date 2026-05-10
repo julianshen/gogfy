@@ -21,6 +21,7 @@ import (
 	"github.com/julianshen/gogfy/internal/export"
 	"github.com/julianshen/gogfy/internal/extract"
 	"github.com/julianshen/gogfy/internal/graph"
+	"github.com/julianshen/gogfy/internal/installer"
 	"github.com/julianshen/gogfy/internal/report"
 	"github.com/julianshen/gogfy/internal/resolve"
 	"github.com/julianshen/gogfy/internal/serve"
@@ -76,6 +77,10 @@ func dispatch(args []string, stderr io.Writer) error {
 			return fmt.Errorf("report: missing <graph.json>")
 		}
 		return reportCommand(rest[0], os.Stdout)
+	case "install":
+		return installCommand(rest, false, stderr)
+	case "uninstall":
+		return installCommand(rest, true, stderr)
 	case "serve":
 		return serveCommand(rest, os.Stdin, os.Stdout, stderr)
 	case "watch":
@@ -107,6 +112,48 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
 	fmt.Fprintln(w, "       gogfy serve [--graph <graph.json>] [--report <GRAPH_REPORT.md>]")
+	fmt.Fprintln(w, "       gogfy install --platform <claude|cursor|vscode|gemini> [--workspace <dir>]")
+	fmt.Fprintln(w, "       gogfy uninstall --platform <claude|cursor|vscode|gemini> [--workspace <dir>]")
+}
+
+// installCommand handles both `gogfy install` and `gogfy uninstall` (the
+// remove flag flips the operation). One subcommand pair lights up every
+// MCP-capable platform we ship.
+func installCommand(args []string, remove bool, stderr io.Writer) error {
+	op := "install"
+	if remove {
+		op = "uninstall"
+	}
+	fs := flag.NewFlagSet(op, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	platform := fs.String("platform", "", "target platform: "+strings.Join(installer.SupportedPlatforms(), ", "))
+	workspace := fs.String("workspace", ".", "workspace root (defaults to cwd)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *platform == "" {
+		return fmt.Errorf("%s: --platform is required (one of: %s)", op, strings.Join(installer.SupportedPlatforms(), ", "))
+	}
+	inst, err := installer.For(*platform)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	abs, err := filepath.Abs(*workspace)
+	if err != nil {
+		return fmt.Errorf("%s: resolve workspace: %w", op, err)
+	}
+	if remove {
+		if err := inst.Uninstall(abs); err != nil {
+			return fmt.Errorf("uninstall %s: %w", *platform, err)
+		}
+		fmt.Fprintf(stderr, "gogfy: uninstalled from %s (%s)\n", *platform, inst.ConfigPath(abs))
+		return nil
+	}
+	if err := inst.Install(abs); err != nil {
+		return fmt.Errorf("install %s: %w", *platform, err)
+	}
+	fmt.Fprintf(stderr, "gogfy: installed for %s at %s\n", *platform, inst.ConfigPath(abs))
+	return nil
 }
 
 // serveCommand runs the MCP server over stdio. The server reads the graph
