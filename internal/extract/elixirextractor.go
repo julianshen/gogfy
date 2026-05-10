@@ -45,7 +45,9 @@ func walkElixir(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 			nameNode := elixirDefName(node)
 			if nameNode != nil {
 				state.emitDecl(kind, node, nameNode, src)
-				state.walkFnScope(kind, nameNode, src, cursor, walkElixir)
+				state.pushFn(declID(state.lang, kind, state.filePath, nameNode, src))
+				walkElixirDefBody(cursor, src, state)
+				state.popFn()
 				return
 			}
 			// def with an unrecognized header shape: anonymous scope
@@ -66,6 +68,23 @@ func walkElixir(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		}
 	}
 	walkChildren(cursor, func() { walkElixir(cursor, src, state) })
+}
+
+// walkElixirDefBody walks a `def`/`defp`/`defmacro` node's children but
+// skips the `arguments` subtree entirely. The function header lives in
+// arguments as a nested `call` whose head is the function name; walking
+// it would emit a spurious self-call edge from every defined function.
+func walkElixirDefBody(cursor *sitter.TreeCursor, src []byte, state *extractState) {
+	walkChildren(cursor, func() {
+		// At this point cursor is on a child of the def node. Skip the
+		// function-header `arguments` subtree; recurse on the rest
+		// (`do_block`, guard expressions, etc.) so body calls and
+		// nested defs are still captured.
+		if cursor.Node().Kind() == "arguments" {
+			return
+		}
+		walkElixir(cursor, src, state)
+	})
 }
 
 // elixirCallHead returns the textual head of a call (the macro/function
