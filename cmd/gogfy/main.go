@@ -125,9 +125,114 @@ func dispatch(args []string, stderr io.Writer) error {
 		}
 		return watchCommand(fs.Arg(0), *out, *directed, stderr)
 	default:
+		// Combo wrapper: `gogfy <platform> install` runs install +
+		// install-instructions + hook install in one shot. Detected here
+		// so the explicit install/uninstall/hook subcommands above still
+		// take precedence.
+		if comboPlatformDocs(sub) != "" && len(rest) >= 1 && (rest[0] == "install" || rest[0] == "uninstall") {
+			return comboCommand(sub, rest[0], rest[1:], stderr)
+		}
 		usage(stderr)
 		return fmt.Errorf("unknown subcommand: %s", sub)
 	}
+}
+
+// comboPlatformDocs returns the conventional project-level docs file for
+// the named platform, or "" if the platform isn't a known combo target.
+// Used by the combo wrapper to decide where to write the gogfy
+// instructions snippet.
+func comboPlatformDocs(platform string) string {
+	switch platform {
+	case "claude":
+		return "CLAUDE.md"
+	case "codex":
+		return "AGENTS.md"
+	case "cursor":
+		return ".cursorrules"
+	case "gemini":
+		return "GEMINI.md"
+	case "vscode":
+		// VSCode Copilot Chat has no canonical agent docs file; fall back to
+		// AGENTS.md as the cross-tool standard.
+		return "AGENTS.md"
+	default:
+		return ""
+	}
+}
+
+// comboCommand runs the full install/uninstall sequence for one platform:
+// MCP config + project-level instructions snippet + git post-commit hook.
+// On install, fails fast on the first error so partial state is visible
+// rather than silently wedged. On uninstall, attempts every step and
+// aggregates errors — partial cleanup is still useful.
+func comboCommand(platform, verb string, args []string, stderr io.Writer) error {
+	fs := flag.NewFlagSet(platform+" "+verb, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	workspace := fs.String("workspace", ".", "workspace root (defaults to cwd)")
+	bin := fs.String("gogfy-bin", "", "path or name of the gogfy binary (defaults to absolute path of running gogfy)")
+	outDir := fs.String("out", "graphify-out", "graph output directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("%s %s: unexpected positional arguments: %v", platform, verb, fs.Args())
+	}
+	abs, err := filepath.Abs(*workspace)
+	if err != nil {
+		return fmt.Errorf("%s %s: resolve workspace: %w", platform, verb, err)
+	}
+	resolvedBin := *bin
+	if resolvedBin == "" {
+		if exe, err := os.Executable(); err == nil {
+			resolvedBin = exe
+		} else {
+			resolvedBin = "gogfy"
+		}
+	}
+	docsFile := filepath.Join(abs, comboPlatformDocs(platform))
+
+	if verb == "uninstall" {
+		// Conservative: only remove the platform's MCP config. The hook
+		// and the docs-file snippet are commonly *shared* across platforms
+		// — codex and vscode both target AGENTS.md; the post-commit hook
+		// is repo-wide and serves whichever platforms read graphify-out.
+		// Removing them on a single-platform uninstall would break the
+		// other platforms still in use. Tell the user to run the explicit
+		// teardown commands if they want those gone too.
+		inst, err := installer.For(platform)
+		if err != nil {
+			return fmt.Errorf("%s uninstall: %w", platform, err)
+		}
+		if err := inst.Uninstall(abs); err != nil {
+			return fmt.Errorf("%s uninstall (mcp): %w", platform, err)
+		}
+		fmt.Fprintf(stderr, "gogfy: %s uninstall complete (MCP config removed).\n", platform)
+		fmt.Fprintf(stderr, "      The %s snippet and post-commit hook are repo-wide and may be shared\n", comboPlatformDocs(platform))
+		fmt.Fprintf(stderr, "      with other platforms; remove them explicitly with:\n")
+		fmt.Fprintf(stderr, "        gogfy uninstall-instructions --file %s\n", docsFile)
+		fmt.Fprintf(stderr, "        gogfy hook uninstall --repo %s\n", abs)
+		return nil
+	}
+
+	// install — fail fast.
+	inst, err := installer.For(platform)
+	if err != nil {
+		return fmt.Errorf("%s install: %w", platform, err)
+	}
+	if err := inst.Install(abs, installer.Options{Bin: resolvedBin, OutDir: *outDir}); err != nil {
+		return fmt.Errorf("%s install (mcp): %w", platform, err)
+	}
+	if err := installer.InstallSnippet(docsFile, installer.SnippetOptions{
+		ReportPath: filepath.Join(*outDir, "GRAPH_REPORT.md"),
+	}); err != nil {
+		return fmt.Errorf("%s install (snippet): %w", platform, err)
+	}
+	if err := githook.Install(abs, githook.Options{Bin: resolvedBin, OutDir: *outDir}); err != nil {
+		return fmt.Errorf("%s install (hook): %w", platform, err)
+	}
+	fmt.Fprintf(stderr, "gogfy: %s install complete (mcp config + %s snippet + post-commit hook)\n",
+		platform, comboPlatformDocs(platform))
+	return nil
 }
 
 func usage(w io.Writer) {
@@ -145,6 +250,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy hook uninstall [--repo <dir>]")
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
+	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini> install   # combo: mcp + snippet + hook in one shot")
+	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini> uninstall # remove all three")
 }
 
 // pathCommand finds the shortest connectivity path between two nodes

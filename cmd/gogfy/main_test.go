@@ -597,6 +597,114 @@ func TestDispatchHookHonorsCustomFlags(t *testing.T) {
 	}
 }
 
+func TestDispatchComboInstallClaude(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"claude", "install", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatalf("dispatch claude install: %v", err)
+	}
+	// All three artifacts must exist.
+	if _, err := os.Stat(filepath.Join(ws, ".mcp.json")); err != nil {
+		t.Fatalf("MCP config missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "CLAUDE.md")); err != nil {
+		t.Fatalf("CLAUDE.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".git", "hooks", "post-commit")); err != nil {
+		t.Fatalf("post-commit hook missing: %v", err)
+	}
+}
+
+func TestDispatchComboUninstallRemovesMCPOnly(t *testing.T) {
+	// Conservative uninstall: removes only the MCP config. The shared
+	// docs-file snippet and the repo-wide post-commit hook stay so that
+	// other platforms relying on them keep working. Users explicitly
+	// remove them via `uninstall-instructions` and `hook uninstall`.
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"claude", "install", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"claude", "uninstall", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatalf("dispatch claude uninstall: %v", err)
+	}
+	// MCP config (.mcp.json) gone.
+	if _, err := os.Stat(filepath.Join(ws, ".mcp.json")); err == nil {
+		// .mcp.json may still exist if it has other content; check that
+		// the gogfy entry specifically is gone by reading it.
+		data, _ := os.ReadFile(filepath.Join(ws, ".mcp.json"))
+		if bytes.Contains(data, []byte(`"gogfy"`)) {
+			t.Fatalf("gogfy entry should be removed from .mcp.json, got %s", data)
+		}
+	}
+	// Snippet preserved (could be shared with other platforms).
+	if _, err := os.Stat(filepath.Join(ws, "CLAUDE.md")); err != nil {
+		t.Fatalf("CLAUDE.md should be preserved on combo uninstall, got %v", err)
+	}
+	// Hook preserved (repo-wide).
+	if _, err := os.Stat(filepath.Join(ws, ".git", "hooks", "post-commit")); err != nil {
+		t.Fatalf("post-commit should be preserved on combo uninstall, got %v", err)
+	}
+}
+
+func TestDispatchComboInstallCodexUsesAgentsMd(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"codex", "install", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatalf("dispatch codex install: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "AGENTS.md")); err != nil {
+		t.Fatalf("AGENTS.md should be the codex docs target: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".codex", "config.toml")); err != nil {
+		t.Fatalf("codex MCP config missing: %v", err)
+	}
+}
+
+func TestDispatchComboInstallCursorUsesCursorrules(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"cursor", "install", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".cursorrules")); err != nil {
+		t.Fatalf(".cursorrules should be the cursor docs target: %v", err)
+	}
+}
+
+func TestDispatchComboInstallNotARepoFails(t *testing.T) {
+	ws := t.TempDir() // no .git
+	if err := dispatch([]string{"claude", "install", "--workspace", ws}, os.Stderr); err == nil {
+		t.Fatal("expected error: combo install needs a git repo")
+	}
+}
+
+func TestDispatchComboInstallRejectsStrayPositional(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"claude", "install", "--workspace", ws, "stray"}, os.Stderr); err == nil {
+		t.Fatal("expected error for stray positional")
+	}
+}
+
+func TestDispatchComboInstallUnknownPlatformFallsThrough(t *testing.T) {
+	// `gogfy doesntexist install` should hit the default branch and return
+	// "unknown subcommand" rather than match the combo wrapper.
+	if err := dispatch([]string{"doesntexist", "install"}, os.Stderr); err == nil {
+		t.Fatal("expected error for unknown platform")
+	}
+}
+
 func TestRunPipelineNoVizSkipsHTML(t *testing.T) {
 	root := "../../testdata/e2e/mini-corpus"
 	out := t.TempDir()
