@@ -78,8 +78,8 @@ Each entry below has been **probed** with `go get`. Status reflects what the ups
 **Document formats** — building Go-native, no Python (no markitdown dep). Markdown / HTML / RST / plain-text shipped; following the same shape:
 
 1. **PDF** — `github.com/ledongthuc/pdf` for text-only extraction. Layout-complex PDFs may need `pdfcpu`.
-6. **Images** — Tesseract OCR via cgo. Opt-in build tag; not core.
-7. **Audio / video** — `whisper.cpp` via cgo. Opt-in build tag.
+2. **Images** — Tesseract OCR via cgo. Opt-in build tag; not core.
+3. **Audio / video** — `whisper.cpp` via cgo. Opt-in build tag.
 
 ## Adding a language
 

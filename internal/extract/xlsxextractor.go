@@ -47,19 +47,23 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 	}
 	defer zr.Close()
 
-	parts := map[string][]byte{}
+	// Index *zip.File pointers (not buffered bytes) so worksheet content
+	// is read on demand. Workbooks with hundreds of sheets would otherwise
+	// hold every sheet's XML in memory simultaneously.
+	files := map[string]*zip.File{}
 	for _, f := range zr.File {
-		// Only buffer the parts we'll actually need: workbook, its rels,
-		// every worksheet, and every per-sheet rels file.
 		if f.Name == "xl/workbook.xml" ||
 			f.Name == "xl/_rels/workbook.xml.rels" ||
 			strings.HasPrefix(f.Name, "xl/worksheets/") {
-			data, err := readZipFile(f)
-			if err != nil {
-				return Result{}, err
-			}
-			parts[f.Name] = data
+			files[f.Name] = f
 		}
+	}
+	readPart := func(name string) ([]byte, error) {
+		f, ok := files[name]
+		if !ok {
+			return nil, nil
+		}
+		return readZipFile(f)
 	}
 
 	state := &extractState{lang: "xlsx", filePath: abs}
@@ -70,42 +74,61 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 	})
 	state.fnStack = append(state.fnStack, moduleID)
 
-	if len(parts["xl/workbook.xml"]) == 0 {
+	workbookXML, err := readPart("xl/workbook.xml")
+	if err != nil {
+		return Result{}, err
+	}
+	if len(workbookXML) == 0 {
 		// Not an xlsx we recognize — bare module node so the file still
 		// appears in the graph.
 		return Result{Nodes: state.nodes}, nil
 	}
 
+	relsXML, err := readPart("xl/_rels/workbook.xml.rels")
+	if err != nil {
+		return Result{}, err
+	}
 	// Workbook rels point to worksheets — not hyperlinks. Use the general
 	// helper with the worksheet-type suffix.
-	workbookRels := parseOOXMLRels(parts["xl/_rels/workbook.xml.rels"], "/worksheet")
-	sheets := parseXlsxSheets(parts["xl/workbook.xml"])
+	workbookRels := parseOOXMLRels(relsXML, "/worksheet")
+	sheets := parseXlsxSheets(workbookXML)
 
 	for _, s := range sheets {
-		// Resolve sheet path via the workbook rels. The Target is
-		// relative to xl/ (so e.g. "worksheets/sheet1.xml" → "xl/worksheets/sheet1.xml").
-		target, ok := workbookRels[s.RelID]
-		if !ok {
-			continue
-		}
-		sheetPath := "xl/" + strings.TrimPrefix(target, "/")
-		sheetXML, ok := parts[sheetPath]
-		if !ok {
-			continue
-		}
-
-		// Per-sheet rels live next to the sheet. For "xl/worksheets/sheet1.xml"
-		// the rels path is "xl/worksheets/_rels/sheet1.xml.rels".
-		dir, file := filepath.Split(sheetPath)
-		sheetRelsPath := dir + "_rels/" + file + ".rels"
-		sheetRels := parseOOXMLRels(parts[sheetRelsPath], "/hyperlink")
-
+		// Sheet section node is emitted unconditionally — every sheet
+		// declared in xl/workbook.xml is part of the workbook's structure
+		// regardless of whether its worksheet part or rels can be resolved.
+		// Hyperlink extraction is what depends on those lookups; gating
+		// the section on them would silently drop sheets from the graph.
 		sectionID := schema.LangID("xlsx", "section", abs+":"+slugify(s.Name))
 		state.nodes = append(state.nodes, schema.Node{
 			ID:         sectionID,
 			Label:      s.Name,
 			SourceFile: abs,
 		})
+
+		// Resolve sheet path via the workbook rels. The Target is
+		// relative to xl/ (e.g. "worksheets/sheet1.xml" → "xl/worksheets/sheet1.xml").
+		target, ok := workbookRels[s.RelID]
+		if !ok {
+			continue
+		}
+		sheetPath := "xl/" + strings.TrimPrefix(target, "/")
+		sheetXML, err := readPart(sheetPath)
+		if err != nil {
+			return Result{}, err
+		}
+		if len(sheetXML) == 0 {
+			continue
+		}
+
+		// Per-sheet rels live next to the sheet. For "xl/worksheets/sheet1.xml"
+		// the rels path is "xl/worksheets/_rels/sheet1.xml.rels".
+		dir, file := filepath.Split(sheetPath)
+		sheetRelsXML, err := readPart(dir + "_rels/" + file + ".rels")
+		if err != nil {
+			return Result{}, err
+		}
+		sheetRels := parseOOXMLRels(sheetRelsXML, "/hyperlink")
 
 		for _, rid := range parseXlsxHyperlinks(sheetXML) {
 			url, ok := sheetRels[rid]

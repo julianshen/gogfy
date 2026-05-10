@@ -156,6 +156,41 @@ func TestXlsxExtractorHyperlinkAttributedToOwnSheet(t *testing.T) {
 	}
 }
 
+func TestXlsxExtractorSheetSectionEmittedWhenRelsUnresolvable(t *testing.T) {
+	// A sheet declared in xl/workbook.xml must still produce a section
+	// node even if its worksheet part or rels file is missing/incomplete.
+	// Section nodes carry the workbook's structural shape; only hyperlink
+	// extraction depends on rels resolution.
+	dir := t.TempDir()
+	parts := map[string]string{
+		"xl/workbook.xml": `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Resolved" sheetId="1" r:id="rId1"/>
+    <sheet name="Orphaned" sheetId="2" r:id="rIdMissing"/>
+  </sheets>
+</workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`,
+		"xl/worksheets/sheet1.xml": `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>`,
+	}
+	path := writeMinimalXlsx(t, dir, "partial.xlsx", parts)
+	res, err := XlsxExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, n := range res.Nodes {
+		labels[n.Label] = true
+	}
+	for _, want := range []string{"Resolved", "Orphaned"} {
+		if !labels[want] {
+			t.Fatalf("expected sheet section %q (rels resolution should not gate node emission), got labels=%v", want, labels)
+		}
+	}
+}
+
 func TestXlsxExtractorMissingWorkbookReturnsBareModule(t *testing.T) {
 	dir := t.TempDir()
 	path := writeMinimalXlsx(t, dir, "weird.xlsx", map[string]string{
