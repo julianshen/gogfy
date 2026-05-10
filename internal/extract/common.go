@@ -3,10 +3,19 @@ package extract
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/julianshen/gogfy/internal/schema"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
+
+// trimQuotes strips matching string-literal delimiters that tree-sitter
+// includes verbatim in node text. Covers single quotes, double quotes,
+// backticks, and angle brackets (the latter for C-style `#include <foo.h>`
+// shapes). Idempotent on already-bare strings.
+func trimQuotes(s string) string {
+	return strings.Trim(s, `"'`+"`<>")
+}
 
 // extractState is the per-file accumulator shared across all language
 // extractors. The `lang` prefix is woven into every emitted ID so different
