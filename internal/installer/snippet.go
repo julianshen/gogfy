@@ -45,7 +45,10 @@ func InstallSnippet(path string, opts SnippetOptions) error {
 	if len(existing) == 0 {
 		return writeFileAtomic(path, rendered)
 	}
-	updated, replaced := replaceFencedSnippet(existing, rendered)
+	updated, replaced, err := replaceFencedSnippet(existing, rendered)
+	if err != nil {
+		return err
+	}
 	if !replaced {
 		// Append. Ensure separation from prior content.
 		var buf bytes.Buffer
@@ -78,7 +81,10 @@ func UninstallSnippet(path string) error {
 	if err != nil {
 		return err
 	}
-	updated, removed := stripFencedSnippet(existing)
+	updated, removed, err := stripFencedSnippet(existing)
+	if err != nil {
+		return err
+	}
 	if !removed {
 		return nil
 	}
@@ -109,23 +115,29 @@ func renderSnippet(opts SnippetOptions) []byte {
 }
 
 // replaceFencedSnippet replaces the content between (and including) the
-// snippet markers with rendered. Returns (updated, true) if a fenced block
-// was found and replaced; (existing, false) otherwise. The replacement
-// preserves leading/trailing context exactly.
-func replaceFencedSnippet(existing, rendered []byte) ([]byte, bool) {
-	startIdx := bytes.Index(existing, []byte(snippetStartMarker))
-	if startIdx < 0 {
-		return existing, false
+// snippet markers with rendered. Returns (updated, true, nil) if exactly
+// one matched pair was found and replaced; (existing, false, nil) if no
+// markers are present (caller appends); or (existing, false, err) when
+// markers are mismatched (orphan start, orphan end, or multiple pairs) —
+// the caller MUST surface that error rather than guessing, because picking
+// the "first start + first end" can span over user content and silently
+// delete it.
+func replaceFencedSnippet(existing, rendered []byte) ([]byte, bool, error) {
+	starts := indexAll(existing, []byte(snippetStartMarker))
+	ends := indexAll(existing, []byte(snippetEndMarker))
+	if len(starts) == 0 && len(ends) == 0 {
+		return existing, false, nil
 	}
-	// Look for the matching end marker AFTER the start marker.
-	endIdx := bytes.Index(existing[startIdx:], []byte(snippetEndMarker))
-	if endIdx < 0 {
-		// Start marker without an end marker — leave alone (don't guess).
-		return existing, false
+	if len(starts) != 1 || len(ends) != 1 {
+		return existing, false, fmt.Errorf("install-instructions: expected exactly one fenced gogfy block (found %d start, %d end markers); fix the file by hand and re-run", len(starts), len(ends))
 	}
-	endIdx += startIdx + len(snippetEndMarker)
-	// Consume one trailing newline if present so we don't accumulate blank
-	// lines on repeated installs.
+	startIdx, endStart := starts[0], ends[0]
+	if endStart < startIdx {
+		return existing, false, fmt.Errorf("install-instructions: end marker appears before start marker — fix the file by hand and re-run")
+	}
+	endIdx := endStart + len(snippetEndMarker)
+	// Consume one trailing newline so repeated installs don't accumulate
+	// blank lines.
 	if endIdx < len(existing) && existing[endIdx] == '\n' {
 		endIdx++
 	}
@@ -133,23 +145,41 @@ func replaceFencedSnippet(existing, rendered []byte) ([]byte, bool) {
 	buf.Write(existing[:startIdx])
 	buf.Write(rendered)
 	buf.Write(existing[endIdx:])
-	return buf.Bytes(), true
+	return buf.Bytes(), true, nil
+}
+
+// indexAll returns every starting index of needle within hay.
+func indexAll(hay, needle []byte) []int {
+	var out []int
+	for offset := 0; ; {
+		i := bytes.Index(hay[offset:], needle)
+		if i < 0 {
+			return out
+		}
+		out = append(out, offset+i)
+		offset += i + len(needle)
+	}
 }
 
 // stripFencedSnippet removes the fenced block (markers and content) from
-// existing. Also drops a leading blank-line separator if the block was
-// preceded by one — keeps the file clean rather than leaving stranded
-// whitespace.
-func stripFencedSnippet(existing []byte) ([]byte, bool) {
-	startIdx := bytes.Index(existing, []byte(snippetStartMarker))
-	if startIdx < 0 {
-		return existing, false
+// existing. Returns (updated, true, nil) for exactly one matched pair;
+// (existing, false, nil) when no markers are present; (existing, false,
+// err) for any mismatched state. Same orphan-marker hazard as
+// replaceFencedSnippet — refuse to guess and risk deleting user content.
+func stripFencedSnippet(existing []byte) ([]byte, bool, error) {
+	starts := indexAll(existing, []byte(snippetStartMarker))
+	ends := indexAll(existing, []byte(snippetEndMarker))
+	if len(starts) == 0 && len(ends) == 0 {
+		return existing, false, nil
 	}
-	endIdx := bytes.Index(existing[startIdx:], []byte(snippetEndMarker))
-	if endIdx < 0 {
-		return existing, false
+	if len(starts) != 1 || len(ends) != 1 {
+		return existing, false, fmt.Errorf("uninstall-instructions: expected exactly one fenced gogfy block (found %d start, %d end markers); fix the file by hand and re-run", len(starts), len(ends))
 	}
-	endIdx += startIdx + len(snippetEndMarker)
+	startIdx, endStart := starts[0], ends[0]
+	if endStart < startIdx {
+		return existing, false, fmt.Errorf("uninstall-instructions: end marker appears before start marker — fix the file by hand and re-run")
+	}
+	endIdx := endStart + len(snippetEndMarker)
 	if endIdx < len(existing) && existing[endIdx] == '\n' {
 		endIdx++
 	}
@@ -162,5 +192,5 @@ func stripFencedSnippet(existing []byte) ([]byte, bool) {
 	var buf bytes.Buffer
 	buf.Write(existing[:cut])
 	buf.Write(existing[endIdx:])
-	return buf.Bytes(), true
+	return buf.Bytes(), true, nil
 }

@@ -370,6 +370,34 @@ func TestCodexInstallSkipsRewriteWhenContentUnchanged(t *testing.T) {
 	}
 }
 
+// TestCodexInstallToleratesUnrelatedMentionOfBothWords — a string value
+// that happens to mention both "mcp_servers" and "gogfy" must not trigger
+// the alternate-form refusal (the guard previously matched any non-header
+// line containing both substrings).
+func TestCodexInstallToleratesUnrelatedMentionOfBothWords(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("codex")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Description string mentions both words — false positive bait.
+	existing := []byte("[features]\ndescription = \"covers mcp_servers and gogfy together\"\n")
+	if err := os.WriteFile(path, existing, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{}); err != nil {
+		t.Fatalf("install rejected unrelated string mentioning both words: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Contains(got, []byte(`description = "covers mcp_servers and gogfy together"`)) {
+		t.Fatalf("description value mangled:\n%s", got)
+	}
+	if !bytes.Contains(got, []byte("[mcp_servers.gogfy]")) {
+		t.Fatalf("gogfy block not appended:\n%s", got)
+	}
+}
+
 // TestCodexInstallCustomOutDir — Options.OutDir must flow into the args
 // list inside the TOML block (not just the JSON installers).
 func TestCodexInstallCustomOutDir(t *testing.T) {

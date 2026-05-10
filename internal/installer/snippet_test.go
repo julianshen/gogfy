@@ -185,19 +185,63 @@ func TestInstallSnippetFailsOnUnreadableFile(t *testing.T) {
 	}
 }
 
-func TestUninstallSnippetIgnoresOrphanStartMarker(t *testing.T) {
+func TestUninstallSnippetRefusesOrphanStartMarker(t *testing.T) {
+	// Orphan start marker (no matching end) is mismatched state; refuse to
+	// guess where the block ends, surface an error, and leave the file
+	// byte-identical.
 	ws := t.TempDir()
 	path := filepath.Join(ws, "AGENTS.md")
 	original := []byte("# Project\n\n" + snippetStartMarker + "\nbroken — no end marker\n")
 	if err := os.WriteFile(path, original, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := UninstallSnippet(path); err != nil {
-		t.Fatal(err)
+	preInfo, _ := os.Stat(path)
+	if err := UninstallSnippet(path); err == nil {
+		t.Fatal("expected error on orphan start marker")
 	}
 	got, _ := os.ReadFile(path)
+	postInfo, _ := os.Stat(path)
 	if !bytes.Equal(got, original) {
-		t.Fatalf("uninstall mangled file with orphan start marker:\nbefore: %s\nafter:  %s", original, got)
+		t.Fatalf("file modified despite returned error:\nbefore: %s\nafter:  %s", original, got)
+	}
+	if !preInfo.ModTime().Equal(postInfo.ModTime()) {
+		t.Fatalf("mtime touched despite returned error")
+	}
+}
+
+// TestInstallSnippetRefusesMultipleStartMarkers — the silent-data-loss
+// hazard: an orphan `<!-- ...:start -->` plus a later valid block would
+// previously be spanned by replacement, deleting user content between.
+// Now we surface an error and refuse to touch the file.
+func TestInstallSnippetRefusesMultipleStartMarkers(t *testing.T) {
+	ws := t.TempDir()
+	path := filepath.Join(ws, "AGENTS.md")
+	hostile := []byte("# Project\n\n" + snippetStartMarker + "\n" +
+		"USER WROTE THIS BY HAND AND NEVER CLOSED IT\n\n" +
+		snippetStartMarker + "\nold gogfy content\n" + snippetEndMarker + "\n")
+	if err := os.WriteFile(path, hostile, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallSnippet(path, SnippetOptions{}); err == nil {
+		t.Fatal("expected error on multiple start markers")
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, hostile) {
+		t.Fatalf("file modified despite returned error — would have lost user content")
+	}
+}
+
+// TestInstallSnippetRefusesEndBeforeStart — pathological ordering must
+// also surface as an error, not be guessed at.
+func TestInstallSnippetRefusesEndBeforeStart(t *testing.T) {
+	ws := t.TempDir()
+	path := filepath.Join(ws, "AGENTS.md")
+	hostile := []byte("# Project\n" + snippetEndMarker + "\nstuff\n" + snippetStartMarker + "\n")
+	if err := os.WriteFile(path, hostile, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallSnippet(path, SnippetOptions{}); err == nil {
+		t.Fatal("expected error on end-before-start markers")
 	}
 }
 

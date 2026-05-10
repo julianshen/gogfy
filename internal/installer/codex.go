@@ -57,34 +57,70 @@ func (c codexInstaller) Uninstall(workspace string) error {
 	return writeFileAtomic(path, updated)
 }
 
-// guardAgainstAlternateGogfyForms refuses to install when the existing config
-// already references mcp_servers.gogfy through an inline-table or
-// array-of-tables shape that our line-based editor doesn't understand —
-// blindly appending a `[mcp_servers.gogfy]` block in that case would produce
-// duplicate-key TOML that Codex rejects at parse time.
+// guardAgainstAlternateGogfyForms refuses to install when the existing
+// config already references mcp_servers.gogfy through an array-of-tables
+// shape, or via an inline-table assignment whose left-hand side is a real
+// TOML key path for mcp_servers.gogfy. Our line-based editor only
+// understands the standard `[mcp_servers.gogfy]` block; appending one when
+// an alternate form already exists would produce duplicate-key TOML that
+// Codex rejects at parse time.
+//
+// Detection is deliberately narrow: we only flag lines whose KEY position
+// is `mcp_servers.gogfy = ...` or `mcp_servers = { ... gogfy = ... }`
+// (inline). Strings or comments that happen to mention both words ("see
+// mcp_servers and gogfy docs" inside a description value) must NOT trigger
+// a refusal.
 func guardAgainstAlternateGogfyForms(existing []byte, path string) error {
 	for i, raw := range bytes.SplitAfter(existing, []byte("\n")) {
-		line := strings.TrimSpace(string(raw))
-		if line == "" || strings.HasPrefix(line, "#") {
+		line := bytes.TrimSpace(raw)
+		if len(line) == 0 || line[0] == '#' {
 			continue
 		}
-		if strings.HasPrefix(line, "[mcp_servers.gogfy]") {
-			// The standard form — replace in place, fine.
+		// Strip trailing comment so its content can't influence detection.
+		code := stripTrailingComment(line)
+		if hasGogfyHeader(code) {
+			// Standard form: `[mcp_servers.gogfy]` (with or without inline
+			// comment). Replace-in-place handles it.
 			return nil
 		}
-		// Hazard 1: array-of-tables `[[mcp_servers]]` followed by a line
-		// containing `name = "gogfy"` (rare, but legal).
-		if line == "[[mcp_servers.gogfy]]" {
+		if bytes.Equal(code, []byte("[[mcp_servers.gogfy]]")) {
 			return fmt.Errorf("install: %s line %d uses array-of-tables [[mcp_servers.gogfy]] which we don't edit safely; remove it manually then re-run install", path, i+1)
 		}
-		// Hazard 2: an inline-table assignment such as
-		// `mcp_servers = { gogfy = { ... } }` or
-		// `mcp_servers.gogfy = { ... }`.
-		if strings.Contains(line, "mcp_servers") && strings.Contains(line, "gogfy") && strings.Contains(line, "=") && !strings.HasPrefix(line, "[") {
+		if isAlternateGogfyAssignment(code) {
 			return fmt.Errorf("install: %s line %d defines mcp_servers.gogfy via an inline-table form which we don't edit safely; remove it manually then re-run install", path, i+1)
 		}
 	}
 	return nil
+}
+
+// hasGogfyHeader reports whether code is `[mcp_servers.gogfy]` or
+// `[mcp_servers.gogfy] # ...` already stripped to its bracketed form.
+func hasGogfyHeader(code []byte) bool {
+	return bytes.Equal(code, []byte("[mcp_servers.gogfy]"))
+}
+
+// isAlternateGogfyAssignment reports whether code's KEY position defines
+// mcp_servers.gogfy via an alternate (non-table) form. Only the LHS of `=`
+// is inspected, so values that happen to mention "mcp_servers" or "gogfy"
+// are immune.
+func isAlternateGogfyAssignment(code []byte) bool {
+	eq := bytes.IndexByte(code, '=')
+	if eq < 0 {
+		return false
+	}
+	lhs := bytes.TrimSpace(code[:eq])
+	rhs := bytes.TrimSpace(code[eq+1:])
+	// `mcp_servers.gogfy = ...`
+	if bytes.Equal(lhs, []byte("mcp_servers.gogfy")) {
+		return true
+	}
+	// `mcp_servers = { gogfy = ... }` — the inline opener. We only catch
+	// the case where the inline table opens on the same line as the
+	// `mcp_servers` key and the literal `gogfy = ` appears inside it.
+	if bytes.Equal(lhs, []byte("mcp_servers")) && bytes.HasPrefix(rhs, []byte("{")) && bytes.Contains(rhs, []byte("gogfy")) && bytes.Contains(rhs, []byte("=")) {
+		return true
+	}
+	return false
 }
 
 // codexGogfyBlock builds the canonical TOML block for the gogfy server.
