@@ -24,6 +24,7 @@ import (
 	"github.com/julianshen/gogfy/internal/githook"
 	"github.com/julianshen/gogfy/internal/graph"
 	"github.com/julianshen/gogfy/internal/installer"
+	"github.com/julianshen/gogfy/internal/merge"
 	"github.com/julianshen/gogfy/internal/report"
 	"github.com/julianshen/gogfy/internal/resolve"
 	"github.com/julianshen/gogfy/internal/serve"
@@ -91,6 +92,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return hookCommand(rest, stderr)
 	case "serve":
 		return serveCommand(rest, os.Stdin, os.Stdout, stderr)
+	case "merge-graphs":
+		return mergeGraphsCommand(rest, os.Stdout, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -126,6 +129,72 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy uninstall-instructions [--file <path>]")
 	fmt.Fprintln(w, "       gogfy hook install [--repo <dir>] [--gogfy-bin <path>] [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy hook uninstall [--repo <dir>]")
+	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
+}
+
+// mergeGraphsCommand unions two or more graph.json inputs into a single
+// graph and writes it (atomically) to --out, or to stdout if --out is
+// omitted. Useful for building cross-repo graphs and as the foundation
+// for an eventual git merge driver on graph.json.
+func mergeGraphsCommand(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("merge-graphs", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	out := fs.String("out", "", "write merged graph to this path (default: stdout)")
+	// Allow `merge-graphs a.json b.json --out c.json` shape — flag.Parse
+	// stops at the first non-flag token, so without reordering --out after
+	// positionals is misread as another input file.
+	ordered, err := reorderMergeGraphFlags(args)
+	if err != nil {
+		return err
+	}
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		return fmt.Errorf("merge-graphs: expected at least two input files, got %d", fs.NArg())
+	}
+	inputs := make([]export.GraphExport, 0, fs.NArg())
+	for _, path := range fs.Args() {
+		g, err := loadGraph(path)
+		if err != nil {
+			return fmt.Errorf("merge-graphs: %w", err)
+		}
+		inputs = append(inputs, g)
+	}
+	merged := merge.MergeAll(inputs)
+	data, err := export.ExportJSON(merged)
+	if err != nil {
+		return fmt.Errorf("merge-graphs: marshal: %w", err)
+	}
+	if *out == "" {
+		_, err = stdout.Write(append(data, '\n'))
+		return err
+	}
+	return fsutil.WriteFileAtomic(*out, data, 0644)
+}
+
+// reorderMergeGraphFlags moves --out (or --out=<v>) before positional file
+// args so flag.Parse picks it up regardless of where the user typed it.
+func reorderMergeGraphFlags(args []string) ([]string, error) {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--out", a == "-out":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("flag %s requires a value", a)
+			}
+			flags = append(flags, a, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--out="), strings.HasPrefix(a, "-out="):
+			flags = append(flags, a)
+		case strings.HasPrefix(a, "-"):
+			return nil, fmt.Errorf("unknown flag: %s", a)
+		default:
+			positional = append(positional, a)
+		}
+	}
+	return append(flags, positional...), nil
 }
 
 // hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The
