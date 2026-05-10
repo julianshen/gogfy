@@ -2,6 +2,7 @@ package extract
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/xml"
 	"io"
 	"path/filepath"
@@ -118,17 +119,21 @@ const (
 )
 
 // parseOOXMLRels parses an OOXML _rels file into Id→Target. If wantSuffix
-// is non-empty, only relationships whose Type ends with it are returned —
-// keeps image/embed relationships out of hyperlink lookups.
+// is non-empty, only relationships whose Type ends with it are returned.
+// For hyperlink rels we additionally require TargetMode="External": OOXML
+// hyperlinks can target bookmarks or internal parts, and emitting those
+// as cross-document references would pollute the graph the same way the
+// body walker's w:anchor skip prevents.
 func parseOOXMLRels(data []byte, wantSuffix string) map[string]string {
 	out := map[string]string{}
 	if len(data) == 0 {
 		return out
 	}
 	type relationship struct {
-		ID     string `xml:"Id,attr"`
-		Type   string `xml:"Type,attr"`
-		Target string `xml:"Target,attr"`
+		ID         string `xml:"Id,attr"`
+		Type       string `xml:"Type,attr"`
+		Target     string `xml:"Target,attr"`
+		TargetMode string `xml:"TargetMode,attr"`
 	}
 	type relationships struct {
 		Items []relationship `xml:"Relationship"`
@@ -141,33 +146,52 @@ func parseOOXMLRels(data []byte, wantSuffix string) map[string]string {
 		if wantSuffix != "" && !strings.HasSuffix(r.Type, wantSuffix) {
 			continue
 		}
+		if wantSuffix == relTypeHyperlink && r.TargetMode != "External" {
+			continue
+		}
 		out[r.ID] = r.Target
 	}
 	return out
 }
 
 // walkDocxBody streams document.xml, accumulating per-paragraph text
-// (with hyperlink runs interleaved). On paragraph-end it inspects the
-// paragraph's pStyle. Heading1/2/3 → emit a section node; Title → record
-// for module label. Hyperlinks anywhere in the body → emit a reference
-// edge sourced from the current section (or module).
+// (with hyperlink runs interleaved) and per-paragraph hyperlink rIDs.
+// On paragraph-end it inspects the paragraph's pStyle: Heading1/2/3 →
+// emit a section node and push it as the current scope; Title → record
+// for module label. Hyperlinks are then flushed *after* the section
+// has been pushed, so a hyperlink that lives inside a Heading1 paragraph
+// is correctly attributed to that heading's section node — not to the
+// previous section or the module, which is what flushing on
+// </w:hyperlink> (mid-paragraph) used to produce.
 //
 // Returns (titleParagraphText, firstHeading1Text) for module-label
 // resolution after the walk completes.
 func walkDocxBody(data []byte, rels map[string]string, path string, state *extractState) (string, string, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	var (
-		titleText  string
-		firstH1    string
-		paraText   strings.Builder
-		paraStyle  string
-		moduleID   = state.fnStack[0]
-		inHyperlnk bool
-		// hyperlinkRId resolves the *current* hyperlink's r:id; we emit
-		// the edge on hyperlink end so anchor-only links (no r:id) are
-		// dropped naturally.
-		hyperlinkRID string
+		titleText        string
+		firstH1          string
+		paraText         strings.Builder
+		paraStyle        string
+		moduleID         = state.fnStack[0]
+		paraHyperlinkIDs []string
 	)
+	emitLinks := func() {
+		source := state.fnStack[len(state.fnStack)-1]
+		for _, rID := range paraHyperlinkIDs {
+			url, ok := rels[rID]
+			if !ok || url == "" {
+				continue
+			}
+			state.edges = append(state.edges, schema.Edge{
+				Source:     source,
+				Target:     schema.LangID("docx", "link", url),
+				Relation:   "references",
+				Confidence: schema.Extracted,
+			})
+		}
+		paraHyperlinkIDs = paraHyperlinkIDs[:0]
+	}
 	for {
 		tok, err := dec.Token()
 		if err == io.EOF {
@@ -182,10 +206,10 @@ func walkDocxBody(data []byte, rels map[string]string, path string, state *extra
 			case "p":
 				paraText.Reset()
 				paraStyle = ""
+				paraHyperlinkIDs = paraHyperlinkIDs[:0]
 			case "pStyle":
 				paraStyle = attrValue(t.Attr, "val")
 			case "t":
-				// w:t — text run content. Read the next CharData token.
 				if cd, ok := nextCharData(dec); ok {
 					paraText.WriteString(cd)
 				}
@@ -194,48 +218,39 @@ func walkDocxBody(data []byte, rels map[string]string, path string, state *extra
 			case "br":
 				paraText.WriteByte('\n')
 			case "hyperlink":
-				inHyperlnk = true
-				hyperlinkRID = attrValue(t.Attr, "id") // r:id collapses to "id" under Go's xml decoder
+				// r:id collapses to "id" under Go's xml decoder; we collect
+				// every rID seen in the paragraph and resolve+emit at </w:p>
+				// once we know whether the paragraph created a new section.
+				if rID := attrValue(t.Attr, "id"); rID != "" {
+					paraHyperlinkIDs = append(paraHyperlinkIDs, rID)
+				}
 			}
 		case xml.EndElement:
-			switch t.Name.Local {
-			case "hyperlink":
-				if inHyperlnk && hyperlinkRID != "" {
-					if url, ok := rels[hyperlinkRID]; ok && url != "" {
-						state.edges = append(state.edges, schema.Edge{
-							Source:     state.fnStack[len(state.fnStack)-1],
-							Target:     schema.LangID("docx", "link", url),
-							Relation:   "references",
-							Confidence: schema.Extracted,
-						})
-					}
-				}
-				inHyperlnk = false
-				hyperlinkRID = ""
-			case "p":
-				text := strings.TrimSpace(paraText.String())
-				if text == "" {
-					break
-				}
-				switch docxHeadingLevel(paraStyle) {
-				case 0:
-					if isDocxTitleStyle(paraStyle) && titleText == "" {
-						titleText = text
-					}
-				case 1, 2, 3:
-					level := docxHeadingLevel(paraStyle)
-					if level == 1 && firstH1 == "" {
-						firstH1 = text
-					}
-					id := schema.LangID("docx", "section", path+":"+slugify(text))
-					state.nodes = append(state.nodes, schema.Node{
-						ID:         id,
-						Label:      text,
-						SourceFile: path,
-					})
-					state.fnStack = []string{moduleID, id}
-				}
+			if t.Name.Local != "p" {
+				continue
 			}
+			text := strings.TrimSpace(paraText.String())
+			level := docxHeadingLevel(paraStyle)
+			switch {
+			case text == "":
+				// no-op; still flush any hyperlinks below
+			case level == 0 && isDocxTitleStyle(paraStyle):
+				if titleText == "" {
+					titleText = text
+				}
+			case level >= 1 && level <= 3:
+				if level == 1 && firstH1 == "" {
+					firstH1 = text
+				}
+				id := schema.LangID("docx", "section", path+":"+slugify(text))
+				state.nodes = append(state.nodes, schema.Node{
+					ID:         id,
+					Label:      text,
+					SourceFile: path,
+				})
+				state.fnStack = []string{moduleID, id}
+			}
+			emitLinks()
 		}
 	}
 	return titleText, firstH1, nil
