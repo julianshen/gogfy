@@ -2,7 +2,7 @@
 
 gogfy uses tree-sitter for AST extraction. A language is supported when (a) someone publishes a maintained tree-sitter grammar, (b) that grammar's repo carries a `bindings/go/` directory with cgo wrappers, and (c) the published Go module compiles cleanly. Most graphify-listed languages clear all three; some don't.
 
-## Supported (27 code + 2 document formats)
+## Supported (27 code + 4 document formats)
 
 | Language | Extensions | Grammar source |
 |----------|------------|----------------|
@@ -39,6 +39,8 @@ gogfy uses tree-sitter for AST extraction. A language is supported when (a) some
 |--------|------------|----------|
 | Markdown | `.md` `.mdx` `.markdown` | Pure-Go via [goldmark](https://github.com/yuin/goldmark). Emits a module node per file (label = first H1 or basename), one section node per H1/H2/H3, and `references`-relation edges for every link. No Python, no LLM, no cgo. |
 | HTML | `.html` `.htm` | Pure-Go via `golang.org/x/net/html`. Same module + section + reference schema as Markdown so cross-format graphs compose. Module label prefers `<title>` over `<h1>` over basename. Skips `href="#fragment"` self-links. |
+| reStructuredText | `.rst` | Heuristic. Section detection via canonical RST adornment-line pattern (line N+1 same length as line N, composed of one of `= - ~ ^ ' " * + # : .`). Heading levels inferred by first-appearance order of the adornment character. Inline targets `\`text <url>\`_` plus bare URLs in prose extracted as references. No docutils dep — Python-free. |
+| Plain text | `.txt` | Module node only; references extracted via URL regex. Trailing sentence punctuation (`.`, `,`, `)`, `;`, `:`, `!`, `?`) stripped from URLs. Useful for getting README-adjacent files (CHANGELOG, NOTES, LICENSE) into the graph. |
 
 ## Not supported (graphify lists; we don't)
 
@@ -71,10 +73,9 @@ Each entry below has been **probed** with `go get`. Status reflects what the ups
 3. **Objective-C** (Hatch 2 — fork + add binding stub)
 4. **Groovy** (Hatch 2 — fork + add binding stub)
 
-**Document formats** — building Go-native, no Python (no markitdown dep). Markdown and HTML shipped; following the same shape:
+**Document formats** — building Go-native, no Python (no markitdown dep). Markdown / HTML / RST / plain-text shipped; following the same shape:
 
-1. **Plain text** (`.txt` / `.rst`) — naive: file as module, paragraphs not surfaced individually but URLs in the body extracted as link edges via regex.
-3. **`.docx`** — OOXML is just zipped XML; pure-Go via `archive/zip` + `encoding/xml` or `github.com/nguyenthenguyen/docx`.
+1. **`.docx`** — OOXML is just zipped XML; pure-Go via `archive/zip` + `encoding/xml` or `github.com/nguyenthenguyen/docx`.
 4. **`.xlsx`** — `github.com/xuri/excelize/v2`. Each sheet → module; rows that look like cross-references → edges.
 5. **PDF** — `github.com/ledongthuc/pdf` for text-only extraction. Layout-complex PDFs may need `pdfcpu`.
 6. **Images** — Tesseract OCR via cgo. Opt-in build tag; not core.

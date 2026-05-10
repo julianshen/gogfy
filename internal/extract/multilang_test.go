@@ -78,6 +78,8 @@ func TestExtractorsMissingFile(t *testing.T) {
 		SwiftExtractor{},
 		MarkdownExtractor{},
 		HTMLExtractor{},
+		TextExtractor{},
+		RSTExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -1125,6 +1127,147 @@ func TestHTMLExtractorFallsBackThroughTitleH1Basename(t *testing.T) {
 	}
 	if got3 != "H Only" {
 		t.Fatalf("expected <h1> fallback, got %q", got3)
+	}
+}
+
+func TestTextExtractorURLs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "NOTES.txt")
+	source := `Project notes.
+
+See https://example.com/api for details, or check the issue tracker
+at https://github.com/foo/bar/issues. Also (https://example.com/sla);
+trailing punctuation should be stripped.
+
+Not a URL: just-text.no-scheme/here
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := TextExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "references" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{
+		"text:link:https://example.com/api",
+		"text:link:https://github.com/foo/bar/issues",
+		"text:link:https://example.com/sla",
+	} {
+		if !targets[want] {
+			t.Fatalf("missing reference target %q in %v", want, targets)
+		}
+	}
+	// Trailing `;` and `)` must be stripped.
+	for bad := range targets {
+		if strings.HasSuffix(bad, ";") || strings.HasSuffix(bad, ")") {
+			t.Fatalf("trailing punctuation not stripped: %q", bad)
+		}
+	}
+}
+
+func TestRSTExtractorHeadingsAndLinks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.rst")
+	source := `My Project
+==========
+
+Intro.
+
+Installation
+------------
+
+Run ` + "``pip install foo``" + `, then visit ` + "`the docs <https://example.com/docs>`_" + ` for next steps.
+
+Usage
+-----
+
+Bare URL: https://example.com/api.
+
+Subsection
+~~~~~~~~~~
+
+Level 3 — should still be a section node.
+
+Deep
+^^^^
+
+Level 4 — should NOT.
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RSTExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, n := range res.Nodes {
+		labels[n.Label] = true
+	}
+	if !labels["My Project"] {
+		t.Fatalf("module label should be the H1 title, got labels=%v", labels)
+	}
+	for _, want := range []string{"Installation", "Usage", "Subsection"} {
+		if !labels[want] {
+			t.Fatalf("missing section %q in %v", want, labels)
+		}
+	}
+	if labels["Deep"] {
+		t.Fatalf("level-4 'Deep' should not produce a section node: %v", labels)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "references" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{
+		"rst:link:https://example.com/docs",
+		"rst:link:https://example.com/api",
+	} {
+		if !targets[want] {
+			t.Fatalf("missing reference target %q in %v", want, targets)
+		}
+	}
+}
+
+func TestRSTExtractorAdornmentLevelInference(t *testing.T) {
+	// First adornment char defines level 1, second defines level 2, etc.
+	// This document uses `~` first, then `=`, then `-`. The level
+	// assignment should follow first-appearance order, not the visual
+	// height of the adornment.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "weird.rst")
+	source := `First
+~~~~~
+
+Second
+======
+
+Third
+-----
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RSTExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, n := range res.Nodes {
+		labels[n.Label] = true
+	}
+	for _, want := range []string{"First", "Second", "Third"} {
+		if !labels[want] {
+			t.Fatalf("missing %q (first-appearance level inference broken): %v", want, labels)
+		}
 	}
 }
 

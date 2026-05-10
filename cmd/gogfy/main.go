@@ -692,6 +692,8 @@ var supportedExtensions = map[string]extract.Extractor{
 	".markdown": extract.MarkdownExtractor{},
 	".html":   extract.HTMLExtractor{},
 	".htm":    extract.HTMLExtractor{},
+	".txt":    extract.TextExtractor{},
+	".rst":    extract.RSTExtractor{},
 }
 
 func supportedExtensionsList() []string {
