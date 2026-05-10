@@ -2,7 +2,7 @@
 
 gogfy uses tree-sitter for AST extraction. A language is supported when (a) someone publishes a maintained tree-sitter grammar, (b) that grammar's repo carries a `bindings/go/` directory with cgo wrappers, and (c) the published Go module compiles cleanly. Most graphify-listed languages clear all three; some don't.
 
-## Supported (24)
+## Supported (25)
 
 | Language | Extensions | Grammar source |
 |----------|------------|----------------|
@@ -29,6 +29,7 @@ gogfy uses tree-sitter for AST extraction. A language is supported when (a) some
 | OCaml | `.ml` `.mli` | `github.com/tree-sitter/tree-sitter-ocaml` (uses `LanguageOCaml()` for `.ml`, `LanguageOCamlInterface()` for `.mli`) |
 | Svelte | `.svelte` | `github.com/tree-sitter-grammars/tree-sitter-svelte` (script body scanned with regex; tree-sitter-svelte treats it as opaque text) |
 | Fortran | `.f` `.f90` `.f95` `.f03` `.f08` | `github.com/stadelmanma/tree-sitter-fortran` |
+| Elixir | `.ex` `.exs` | `github.com/elixir-lang/tree-sitter-elixir` (via go.mod `replace` from the declared `github.com/tree-sitter/tree-sitter-elixir` path, which is unmaintained) |
 
 ## Not supported (graphify lists; we don't)
 
@@ -40,8 +41,7 @@ Each entry below has been **probed** with `go get`. Status reflects what the ups
 | Dart `.dart` | `UserNobody14/tree-sitter-dart` has `parser.c` and module path resolves, but **no `bindings/go/` directory**. | Fork + add a 12-line `bindings/go/binding.go` cgo stub. ~1 hour. |
 | Objective-C `.m` `.mm` | `tree-sitter-grammars/tree-sitter-objc` and `jiyee/tree-sitter-objc` ship `parser.c` but **no `bindings/go/`**. | Same as Dart — fork + binding stub. |
 | Groovy `.groovy` `.gradle` | `murtaza64/tree-sitter-groovy` ships `parser.c` but **no `bindings/go/`**. | Same as Dart. |
-| Elixir `.ex` `.exs` | `elixir-lang/tree-sitter-elixir` declares its module path as `github.com/tree-sitter/tree-sitter-elixir` (a repo that doesn't exist). | Either submit a PR upstream to fix the module path, or fork. |
-| Erlang `.erl` `.hrl` | `WhatsApp/tree-sitter-erlang` has the same module-path issue as Elixir. `AbstractMachinesLab/tree-sitter-erlang` is reachable but missing `bindings/go/`. | Fork + binding stub. |
+| Erlang `.erl` `.hrl` | `WhatsApp/tree-sitter-erlang` has the module-path issue + a missing-scanner `binding.go` (same shape as R). `AbstractMachinesLab/tree-sitter-erlang` lacks `bindings/go/`. | Fork + scanner include + binding stub. |
 | R `.r` `.R` | `r-lib/tree-sitter-r` has `bindings/go/`, but its `binding.go` doesn't `#include` the external scanner — linker fails on `tree_sitter_r_external_scanner_*` symbols. | Fork + add `#include "../../src/scanner.c"` to the cgo block. ~30 minutes. |
 | SQL `.sql` | `DerekStride/tree-sitter-sql` ships `bindings/go/binding.go` but the package doesn't include the generated `parser.c` at the path the binding expects. | Fork + commit `parser.c`. |
 | PowerShell `.ps1` | `PowerShell/tree-sitter-PowerShell` is unmaintained; `airbus-cert/tree-sitter-powershell` lacks `bindings/go/`. | Fork (whichever is more current) + add binding. |
@@ -53,7 +53,7 @@ Each entry below has been **probed** with `go get`. Status reflects what the ups
 
 1. **`go.mod replace` to a working community fork** — zero maintenance when it exists. Used today for Fortran (a benign `replace` works around `stadelmanma/tree-sitter-fortran`'s test-file referencing a non-existent canonical path).
 2. **Maintain forks under `julianshen/tree-sitter-<lang>`** — own the bindings/go and committed parser.c. ~1-2 hours per language.
-3. **Vendor C grammar sources** — drop `parser.c` + `scanner.c` directly into `internal/extract/grammars/<lang>/`, hand-write a 30-line cgo binding. Worst case for languages where forks die.
+3. **Vendor C grammar sources** — drop `parser.c` + `scanner.c` directly into `internal/extract/grammars/<lang>/`, hand-write a 30-line cgo binding. Worst case for languages where forks die. **Cost: tree-sitter `parser.c` files are 1-4 MB of generated C per grammar. Vendoring 5+ languages this way meaningfully inflates the repo.** Reserve for languages where (a) the upstream is dead and (b) the language is high-value enough to justify the bloat.
 
 ## Tier 1 wishlist (next up)
 
@@ -61,8 +61,10 @@ In approximate order of demand vs. effort:
 
 1. **Swift** (Hatch 2 — fork-and-commit-parser)
 2. **Dart** (Hatch 2 — fork-and-add-binding)
-3. **Elixir** (Hatch 1 — go.mod replace once the right path is identified)
-4. **R** (Hatch 2 — fork-and-include-scanner; trivial change)
+3. **R** (Hatch 2 — fork-and-include-scanner; trivial change)
+4. **Erlang** (Hatch 2 — fork + scanner include + binding stub)
+
+Each Tier-1 language requires creating a fork repo under `julianshen/tree-sitter-<lang>` (with `parser.c` committed, scanner.c `#include`d in `bindings/go/binding.go`). Each fork takes ~1-2 hours to set up and minimal sync afterwards.
 
 ## Adding a language
 
