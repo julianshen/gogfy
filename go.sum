@@ -7,8 +7,12 @@ github.com/mattn/go-pointer v0.0.1 h1:n+XhsuGeVO6MEAp7xyEukFINEa+Quek5psIR/ylA6o
 github.com/mattn/go-pointer v0.0.1/go.mod h1:2zXcozF6qYGgmsG+SeTZz3oAbFLdD3OWqnUbNvJZAlc=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/r-lib/tree-sitter-r v1.2.0 h1:hnmiH1s/QP9h3a1B1bO+T75AP/503JmCfVDYFIaZoQU=
+github.com/r-lib/tree-sitter-r v1.2.0/go.mod h1:EiQTehwt8ojqpEcjZHKJmU26zijUuHkmwFi6Rot/GGQ=
 github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 h1:OkMGxebDjyw0ULyrTYWeN0UNCCkmCWfjPnIA2W6oviI=
 github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06/go.mod h1:+ePHsJ1keEjQtpvf9HHw0f4ZeJ0TLRsxhunSI2hYJSs=
+github.com/stadelmanma/tree-sitter-fortran v0.6.0 h1:TX6cFIyThsnf0CDT7dPMvBAhvYN4UDoYFN+YauG2IAw=
+github.com/stadelmanma/tree-sitter-fortran v0.6.0/go.mod h1:whOIPOLxcDEBoBEcsjHH5dyonI7nH/DSKZ79hsNk/I0=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.6.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=

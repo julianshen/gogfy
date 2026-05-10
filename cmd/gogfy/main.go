@@ -619,6 +619,11 @@ var supportedExtensions = map[string]extract.Extractor{
 	".ml":     extract.OCamlExtractor{},
 	".mli":    extract.OCamlExtractor{},
 	".svelte": extract.SvelteExtractor{},
+	".f":      extract.FortranExtractor{},
+	".f90":    extract.FortranExtractor{},
+	".f95":    extract.FortranExtractor{},
+	".f03":    extract.FortranExtractor{},
+	".f08":    extract.FortranExtractor{},
 }
 
 func supportedExtensionsList() []string {
