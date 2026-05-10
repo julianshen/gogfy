@@ -7,6 +7,8 @@ github.com/elixir-lang/tree-sitter-elixir v0.3.4 h1:M0Wc3XXEJyGpVELOzxqhV069bBsR
 github.com/elixir-lang/tree-sitter-elixir v0.3.4/go.mod h1:wNBVf64kzvhSbZ8ojVtBF1jRiqGY0lsuK5Kx/60s6Z0=
 github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=
 github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
+github.com/julianshen/tree-sitter-erlang v0.0.0-20260510145358-80fab4f46bdf h1:J77Lg4HuPg25YXuCT1cF3ZkMvA9THKFWStNKWKkRq4s=
+github.com/julianshen/tree-sitter-erlang v0.0.0-20260510145358-80fab4f46bdf/go.mod h1:C5UZQh2yqQpuPSFJykxuHQoszJqAUEc9wYHLSOIolSo=
 github.com/julianshen/tree-sitter-r v1.2.1-0.20260510134556-9a03ef5f3473 h1:Yw5l9thFCEuwJILcxscwPtriN2nyKnGtefcPi74L0iE=
 github.com/julianshen/tree-sitter-r v1.2.1-0.20260510134556-9a03ef5f3473/go.mod h1:J6Y5T7NQp9/Ibf/SWf6ige8Ypo/cjrjR6jBeoCly0YQ=
 github.com/julianshen/tree-sitter-swift v0.0.0-20260510074952-3d85c1637e38 h1:eG7bfWXOKpFiQIZbOjEroVsfAZRGd7ivO9Oav8TDvks=

@@ -77,6 +77,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		DartExtractor{},
 		SwiftExtractor{},
 		RExtractor{},
+		ErlangExtractor{},
 		MarkdownExtractor{},
 		HTMLExtractor{},
 		TextExtractor{},
@@ -1566,6 +1567,190 @@ func TestRExtractorImportNotEmittedAsCall(t *testing.T) {
 		if e.Relation == "calls" && e.Target == "r:call:library" {
 			t.Fatalf("library() should not produce a calls edge: %+v", e)
 		}
+	}
+}
+
+func TestErlangExtractorBasic(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "erlang basic",
+		filename: "myapp.erl",
+		source: `-module(myapp).
+-export([add/2, greet/1]).
+-import(lists, [map/2]).
+
+add(X, Y) -> X + Y.
+
+greet(Name) ->
+    io:format("Hello ~p~n", [Name]),
+    add(1, 2).
+`,
+		extractor: ErlangExtractor{}.Extract,
+		wantNodes: []string{"add", "greet"},
+		wantEdges: []string{
+			"erlang:import:lists",
+			"erlang:call:io:format",
+			"erlang:call:add",
+		},
+	})
+}
+
+func TestErlangExtractorRemoteCallNotDoubleEmitted(t *testing.T) {
+	// `io:format(...)` is parsed as `remote > remote_module + call`.
+	// We must emit ONE edge to "io:format" — not also a bare "format"
+	// edge from the inner call node.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.erl")
+	source := `-module(x).
+-export([go/0]).
+go() -> io:format("hi~n", []).
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ErlangExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Target == "erlang:call:format" {
+			t.Fatalf("bare 'format' edge should not be emitted alongside 'io:format': %+v", e)
+		}
+	}
+	var hasQualified bool
+	for _, e := range res.Edges {
+		if e.Target == "erlang:call:io:format" {
+			hasQualified = true
+		}
+	}
+	if !hasQualified {
+		t.Fatalf("qualified 'io:format' edge missing, got %+v", res.Edges)
+	}
+}
+
+func TestErlangExtractorExportListIgnored(t *testing.T) {
+	// `-export([f/2, g/0]).` lists FA-pairs (atoms with arity). These
+	// must NOT be treated as call edges or imports — they're metadata
+	// declaring which functions are exported, distinct from the
+	// fun_decl that defines them.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.erl")
+	source := `-module(x).
+-export([alpha/0, beta/1]).
+alpha() -> ok.
+beta(X) -> X.
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ErlangExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" {
+			t.Fatalf("export-attribute atoms must not produce call edges: %+v", e)
+		}
+		if e.Relation == "imports" {
+			t.Fatalf("export-attribute atoms must not produce import edges: %+v", e)
+		}
+	}
+}
+
+func TestErlangExtractorNestedQualifiedCallInArgs(t *testing.T) {
+	// A qualified call's argument list can contain other (qualified)
+	// calls. The remote case relies on walkChildren still recursing into
+	// expr_args; without that, nested calls would be silently dropped.
+	runExtractorCase(t, extractorCase{
+		name:     "erlang nested remote call",
+		filename: "n.erl",
+		source: `-module(n).
+go(L) ->
+    io:format("~p~n", [lists:sort(L)]).
+`,
+		extractor: ErlangExtractor{}.Extract,
+		wantEdges: []string{
+			"erlang:call:io:format",
+			"erlang:call:lists:sort",
+		},
+	})
+}
+
+func TestErlangExtractorImportSelectors(t *testing.T) {
+	// `-import(lists, [map/2, foldl/3]).` should produce edges to the
+	// module AND to each Mod:Fn selector — same shape as Julia's
+	// selected-import handling. Without selectors, downstream graph
+	// queries can't see which functions of `lists` are used.
+	runExtractorCase(t, extractorCase{
+		name:      "erlang import selectors",
+		filename:  "imp.erl",
+		source:    `-module(imp).` + "\n" + `-import(lists, [map/2, foldl/3]).` + "\n",
+		extractor: ErlangExtractor{}.Extract,
+		wantEdges: []string{
+			"erlang:import:lists",
+			"erlang:import:lists:map",
+			"erlang:import:lists:foldl",
+		},
+	})
+}
+
+func TestErlangExtractorExternalFunReference(t *testing.T) {
+	// `fun mymod:func/1` is a function reference (passed to map/spawn/etc).
+	// Common Erlang idiom; must produce a call-edge target to "mymod:func"
+	// or graph queries for "what calls mymod:func" miss every higher-order
+	// usage.
+	runExtractorCase(t, extractorCase{
+		name:     "erlang external_fun",
+		filename: "fr.erl",
+		source: `-module(fr).
+go() ->
+    F = fun mymod:func/1,
+    F.
+`,
+		extractor: ErlangExtractor{}.Extract,
+		wantEdges: []string{
+			"erlang:call:mymod:func",
+		},
+	})
+}
+
+func TestErlangExtractorMultiClauseAttributesCallsToOneFunction(t *testing.T) {
+	// add(0,Y) -> identity(Y); add(X,Y) -> compute(X,Y).
+	// tree-sitter-erlang parses each clause as its own fun_decl; both
+	// clauses' bodies must produce call edges, both attributed to the
+	// same logical "add" function. Pin the contract.
+	runExtractorCase(t, extractorCase{
+		name:     "erlang multi-clause",
+		filename: "mc.erl",
+		source: `-module(mc).
+add(0, Y) -> identity(Y);
+add(X, Y) -> compute(X, Y).
+`,
+		extractor: ErlangExtractor{}.Extract,
+		wantNodes: []string{"add"},
+		wantEdges: []string{
+			"erlang:call:identity",
+			"erlang:call:compute",
+		},
+	})
+}
+
+func TestErlangExtractorModuleLabel(t *testing.T) {
+	// -module(myapp) should rewrite the file's module-node label to
+	// "myapp" (mirrors how Go and Python use package/module names).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "anything.erl")
+	source := `-module(myapp).
+go() -> ok.
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ErlangExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Nodes[0].Label != "myapp" {
+		t.Fatalf("module label should be 'myapp', got %q", res.Nodes[0].Label)
 	}
 }
 

@@ -689,6 +689,8 @@ var supportedExtensions = map[string]extract.Extractor{
 	".swift":  extract.SwiftExtractor{},
 	".r":      extract.RExtractor{},
 	".R":      extract.RExtractor{},
+	".erl":    extract.ErlangExtractor{},
+	".hrl":    extract.ErlangExtractor{},
 	".md":     extract.MarkdownExtractor{},
 	".mdx":    extract.MarkdownExtractor{},
 	".markdown": extract.MarkdownExtractor{},

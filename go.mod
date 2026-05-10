@@ -33,6 +33,7 @@ require (
 
 require (
 	github.com/UserNobody14/tree-sitter-dart v0.0.0-20260508020638-507c5546dc73 // indirect
+	github.com/julianshen/tree-sitter-erlang v0.0.0-20260510145358-80fab4f46bdf // indirect
 	github.com/julianshen/tree-sitter-r v1.2.1-0.20260510134556-9a03ef5f3473 // indirect
 	github.com/julianshen/tree-sitter-swift v0.0.0-20260510074952-3d85c1637e38 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
