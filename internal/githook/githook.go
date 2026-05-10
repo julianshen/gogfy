@@ -46,12 +46,46 @@ func (o Options) outDir() string {
 	return o.OutDir
 }
 
-// HookPath returns the post-commit hook path for repoRoot. Resolves the
-// hooks directory through `.git` even when it's a file (submodule or
-// worktree shape, where `.git` contains `gitdir: <real-path>`). Pure-ish:
-// reads `.git` only when it's a file.
+// managedHooks is the set of hook names gogfy installs into. Adding a
+// new entry here + a renderHookBlock case wires it through Install,
+// Uninstall, and Status without touching call sites.
+var managedHooks = []string{"post-commit", "post-checkout"}
+
+// HookPath returns the post-commit hook path for repoRoot. Kept as the
+// canonical "main" hook for status messages and the combo installer.
+// Use HookPathFor to address other hooks individually.
 func HookPath(repoRoot string) string {
-	return filepath.Join(hooksDirFor(repoRoot), "post-commit")
+	return HookPathFor(repoRoot, "post-commit")
+}
+
+// HookPathFor returns the absolute path of the named hook for repoRoot,
+// honoring core.hooksPath, worktree commondir, and submodule indirection.
+// Pure-ish: reads `.git` only when it's a file.
+func HookPathFor(repoRoot, hookName string) string {
+	return filepath.Join(hooksDirFor(repoRoot), hookName)
+}
+
+// HookStatus describes whether a single managed hook is currently
+// installed (i.e., contains the gogfy fenced block).
+type HookStatus struct {
+	Name      string
+	Path      string
+	Installed bool
+}
+
+// Status reports the install state of every managed hook in repoRoot.
+// Useful for `gogfy hook status` so users can verify what's wired.
+func Status(repoRoot string) []HookStatus {
+	var out []HookStatus
+	for _, name := range managedHooks {
+		path := HookPathFor(repoRoot, name)
+		st := HookStatus{Name: name, Path: path}
+		if data, err := os.ReadFile(path); err == nil {
+			st.Installed = bytes.Contains(data, []byte(hookStartMarker))
+		}
+		out = append(out, st)
+	}
+	return out
 }
 
 // hooksDirFor returns the directory containing git hooks for repoRoot.
@@ -196,12 +230,24 @@ func Install(repoRoot string, opts Options) error {
 	if info, err := os.Stat(hooksDir); err != nil || !info.IsDir() {
 		return fmt.Errorf("install hook: hooks directory %s missing — submodule/worktree may not be initialized", hooksDir)
 	}
-	path := filepath.Join(hooksDir, "post-commit")
+	for _, name := range managedHooks {
+		if err := installOne(filepath.Join(hooksDir, name), name, opts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// installOne writes (or refreshes) the gogfy block in a single hook file.
+// Each hook gets a script tailored to its semantics (post-checkout
+// guards on the third arg so single-file checkouts don't trigger
+// rebuilds; post-commit always runs).
+func installOne(path, hookName string, opts Options) error {
 	existing, err := fsutil.ReadFileOrEmpty(path)
 	if err != nil {
 		return err
 	}
-	rendered := renderHookBlock(opts)
+	rendered := renderHookBlockFor(hookName, opts)
 	updated, err := mergeHookContent(existing, rendered)
 	if err != nil {
 		return err
@@ -217,12 +263,19 @@ func Install(repoRoot string, opts Options) error {
 	return ensureExecutable(path)
 }
 
-// Uninstall strips the gogfy block from the post-commit hook. If the
-// resulting content is empty, whitespace-only, or just the shebang, the
-// hook file is removed entirely. No-op when the file doesn't exist or
-// has no gogfy block.
+// Uninstall strips the gogfy block from every managed hook. Files are
+// deleted entirely when the strip leaves them empty/shebang-only.
+// No-op for hooks that don't exist or don't carry a gogfy block.
 func Uninstall(repoRoot string) error {
-	path := HookPath(repoRoot)
+	for _, name := range managedHooks {
+		if err := uninstallOne(HookPathFor(repoRoot, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func uninstallOne(path string) error {
 	existing, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -257,9 +310,26 @@ func Uninstall(repoRoot string) error {
 // would hide breakage indefinitely). `|| true` keeps the hook from
 // failing the commit even when gogfy errors.
 func renderHookBlock(opts Options) []byte {
+	return renderHookBlockFor("post-commit", opts)
+}
+
+// renderHookBlockFor renders the gogfy block for a specific git hook.
+// Hook-specific guards keep us from rebuilding on irrelevant events:
+//
+//   - post-commit: always rebuild.
+//   - post-checkout: rebuild only when git ran a branch checkout (third
+//     positional arg is "1"). Single-file checkouts (`git checkout --
+//     foo.go`) pass "0" and would otherwise trigger needless rebuilds.
+func renderHookBlockFor(hookName string, opts Options) []byte {
 	var b strings.Builder
 	b.WriteString(hookStartMarker)
 	b.WriteString("\n")
+	if hookName == "post-checkout" {
+		// Skip on single-file checkout (third arg "0") and on any other
+		// shape we don't recognize (defensive — only branch-flag "1"
+		// should trigger a rebuild).
+		b.WriteString(`if [ "${3-0}" != "1" ]; then exit 0; fi` + "\n")
+	}
 	b.WriteString(`GOGFY_LOG="$(git rev-parse --git-dir 2>/dev/null)/gogfy-rebuild.log"` + "\n")
 	// Shell-quote bin and outDir: os.Executable() can return paths with
 	// spaces (e.g. /Users/My Name/.../gogfy) and the user's --out value
