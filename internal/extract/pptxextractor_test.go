@@ -274,3 +274,139 @@ func TestPPTXExtractorMissingPresentationReturnsBareModule(t *testing.T) {
 		t.Fatalf("expected single basename-labeled module node, got %+v", res.Nodes)
 	}
 }
+
+func TestPPTXExtractorParsesRIdWhenAttributeOrderReversed(t *testing.T) {
+	// <p:sldId> carries both `id` (numeric internal id) and `r:id`
+	// (rel reference). With xml:"id,attr" alone, Go's decoder picks
+	// the first attribute by source order — when r:id is emitted
+	// before id, the wrong value is captured. Some producers do this.
+	dir := t.TempDir()
+	parts := map[string]string{
+		"ppt/presentation.xml": `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:sldIdLst><p:sldId r:id="rId1" id="256"/></p:sldIdLst>
+</p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>
+</Relationships>`,
+		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:txBody><a:p><a:r><a:t>Real Title</a:t></a:r></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`,
+	}
+	path := writeZipFixture(t, dir, "reversed.pptx", parts)
+	res, err := PPTXExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, n := range res.Nodes {
+		if n.Label == "Real Title" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("title resolution failed when r:id appears before id (rel parse picked wrong attr); got %+v", res.Nodes)
+	}
+}
+
+func TestPPTXExtractorDuplicateSlideTitlesProduceDistinctNodes(t *testing.T) {
+	// Real decks commonly have repeated titles ("Agenda", "Summary",
+	// "Appendix"). Without slide-ordinal in the section ID, all such
+	// slides would collapse onto one node and later slides' hyperlinks
+	// would be misattributed to the first.
+	dir := t.TempDir()
+	parts := map[string]string{
+		"ppt/presentation.xml": `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:sldIdLst>
+    <p:sldId id="256" r:id="rId1"/>
+    <p:sldId id="257" r:id="rId2"/>
+  </p:sldIdLst>
+</p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/>
+</Relationships>`,
+		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:txBody><a:p><a:r><a:t>Appendix</a:t></a:r></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`,
+		"ppt/slides/slide2.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:txBody><a:p><a:r><a:t>Appendix</a:t></a:r></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`,
+	}
+	path := writeZipFixture(t, dir, "dup.pptx", parts)
+	res, err := PPTXExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Count section nodes labeled "Appendix"; both slides must produce
+	// distinct nodes (different IDs) even though labels match.
+	ids := map[string]bool{}
+	for _, n := range res.Nodes {
+		if n.Label == "Appendix" {
+			ids[n.ID] = true
+		}
+	}
+	if len(ids) != 2 {
+		t.Fatalf("two 'Appendix' slides should produce two distinct section IDs, got %d (%+v)", len(ids), ids)
+	}
+}
+
+func TestPPTXExtractorAcceptsAbsoluteSlideTargets(t *testing.T) {
+	// presentation.xml.rels Target attributes can be either part-
+	// relative ("slides/slide1.xml") or package-absolute
+	// ("/ppt/slides/slide1.xml" — Open XML SDK style). Treating
+	// absolute as relative previously produced "ppt/ppt/slides/..."
+	// and missed every slide.
+	dir := t.TempDir()
+	parts := map[string]string{
+		"ppt/presentation.xml": `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>
+</p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="/ppt/slides/slide1.xml"/>
+</Relationships>`,
+		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree>
+    <p:sp>
+      <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:txBody><a:p><a:r><a:t>SDK Title</a:t></a:r></a:p></p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+</p:sld>`,
+	}
+	path := writeZipFixture(t, dir, "absolute.pptx", parts)
+	res, err := PPTXExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, n := range res.Nodes {
+		if n.Label == "SDK Title" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("absolute /ppt/... target should resolve; got %+v", res.Nodes)
+	}
+}
