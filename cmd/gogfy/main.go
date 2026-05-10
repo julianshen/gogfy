@@ -249,6 +249,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy hook install [--repo <dir>] [--gogfy-bin <path>] [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy hook uninstall [--repo <dir>]")
 	fmt.Fprintln(w, "       gogfy hook status [--repo <dir>]")
+	fmt.Fprintln(w, "       gogfy hook install-merge-driver [--repo <dir>] [--gogfy-bin <path>]")
+	fmt.Fprintln(w, "       gogfy hook uninstall-merge-driver [--repo <dir>]")
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini> install   # combo: mcp + snippet + hook in one shot")
@@ -373,11 +375,16 @@ func hookCommand(args []string, stderr io.Writer) error {
 		return fmt.Errorf("hook: missing verb (install|uninstall)")
 	}
 	verb, rest := args[0], args[1:]
-	if verb == "status" {
+	switch verb {
+	case "status":
 		return hookStatusCommand(rest, os.Stdout, stderr)
+	case "install-merge-driver":
+		return mergeDriverCommand(rest, false, stderr)
+	case "uninstall-merge-driver":
+		return mergeDriverCommand(rest, true, stderr)
 	}
 	if verb != "install" && verb != "uninstall" {
-		return fmt.Errorf("hook: unknown verb %q (expected install, uninstall, or status)", verb)
+		return fmt.Errorf("hook: unknown verb %q (expected install, uninstall, status, install-merge-driver, or uninstall-merge-driver)", verb)
 	}
 	fs := flag.NewFlagSet("hook "+verb, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -419,6 +426,53 @@ func hookCommand(args []string, stderr io.Writer) error {
 	return nil
 }
 
+// mergeDriverCommand backs `gogfy hook install-merge-driver` and the
+// matching uninstall. Registers (or removes) a graph.json union merge
+// driver in the repo's .git/config and a merge=gogfy rule in
+// .gitattributes. Lets two devs commit parallel graphs without
+// conflict-marker hell — git auto-unions via `gogfy merge-graphs`.
+func mergeDriverCommand(args []string, remove bool, stderr io.Writer) error {
+	op := "install-merge-driver"
+	if remove {
+		op = "uninstall-merge-driver"
+	}
+	fs := flag.NewFlagSet("hook "+op, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repo := fs.String("repo", ".", "git repository root (defaults to cwd)")
+	bin := fs.String("gogfy-bin", "", "gogfy binary path used inside the driver command (defaults to absolute path of running gogfy)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("hook %s: unexpected positional arguments: %v", op, fs.Args())
+	}
+	abs, err := filepath.Abs(*repo)
+	if err != nil {
+		return fmt.Errorf("hook %s: %w", op, err)
+	}
+	if remove {
+		if err := githook.UninstallMergeDriver(abs); err != nil {
+			return err
+		}
+		fmt.Fprintf(stderr, "gogfy: removed graph.json merge-driver from %s\n", abs)
+		return nil
+	}
+	resolvedBin := *bin
+	if resolvedBin == "" {
+		if exe, err := os.Executable(); err == nil {
+			resolvedBin = exe
+		} else {
+			resolvedBin = "gogfy"
+		}
+	}
+	if err := githook.InstallMergeDriver(abs, githook.MergeDriverOptions{Bin: resolvedBin}); err != nil {
+		return err
+	}
+	fmt.Fprintf(stderr, "gogfy: graph.json merge-driver installed (registered in .git/config + .gitattributes).\n")
+	fmt.Fprintf(stderr, "      `git merge` on parallel graphify-out/graph.json branches will auto-union.\n")
+	return nil
+}
+
 // hookStatusCommand reports per-hook install state.
 func hookStatusCommand(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("hook status", flag.ContinueOnError)
@@ -441,6 +495,11 @@ func hookStatusCommand(args []string, stdout, stderr io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "%-15s %s    (%s)\n", st.Name, state, st.Path)
 	}
+	driverState := "not installed"
+	if githook.MergeDriverInstalled(abs) {
+		driverState = "installed"
+	}
+	fmt.Fprintf(stdout, "%-15s %s    (%s)\n", "merge-driver", driverState, filepath.Join(abs, ".git", "config"))
 	return nil
 }
 
