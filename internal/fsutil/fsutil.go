@@ -30,6 +30,10 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, perm); err != nil {
+		// A partial write may still have created the file; clean it up
+		// symmetrically with the rename-failure path so we never leave
+		// a stale .tmp behind.
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
