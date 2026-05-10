@@ -13,45 +13,38 @@ func (FortranExtractor) Extract(path string) (Result, error) {
 	return runExtraction(path, tree_sitter_fortran.Language(), "fortran", walkFortran)
 }
 
+// fortranNameKinds enumerates the node kinds that can hold an identifier
+// in tree-sitter-fortran. `name` is the canonical kind on declarations;
+// `identifier` shows up on bare references; `module_name` wraps imports.
+var fortranNameKinds = []string{"name", "identifier", "module_name"}
+
 func walkFortran(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	node := cursor.Node()
 	switch node.Kind() {
 	case "module_statement", "program_statement":
-		// `module foo` / `program bar` — set the module-node label so
-		// `fortran:module:<file>` carries the declared name.
-		nameNode := firstChildOfKind(node, "name", "identifier")
-		if nameNode != nil {
-			rewriteModuleLabel(state, nameNode.Utf8Text(src))
+		if id := firstChildOfKind(node, fortranNameKinds...); id != nil {
+			rewriteModuleLabel(state, id.Utf8Text(src))
 		}
 	case "use_statement":
-		// `use foo, only: bar` / `use, intrinsic :: iso_fortran_env`
-		if id := firstChildOfKind(node, "module_name", "identifier", "name"); id != nil {
+		if id := firstChildOfKind(node, fortranNameKinds...); id != nil {
 			state.addImport(id.Utf8Text(src))
 		}
 	case "subroutine":
-		// Top-level subroutine. The opening `subroutine_statement` child
-		// holds the name field.
 		if stmt := firstChildOfKind(node, "subroutine_statement"); stmt != nil {
-			nameNode := firstChildOfKind(stmt, "name", "identifier")
+			nameNode := firstChildOfKind(stmt, fortranNameKinds...)
 			state.emitDecl("subroutine", node, nameNode, src)
 			state.walkFnScope("subroutine", nameNode, src, cursor, walkFortran)
 			return
 		}
 	case "function":
 		if stmt := firstChildOfKind(node, "function_statement"); stmt != nil {
-			nameNode := firstChildOfKind(stmt, "name", "identifier")
+			nameNode := firstChildOfKind(stmt, fortranNameKinds...)
 			state.emitDecl("function", node, nameNode, src)
 			state.walkFnScope("function", nameNode, src, cursor, walkFortran)
 			return
 		}
-	case "subroutine_call":
-		// `call foo(args)` — first identifier-bearing child is the callee.
-		if id := firstChildOfKind(node, "identifier", "name"); id != nil {
-			state.addCall(id.Utf8Text(src))
-		}
-	case "call_expression":
-		// Function calls in expression position (returning a value).
-		if id := firstChildOfKind(node, "identifier", "name"); id != nil {
+	case "subroutine_call", "call_expression":
+		if id := firstChildOfKind(node, fortranNameKinds...); id != nil {
 			state.addCall(id.Utf8Text(src))
 		}
 	}

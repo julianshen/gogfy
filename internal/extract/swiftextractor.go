@@ -41,10 +41,8 @@ func walkSwift(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		state.walkAnonFnScope("function", node, src, cursor, walkSwift)
 		return
 	case "call_expression":
-		// First child is the callee — either a `simple_identifier` for
-		// `foo()` or a `navigation_expression` for `obj.foo()`.
-		// callTargetName handles both; navigation_expression's last
-		// identifier is the called name.
+		// callTargetName handles both `foo()` (simple_identifier) and
+		// `obj.foo()` (navigation_expression with a navigation_suffix).
 		if first := node.Child(0); first != nil {
 			state.addCall(callTargetName(first, src))
 		}

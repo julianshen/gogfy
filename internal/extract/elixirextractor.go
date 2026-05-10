@@ -105,7 +105,9 @@ func elixirFirstAlias(call *sitter.Node, src []byte) string {
 
 // elixirDefName extracts the defined name from a `def NAME(args) do ...`
 // shape. The name is buried inside the `arguments` child as another `call`
-// (the function header) whose head is the function name.
+// (the function header) whose head is the function name. `def NAME(...)
+// when GUARD` wraps that header in a `binary_operator` whose `left` is
+// the header.
 func elixirDefName(defCall *sitter.Node) *sitter.Node {
 	args := firstChildOfKind(defCall, "arguments")
 	if args == nil {
@@ -117,26 +119,31 @@ func elixirDefName(defCall *sitter.Node) *sitter.Node {
 		case "identifier":
 			return c
 		case "call":
-			// `def foo(x, y)` — the inner call's head identifier is the name.
-			if c.ChildCount() > 0 {
-				inner := c.Child(0)
-				if inner.Kind() == "identifier" {
-					return inner
-				}
+			if id := callHeadIdent(c); id != nil {
+				return id
 			}
 		case "binary_operator":
-			// `def foo(x, y) when …` — left-hand side is the function header.
 			if lhs := c.ChildByFieldName("left"); lhs != nil {
-				if lhs.Kind() == "call" && lhs.ChildCount() > 0 {
-					if lhs.Child(0).Kind() == "identifier" {
-						return lhs.Child(0)
-					}
+				if id := callHeadIdent(lhs); id != nil {
+					return id
 				}
 				if lhs.Kind() == "identifier" {
 					return lhs
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// callHeadIdent returns the head identifier of a `call` node — the
+// function/macro name in `name(args)` shapes. nil for any other node.
+func callHeadIdent(n *sitter.Node) *sitter.Node {
+	if n == nil || n.Kind() != "call" || n.ChildCount() == 0 {
+		return nil
+	}
+	if head := n.Child(0); head.Kind() == "identifier" {
+		return head
 	}
 	return nil
 }

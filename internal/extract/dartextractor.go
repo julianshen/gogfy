@@ -1,8 +1,6 @@
 package extract
 
 import (
-	"strings"
-
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_dart "github.com/UserNobody14/tree-sitter-dart/bindings/go"
 )
@@ -24,14 +22,11 @@ func walkDart(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 			rewriteModuleLabel(state, id.Utf8Text(src))
 		}
 	case "import_specification", "library_export":
-		// `import 'package:foo/bar.dart';` — the URI is in a `configurable_uri`
-		// child whose first identifier-bearing descendant is a `uri` node
-		// (a string literal). Strip quotes.
-		if u := firstChildOfKind(node, "configurable_uri", "uri"); u != nil {
-			if uri := firstChildOfKind(u, "uri"); uri != nil {
-				state.addImport(strings.Trim(uri.Utf8Text(src), `'"`))
-			} else {
-				state.addImport(strings.Trim(u.Utf8Text(src), `'"`))
+		// The URI is a string-literal child of a `configurable_uri` wrapper.
+		// `configurable_uri` itself has a `uri` child holding the literal.
+		if cu := firstChildOfKind(node, "configurable_uri"); cu != nil {
+			if uri := firstChildOfKind(cu, "uri"); uri != nil {
+				state.addImport(trimQuotes(uri.Utf8Text(src)))
 			}
 		}
 	case "class_definition":
@@ -47,8 +42,6 @@ func walkDart(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "enum_declaration":
 		state.emitDecl("enum", node, firstChildOfKind(node, "identifier"), src)
 	case "function_signature":
-		// `void foo(int x)` — name is an identifier child. Walks fn scope so
-		// inner calls attribute correctly.
 		nameNode := firstChildOfKind(node, "identifier")
 		if nameNode != nil {
 			state.emitDecl("function", node, nameNode, src)
@@ -56,7 +49,7 @@ func walkDart(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 			return
 		}
 	case "method_signature":
-		// Method inside a class. Same shape as function_signature for our purposes.
+		// method_signature wraps a function_signature; reach through.
 		if header := firstChildOfKind(node, "function_signature"); header != nil {
 			nameNode := firstChildOfKind(header, "identifier")
 			if nameNode != nil {
