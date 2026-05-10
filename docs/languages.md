@@ -2,7 +2,7 @@
 
 gogfy uses tree-sitter for AST extraction. A language is supported when (a) someone publishes a maintained tree-sitter grammar, (b) that grammar's repo carries a `bindings/go/` directory with cgo wrappers, and (c) the published Go module compiles cleanly. Most graphify-listed languages clear all three; some don't.
 
-## Supported (27 code + 7 document formats)
+## Supported (27 code + 8 document formats)
 
 | Language | Extensions | Grammar source |
 |----------|------------|----------------|
@@ -44,6 +44,7 @@ gogfy uses tree-sitter for AST extraction. A language is supported when (a) some
 | Word | `.docx` | Pure-Go via `archive/zip` + `encoding/xml` (no third-party docx library). Reads `word/document.xml` for paragraphs and `word/_rels/document.xml.rels` for hyperlink targets. Module label prefers `Title`-style paragraph over first `Heading1` over basename. Heading1/2/3 → section nodes. `<w:hyperlink r:id="…">` → reference edge with the URL resolved through the rels map; anchor-only intra-document links are skipped. |
 | Excel | `.xlsx` | Pure-Go via `archive/zip` + `encoding/xml` (no `excelize` dep). Workbook → module node (label = basename). Each sheet listed in `xl/workbook.xml` → section node. External hyperlinks (`<hyperlink r:id="…"/>` resolved through each sheet's `xl/worksheets/_rels/sheetN.xml.rels`) → reference edges sourced from their owning sheet section. Cell content isn't extracted — sheet names + outbound links are the high-signal extracts; cell text is mostly numeric/tabular noise. |
 | PDF | `.pdf` | Pure-Go via `github.com/ledongthuc/pdf` (no cgo). Module label prefers PDF `/Info /Title` metadata over basename. References extracted via URL regex over the page-concatenated plain text. Section nodes are not emitted in the v1 — PDFs without explicit outlines have no reliable structural markers, and font-size heading heuristics are expensive and false-positive-prone. Encrypted or pathologically-encoded PDFs degrade to a bare module node rather than failing the run. |
+| PowerPoint | `.pptx` | Pure-Go via `archive/zip` + `encoding/xml` (no third-party pptx lib). Presentation → module node (label = basename). Each slide listed in `ppt/presentation.xml` → section node, labeled with the title-placeholder text (`<p:ph type="title"/>` or `"ctrTitle"`) or `"Slide N"` fallback. External hyperlinks (`<a:hlinkClick r:id="…"/>` resolved through each slide's `ppt/slides/_rels/slideN.xml.rels`) → reference edges sourced from their owning slide section. |
 
 ## Not supported (graphify lists; we don't)
 

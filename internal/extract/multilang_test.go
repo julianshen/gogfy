@@ -83,6 +83,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		DocxExtractor{},
 		XlsxExtractor{},
 		PDFExtractor{},
+		PPTXExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
