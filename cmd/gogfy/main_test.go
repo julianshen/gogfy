@@ -638,6 +638,56 @@ func TestDispatchPathCommandUnknownNode(t *testing.T) {
 	}
 }
 
+func TestDispatchMergeGraphsWritesUnion(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.json")
+	b := filepath.Join(dir, "b.json")
+	out := filepath.Join(dir, "merged.json")
+	if err := os.WriteFile(a, []byte(`{"nodes":[{"ID":"a","Label":"A"}],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(`{"nodes":[{"ID":"b","Label":"B"}],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"merge-graphs", a, b, "--out", out}, os.Stderr); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	g, err := loadGraph(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes after union, got %d", len(g.Nodes))
+	}
+}
+
+func TestDispatchMergeGraphsRequiresTwoInputs(t *testing.T) {
+	if err := dispatch([]string{"merge-graphs", "a.json"}, os.Stderr); err == nil {
+		t.Fatal("expected error with single input")
+	}
+}
+
+func TestDispatchMergeGraphsBadFile(t *testing.T) {
+	if err := dispatch([]string{"merge-graphs", "/nonexistent/a.json", "/nonexistent/b.json"}, os.Stderr); err == nil {
+		t.Fatal("expected error for missing files")
+	}
+}
+
+func TestDispatchMergeGraphsToStdout(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.json")
+	b := filepath.Join(dir, "b.json")
+	if err := os.WriteFile(a, []byte(`{"nodes":[{"ID":"x","Label":"X"}],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(`{"nodes":[{"ID":"y","Label":"Y"}],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"merge-graphs", a, b}, io.Discard); err != nil {
+		t.Fatalf("dispatch (stdout): %v", err)
+	}
+}
+
 func TestServeCommandRejectsUnexpectedPositionalArgs(t *testing.T) {
 	err := serveCommand(
 		[]string{"--graph", "/tmp/x.json", "stray-arg"},
