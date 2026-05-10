@@ -115,61 +115,111 @@ func (s *extractState) emitCall(call *sitter.Node, src []byte) {
 	s.addCall(callTargetName(firstCallee(call), src))
 }
 
-// firstCallee returns the first child of a call-expression node that looks
-// like a callee (a bare identifier or a member-access chain). Languages
-// without a `function` field name (Kotlin, Scala, Zig, Julia, Lua) pair this
-// with callTargetName to emit `<lang>:call:<name>` edges.
+// calleeShape classifies the AST shape of a call-expression's callee child.
+// Each grammar uses different node names for the same semantic — bare
+// identifiers, dotted/scoped/namespaced member access, Swift's
+// navigation_expression — and the extraction strategy differs per shape.
+type calleeShape int
+
+const (
+	shapeBare         calleeShape = iota // node text is the callee name
+	shapeMemberAccess                    // last identifier-bearing leaf is the name
+	shapeNavigation                      // navigation_suffix's suffix field is the name
+)
+
+// calleeKinds is the SINGLE source of truth for what AST node kinds count
+// as a "callee" across grammars. firstCallee scans for any of these, and
+// callTargetName dispatches on the shape to extract the name.
+//
+// Adding a new grammar with a novel callee node: add ONE entry. Without
+// this discipline, the two functions could disagree — a kind in
+// firstCallee but not in callTargetName silently produces empty edges
+// (graph edges to "" target), and the reverse is invisible because emit
+// paths that route through firstCallee never reach the kind. R's
+// namespace_operator / extract_operator shipped broken by exactly this
+// out-of-sync class until the maps were unified.
+var calleeKinds = map[string]calleeShape{
+	// Bare-identifier shapes. Haskell uses `variable`, OCaml `value_name`,
+	// Swift `simple_identifier` (free-fn calls) and `type_identifier`
+	// (constructor calls like `MyClass()`); all carry the name as text.
+	"identifier":        shapeBare,
+	"field_identifier":  shapeBare,
+	"name":              shapeBare,
+	"variable":          shapeBare,
+	"value_name":        shapeBare,
+	"simple_identifier": shapeBare,
+	"type_identifier":   shapeBare,
+
+	// Member-access wrappers — receiver.callee. The qualifier appears
+	// first; the called name is the last identifier-bearing child.
+	"selector_expression":      shapeMemberAccess,
+	"member_expression":        shapeMemberAccess,
+	"attribute":                shapeMemberAccess,
+	"scoped_identifier":        shapeMemberAccess,
+	"field_access":             shapeMemberAccess,
+	"field_expression":         shapeMemberAccess,
+	"dot_index_expression":     shapeMemberAccess,
+	"member_access_expression": shapeMemberAccess,
+	"qualified_variable":       shapeMemberAccess,
+	"value_path":               shapeMemberAccess,
+	"namespace_operator":       shapeMemberAccess, // R: dplyr::mutate, base:::internal
+	"extract_operator":         shapeMemberAccess, // R: foo$bar, foo@slot
+
+	// Navigation — Swift's `obj.foo` parses as navigation_expression with
+	// the trailing navigation_suffix carrying the suffix-field identifier.
+	"navigation_expression": shapeNavigation,
+}
+
+// memberLeafKinds is the set of identifier-bearing AST leaves that can
+// appear as the trailing child of a member-access wrapper. Includes
+// JS/TS's `property_identifier` which only ever appears at this position.
+var memberLeafKinds = []string{
+	"identifier", "field_identifier", "property_identifier",
+	"variable", "value_name", "simple_identifier", "type_identifier",
+}
+
+// firstCallee returns the first child of a call expression whose kind is
+// in calleeKinds. Languages that use a `function` field name (Go, Python,
+// Rust, etc.) reach callTargetName via ChildByFieldName directly; this
+// helper covers grammars without that convention (Kotlin, Scala, Zig,
+// Julia, Lua, R).
 func firstCallee(call *sitter.Node) *sitter.Node {
-	return firstChildOfKind(call,
-		"identifier", "field_identifier",
-		"selector_expression", "member_expression", "attribute",
-		"scoped_identifier", "field_access", "field_expression",
-		"dot_index_expression",
-		"namespace_operator", "extract_operator",
-	)
+	n := call.ChildCount()
+	for i := uint(0); i < n; i++ {
+		c := call.Child(i)
+		if _, ok := calleeKinds[c.Kind()]; ok {
+			return c
+		}
+	}
+	return nil
 }
 
 // callTargetName returns the human-readable callee identifier from a call
-// expression's `function` (or equivalent) child. Handles the three shapes
-// most grammars share: a bare `identifier`, a member-access wrapper
-// (selector_expression / member_expression / attribute / scoped_identifier)
-// where we use the last identifier, and unknown shapes which we fall back
-// to printing verbatim.
+// expression's `function` (or equivalent) child. Returns "" for unknown
+// shapes — `(a + b)()`, `arr[0]()`, IIFEs etc. don't have a meaningful
+// textual name and falling back to source text would pollute the graph.
 func callTargetName(fn *sitter.Node, src []byte) string {
 	if fn == nil {
 		return ""
 	}
-	switch fn.Kind() {
-	case "identifier", "field_identifier", "name", "variable", "value_name",
-		"simple_identifier", "type_identifier":
-		// Bare-identifier call shapes. Haskell uses `variable`, OCaml uses
-		// `value_name`, Swift uses `simple_identifier` for free-fn calls and
-		// `type_identifier` for constructor calls (`MyClass()`); all are
-		// simple wrappers over the textual name.
+	shape, ok := calleeKinds[fn.Kind()]
+	if !ok {
+		return ""
+	}
+	switch shape {
+	case shapeBare:
 		return fn.Utf8Text(src)
-	case "navigation_expression":
-		// Swift: `obj.foo` → navigation_expression with the trailing
-		// `navigation_suffix` carrying the suffix-field identifier.
+	case shapeMemberAccess:
+		if id := lastChildOfKind(fn, memberLeafKinds...); id != nil {
+			return id.Utf8Text(src)
+		}
+	case shapeNavigation:
 		if suf := lastChildOfKind(fn, "navigation_suffix"); suf != nil {
 			if name := suf.ChildByFieldName("suffix"); name != nil {
 				return name.Utf8Text(src)
 			}
 		}
-	case "selector_expression", "member_expression", "attribute",
-		"scoped_identifier", "field_access", "field_expression",
-		"dot_index_expression", "member_access_expression",
-		"qualified_variable", "value_path",
-		"namespace_operator", "extract_operator":
-		// The last identifier-bearing child is the called name (the
-		// receiver/qualifier comes first).
-		if id := lastChildOfKind(fn, "identifier", "field_identifier", "property_identifier",
-			"variable", "value_name", "simple_identifier", "type_identifier"); id != nil {
-			return id.Utf8Text(src)
-		}
 	}
-	// Drop unknown shapes — `(a + b)()`, `arr[0]()`, IIFEs etc. don't have
-	// a meaningful textual name. Falling back to verbatim source text would
-	// pollute the graph with noisy targets like `call:(a + b)`.
 	return ""
 }
 
