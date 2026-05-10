@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,7 +75,9 @@ func walkHTML(n *html.Node, path string, state *extractState) {
 		case "h1", "h2", "h3":
 			label := strings.TrimSpace(elementText(n))
 			if label != "" {
-				id := schema.LangID("html", "section", path+":"+slugify(label))
+				state.sectionSeq++
+				id := schema.LangID("html", "section",
+					fmt.Sprintf("%s:h%d:%s", path, state.sectionSeq, slugify(label)))
 				state.nodes = append(state.nodes, schema.Node{
 					ID:         id,
 					Label:      label,

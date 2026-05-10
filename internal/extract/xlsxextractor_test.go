@@ -161,6 +161,47 @@ func TestXlsxExtractorSheetSectionEmittedWhenRelsUnresolvable(t *testing.T) {
 	}
 }
 
+func TestXlsxExtractorAcceptsAbsoluteWorksheetTargets(t *testing.T) {
+	// presentation.xml.rels Target attributes can be either part-
+	// relative ("worksheets/sheet1.xml" — Excel emits this) or package-
+	// absolute ("/xl/worksheets/sheet1.xml" — Open XML SDK emits this).
+	// Treating absolute as relative previously produced
+	// "xl/xl/worksheets/..." and silently dropped every sheet's
+	// hyperlink edges under SDK-produced workbooks.
+	dir := t.TempDir()
+	parts := map[string]string{
+		"xl/workbook.xml": `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="/xl/worksheets/sheet1.xml"/>
+</Relationships>`,
+		"xl/worksheets/sheet1.xml": `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetData/>
+  <hyperlinks><hyperlink ref="A1" r:id="rIdHL"/></hyperlinks>
+</worksheet>`,
+		"xl/worksheets/_rels/sheet1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdHL" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/data" TargetMode="External"/>
+</Relationships>`,
+	}
+	path := writeZipFixture(t, dir, "absolute.xlsx", parts)
+	res, err := XlsxExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range res.Edges {
+		if e.Target == "xlsx:link:https://example.com/data" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("absolute /xl/... target should resolve and yield hyperlink edge, got %+v", res.Edges)
+	}
+}
+
 func TestXlsxExtractorMissingWorkbookReturnsBareModule(t *testing.T) {
 	dir := t.TempDir()
 	path := writeZipFixture(t, dir, "weird.xlsx", map[string]string{

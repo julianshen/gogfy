@@ -77,7 +77,7 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 		var hyperlinkRIDs []string
 
 		if target, ok := presRels[rid]; ok {
-			slidePath := resolveSlidePath(target)
+			slidePath := resolveOOXMLPartPath("ppt/", target)
 			slideXML, err := readPart(slidePath)
 			if err != nil {
 				return Result{}, err
@@ -123,19 +123,6 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 	}
 
 	return Result{Nodes: state.nodes, Edges: state.edges}, nil
-}
-
-// resolveSlidePath turns a Target attribute from presentation.xml.rels
-// into a zip-entry path. OOXML allows two forms: relative to the part's
-// directory (`slides/slide1.xml` — emitted by PowerPoint, what we
-// originally hardcoded) and package-absolute (`/ppt/slides/slide1.xml`
-// — emitted by the Open XML SDK). Treating an absolute path as
-// relative produced `ppt/ppt/slides/...` and missed every slide.
-func resolveSlidePath(target string) string {
-	if strings.HasPrefix(target, "/") {
-		return strings.TrimPrefix(target, "/")
-	}
-	return "ppt/" + target
 }
 
 // parsePresentationSlideRIDs returns the r:id of each slide listed in

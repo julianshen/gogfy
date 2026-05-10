@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -66,7 +67,9 @@ func (RSTExtractor) Extract(path string) (Result, error) {
 			nextLevel++
 		}
 		if level >= 1 && level <= 3 {
-			id := schema.LangID("rst", "section", abs+":"+slugify(title))
+			state.sectionSeq++
+			id := schema.LangID("rst", "section",
+				fmt.Sprintf("%s:h%d:%s", abs, state.sectionSeq, slugify(title)))
 			state.nodes = append(state.nodes, schema.Node{
 				ID:         id,
 				Label:      title,

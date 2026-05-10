@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,20 @@ const (
 	relTypeWorksheet = "/worksheet"
 	relTypeSlide     = "/slide"
 )
+
+// resolveOOXMLPartPath turns a Target attribute from an OOXML _rels file
+// into a zip-entry path. Targets come in two forms: relative to the part's
+// directory (`slides/slide1.xml`, `worksheets/sheet1.xml` — what PowerPoint
+// and Excel emit) and package-absolute (`/ppt/slides/slide1.xml`,
+// `/xl/worksheets/sheet1.xml` — what the Open XML SDK emits). Treating an
+// absolute path as relative produced `ppt/ppt/slides/...` and missed every
+// part; this helper handles both forms uniformly.
+func resolveOOXMLPartPath(partRoot, target string) string {
+	if strings.HasPrefix(target, "/") {
+		return strings.TrimPrefix(target, "/")
+	}
+	return partRoot + target
+}
 
 // parseOOXMLRels parses an OOXML _rels file into Id→Target. If wantSuffix
 // is non-empty, only relationships whose Type ends with it are returned.
@@ -243,7 +258,9 @@ func walkDocxBody(data []byte, rels map[string]string, path string, state *extra
 				if level == 1 && firstH1 == "" {
 					firstH1 = text
 				}
-				id := schema.LangID("docx", "section", path+":"+slugify(text))
+				state.sectionSeq++
+				id := schema.LangID("docx", "section",
+					fmt.Sprintf("%s:h%d:%s", path, state.sectionSeq, slugify(text)))
 				state.nodes = append(state.nodes, schema.Node{
 					ID:         id,
 					Label:      text,

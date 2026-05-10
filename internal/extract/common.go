@@ -36,6 +36,11 @@ type extractState struct {
 	edges       []schema.Edge
 	fnStack     []string
 	callTargets map[string]struct{} // dedup set for emitted call-target nodes
+	// sectionSeq is a monotonic ordinal used by document extractors to keep
+	// section IDs unique when two sections share a label ("Overview" /
+	// "Examples" / "Summary" recur all the time). Without it, AddNode keeps
+	// only the first node per ID and later sections silently fold into it.
+	sectionSeq int
 }
 
 // pushFn records that subsequent walk steps are inside the function with id.
