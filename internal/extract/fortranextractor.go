@@ -31,18 +31,27 @@ func walkFortran(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		}
 	case "subroutine":
 		if stmt := firstChildOfKind(node, "subroutine_statement"); stmt != nil {
-			nameNode := firstChildOfKind(stmt, fortranNameKinds...)
-			state.emitDecl("subroutine", node, nameNode, src)
-			state.walkFnScope("subroutine", nameNode, src, cursor, walkFortran)
-			return
+			if nameNode := firstChildOfKind(stmt, fortranNameKinds...); nameNode != nil {
+				state.emitDecl("subroutine", node, nameNode, src)
+				state.walkFnScope("subroutine", nameNode, src, cursor, walkFortran)
+				return
+			}
 		}
+		// Missing name (malformed source or grammar drift): use an
+		// anonymous scope keyed on source position so multiple unnamed
+		// subroutines don't collide on a single empty-key graph node.
+		state.walkAnonFnScope("subroutine", node, src, cursor, walkFortran)
+		return
 	case "function":
 		if stmt := firstChildOfKind(node, "function_statement"); stmt != nil {
-			nameNode := firstChildOfKind(stmt, fortranNameKinds...)
-			state.emitDecl("function", node, nameNode, src)
-			state.walkFnScope("function", nameNode, src, cursor, walkFortran)
-			return
+			if nameNode := firstChildOfKind(stmt, fortranNameKinds...); nameNode != nil {
+				state.emitDecl("function", node, nameNode, src)
+				state.walkFnScope("function", nameNode, src, cursor, walkFortran)
+				return
+			}
 		}
+		state.walkAnonFnScope("function", node, src, cursor, walkFortran)
+		return
 	case "subroutine_call", "call_expression":
 		if id := firstChildOfKind(node, fortranNameKinds...); id != nil {
 			state.addCall(id.Utf8Text(src))

@@ -34,6 +34,13 @@ func walkSwift(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		state.emitDecl("protocol", node, node.ChildByFieldName("name"), src)
 	case "function_declaration":
 		nameNode := node.ChildByFieldName("name")
+		if nameNode == nil {
+			// Nameless function (parse error or unhandled grammar shape):
+			// anonymous scope keyed on position avoids the empty-name
+			// graph-node collision that plain emitDecl would produce.
+			state.walkAnonFnScope("function", node, src, cursor, walkSwift)
+			return
+		}
 		state.emitDecl("function", node, nameNode, src)
 		state.walkFnScope("function", nameNode, src, cursor, walkSwift)
 		return
@@ -41,8 +48,6 @@ func walkSwift(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		state.walkAnonFnScope("function", node, src, cursor, walkSwift)
 		return
 	case "call_expression":
-		// callTargetName handles both `foo()` (simple_identifier) and
-		// `obj.foo()` (navigation_expression with a navigation_suffix).
 		if first := node.Child(0); first != nil {
 			state.addCall(callTargetName(first, src))
 		}

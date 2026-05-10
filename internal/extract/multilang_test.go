@@ -681,6 +681,99 @@ func TestSvelteExtractorImports(t *testing.T) {
 	})
 }
 
+func TestDartExtractorMixinExtensionEnum(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "dart mixin/extension/enum",
+		filename: "shapes.dart",
+		source: `mixin Drawable {
+  void draw();
+}
+
+extension StringExt on String {
+  bool get isShout => this == toUpperCase();
+}
+
+enum Suit { clubs, diamonds, hearts, spades }
+`,
+		extractor: DartExtractor{}.Extract,
+		wantNodes: []string{"Drawable", "StringExt", "Suit"},
+	})
+}
+
+func TestElixirExtractorMacrosAndUseAndGuard(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "elixir defmacro + use + when guard",
+		filename: "advanced.ex",
+		source: `defmodule MyApp.Macros do
+  use GenServer
+  use Phoenix.Controller
+
+  defmacro guard_clause(x) do
+    quote do
+      is_atom(unquote(x))
+    end
+  end
+
+  defmacrop internal_helper(y), do: quote(do: unquote(y))
+
+  def safe_call(arg) when is_binary(arg) do
+    String.upcase(arg)
+  end
+end
+`,
+		extractor: ElixirExtractor{}.Extract,
+		wantNodes: []string{
+			"MyApp.Macros",
+			"guard_clause",
+			"internal_helper",
+			"safe_call", // covers `when guard` shape — exercises callHeadIdent
+		},
+		wantEdges: []string{
+			"elixir:import:GenServer",
+			"elixir:import:Phoenix.Controller",
+		},
+	})
+}
+
+func TestFortranExtractorCallExpression(t *testing.T) {
+	// Coverage for the `call_expression` half of the merged case (a
+	// function call in expression position, distinct from a `subroutine_call`).
+	runExtractorCase(t, extractorCase{
+		name:     "fortran function call expression",
+		filename: "expr.f90",
+		source: `program main
+  integer :: x
+  x = compute(5)
+end program main
+`,
+		extractor: FortranExtractor{}.Extract,
+		wantEdges: []string{"fortran:call:compute"},
+	})
+}
+
+func TestSwiftExtractorLambda(t *testing.T) {
+	// Closures push an anonymous scope so calls inside attribute to the
+	// enclosing function rather than the program-level module.
+	runExtractorCase(t, extractorCase{
+		name:     "swift lambda",
+		filename: "Lambda.swift",
+		source: `func process() {
+    let nums = [1, 2, 3]
+    let doubled = nums.map { x in
+        compute(x)
+    }
+    print(doubled)
+}
+`,
+		extractor: SwiftExtractor{}.Extract,
+		wantNodes: []string{"process"},
+		wantEdges: []string{
+			"swift:call:compute",
+			"swift:call:print",
+		},
+	})
+}
+
 func TestSwiftExtractorBasic(t *testing.T) {
 	runExtractorCase(t, extractorCase{
 		name:     "swift basic",

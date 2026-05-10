@@ -48,8 +48,13 @@ func walkDart(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 			state.walkFnScope("function", nameNode, src, cursor, walkDart)
 			return
 		}
+		// Nameless function (malformed source or unhandled grammar shape):
+		// route through anonymous scope so internal calls don't collide
+		// with sibling unnamed defs on a single empty-name graph node.
+		state.walkAnonFnScope("function", node, src, cursor, walkDart)
+		return
 	case "method_signature":
-		// method_signature wraps a function_signature; reach through.
+		// method_signature wraps function_signature; reach through.
 		if header := firstChildOfKind(node, "function_signature"); header != nil {
 			nameNode := firstChildOfKind(header, "identifier")
 			if nameNode != nil {
@@ -58,6 +63,8 @@ func walkDart(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 				return
 			}
 		}
+		state.walkAnonFnScope("method", node, src, cursor, walkDart)
+		return
 	}
 	walkChildren(cursor, func() { walkDart(cursor, src, state) })
 }
