@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -40,15 +41,25 @@ func TestForReturnsErrorForUnknownPlatform(t *testing.T) {
 	}
 }
 
-func assertGogfyServerEntry(t *testing.T, m map[string]any, workspace string) {
+// expectedServersKey returns the platform-native top-level key for an
+// `mcpServers`-shaped object.
+func expectedServersKey(platform string) string {
+	if platform == "vscode" {
+		return "servers"
+	}
+	return "mcpServers"
+}
+
+func assertGogfyServerEntry(t *testing.T, m map[string]any, platform string) {
 	t.Helper()
-	servers, ok := m["mcpServers"].(map[string]any)
+	key := expectedServersKey(platform)
+	servers, ok := m[key].(map[string]any)
 	if !ok {
-		t.Fatalf("missing mcpServers: %v", m)
+		t.Fatalf("missing %s: %v", key, m)
 	}
 	gogfy, ok := servers["gogfy"].(map[string]any)
 	if !ok {
-		t.Fatalf("missing mcpServers.gogfy: %v", servers)
+		t.Fatalf("missing %s.gogfy: %v", key, servers)
 	}
 	if gogfy["command"] != "gogfy" {
 		t.Fatalf("expected command=gogfy, got %v", gogfy["command"])
@@ -57,7 +68,7 @@ func assertGogfyServerEntry(t *testing.T, m map[string]any, workspace string) {
 	if !ok || len(args) == 0 || args[0] != "serve" {
 		t.Fatalf("expected args[0]=serve, got %v", gogfy["args"])
 	}
-	wantGraph := filepath.Join(workspace, "graphify-out", "graph.json")
+	wantGraph := filepath.Join("graphify-out", "graph.json") // relative
 	found := false
 	for _, a := range args {
 		if a == wantGraph {
@@ -65,7 +76,7 @@ func assertGogfyServerEntry(t *testing.T, m map[string]any, workspace string) {
 		}
 	}
 	if !found {
-		t.Fatalf("expected graph path %q in args, got %v", wantGraph, args)
+		t.Fatalf("expected relative graph path %q in args, got %v", wantGraph, args)
 	}
 }
 
@@ -87,7 +98,7 @@ func TestInstallEachPlatformWritesValidConfig(t *testing.T) {
 			if _, err := os.Stat(path); err != nil {
 				t.Fatalf("config not written at %s: %v", path, err)
 			}
-			assertGogfyServerEntry(t, readJSON(t, path), ws)
+			assertGogfyServerEntry(t, readJSON(t, path), name)
 		})
 	}
 }
@@ -175,6 +186,40 @@ func TestUninstallNoOpWhenConfigMissing(t *testing.T) {
 	}
 }
 
+// TestVSCodeUsesServersKey — VS Code's native MCP config keys servers under
+// "servers" (not "mcpServers" like Claude/Cursor/Gemini). Lock that down so
+// a future shared-helper refactor can't silently regress to mcpServers and
+// make the entry invisible to VS Code.
+func TestVSCodeUsesServersKey(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("vscode")
+	if err := inst.Install(ws); err != nil {
+		t.Fatal(err)
+	}
+	cfg := readJSON(t, inst.ConfigPath(ws))
+	if _, ok := cfg["servers"]; !ok {
+		t.Fatalf("VS Code config missing 'servers' key: %v", cfg)
+	}
+	if _, ok := cfg["mcpServers"]; ok {
+		t.Fatalf("VS Code config must not use 'mcpServers' key: %v", cfg)
+	}
+}
+
+// TestArgsArePathRelative — args must use workspace-relative graph/report
+// paths so the config survives `git clone` to a different directory or a
+// workspace move. Absolute paths from install-time would break both.
+func TestArgsArePathRelative(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("claude")
+	if err := inst.Install(ws); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(inst.ConfigPath(ws))
+	if bytes.Contains(data, []byte(ws)) {
+		t.Fatalf("config baked workspace path into args: %s", data)
+	}
+}
+
 // TestInstallRejectsCorruptExistingConfig — a malformed JSON file should
 // surface as an error, not silently overwrite existing state.
 func TestInstallRejectsCorruptExistingConfig(t *testing.T) {
@@ -208,7 +253,7 @@ func TestInstallTreatsEmptyFileAsEmptyConfig(t *testing.T) {
 	if err := inst.Install(ws); err != nil {
 		t.Fatalf("install on empty file: %v", err)
 	}
-	assertGogfyServerEntry(t, readJSON(t, path), ws)
+	assertGogfyServerEntry(t, readJSON(t, path), "claude")
 }
 
 // TestInstallFailsWhenWorkspaceIsReadOnly — write failures must propagate.

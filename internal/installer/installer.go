@@ -54,10 +54,13 @@ func SupportedPlatforms() []string {
 }
 
 // jsonInstaller implements the install/uninstall flow for any platform that
-// stores its MCP config as JSON with a top-level `mcpServers` object. The
-// only platform-specific bit is the relative path inside the workspace.
+// stores its MCP config as JSON keyed by a top-level servers object. The
+// platform-specific bits are: (1) the path inside the workspace, and
+// (2) the name of the top-level key — most use `mcpServers` but VS Code's
+// native MCP config uses `servers`.
 type jsonInstaller struct {
 	relativePath string // path relative to the workspace root, e.g. ".mcp.json"
+	serversKey   string // top-level key, e.g. "mcpServers" or "servers"
 }
 
 func (j jsonInstaller) ConfigPath(workspace string) string {
@@ -70,8 +73,8 @@ func (j jsonInstaller) Install(workspace string) error {
 	if err != nil {
 		return err
 	}
-	servers := ensureServersMap(cfg)
-	servers["gogfy"] = gogfyServerEntry(workspace)
+	servers := ensureServersMap(cfg, j.serversKey)
+	servers["gogfy"] = gogfyServerEntry()
 	return writeJSON(path, cfg)
 }
 
@@ -84,7 +87,7 @@ func (j jsonInstaller) Uninstall(workspace string) error {
 	if err != nil {
 		return err
 	}
-	servers, _ := cfg["mcpServers"].(map[string]any)
+	servers, _ := cfg[j.serversKey].(map[string]any)
 	if servers == nil {
 		// Nothing to remove; leave the file alone.
 		return nil
@@ -116,26 +119,28 @@ func readOrEmpty(path string) (map[string]any, error) {
 	return cfg, nil
 }
 
-// ensureServersMap returns cfg["mcpServers"] as a map[string]any, creating
-// it if missing. The returned map is the same one stored in cfg, so callers
-// can mutate it directly.
-func ensureServersMap(cfg map[string]any) map[string]any {
-	if existing, ok := cfg["mcpServers"].(map[string]any); ok {
+// ensureServersMap returns cfg[key] as a map[string]any, creating it if
+// missing. The returned map is the same one stored in cfg, so callers can
+// mutate it directly.
+func ensureServersMap(cfg map[string]any, key string) map[string]any {
+	if existing, ok := cfg[key].(map[string]any); ok {
 		return existing
 	}
 	m := map[string]any{}
-	cfg["mcpServers"] = m
+	cfg[key] = m
 	return m
 }
 
-// gogfyServerEntry is the canonical mcpServers.gogfy value shape: command +
-// args wired to the workspace's graph artifacts.
-func gogfyServerEntry(workspace string) map[string]any {
-	graph := filepath.Join(workspace, "graphify-out", "graph.json")
-	report := filepath.Join(workspace, "graphify-out", "GRAPH_REPORT.md")
+// gogfyServerEntry is the canonical gogfy server value shape: command + args
+// wired to the *workspace-relative* graph artifacts. Relative paths survive
+// workspace moves and git checkouts on different machines; every MCP-capable
+// agent we support launches the server with the workspace as cwd.
+func gogfyServerEntry() map[string]any {
+	graph := filepath.Join("graphify-out", "graph.json")
+	report := filepath.Join("graphify-out", "GRAPH_REPORT.md")
 	return map[string]any{
 		"command": "gogfy",
-		"args":    []any{"serve", "--graph", graph, "--report", report},
+		"args":    []string{"serve", "--graph", graph, "--report", report},
 	}
 }
 
@@ -162,9 +167,13 @@ func writeJSON(path string, cfg map[string]any) error {
 
 // registry maps platform name → installer. Adding a new JSON-config
 // platform is one entry here.
+//
+// VS Code's native MCP config (`.vscode/mcp.json`) keys servers under
+// "servers" rather than "mcpServers" — match each platform's actual
+// expected schema rather than a single conventional shape.
 var registry = map[string]Installer{
-	"claude": jsonInstaller{relativePath: ".mcp.json"},
-	"cursor": jsonInstaller{relativePath: filepath.Join(".cursor", "mcp.json")},
-	"vscode": jsonInstaller{relativePath: filepath.Join(".vscode", "mcp.json")},
-	"gemini": jsonInstaller{relativePath: filepath.Join(".gemini", "settings.json")},
+	"claude": jsonInstaller{relativePath: ".mcp.json", serversKey: "mcpServers"},
+	"cursor": jsonInstaller{relativePath: filepath.Join(".cursor", "mcp.json"), serversKey: "mcpServers"},
+	"vscode": jsonInstaller{relativePath: filepath.Join(".vscode", "mcp.json"), serversKey: "servers"},
+	"gemini": jsonInstaller{relativePath: filepath.Join(".gemini", "settings.json"), serversKey: "mcpServers"},
 }
