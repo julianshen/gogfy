@@ -20,6 +20,7 @@ import (
 	"github.com/julianshen/gogfy/internal/detect"
 	"github.com/julianshen/gogfy/internal/export"
 	"github.com/julianshen/gogfy/internal/extract"
+	"github.com/julianshen/gogfy/internal/githook"
 	"github.com/julianshen/gogfy/internal/graph"
 	"github.com/julianshen/gogfy/internal/installer"
 	"github.com/julianshen/gogfy/internal/report"
@@ -85,6 +86,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return instructionsCommand(rest, false, stderr)
 	case "uninstall-instructions":
 		return instructionsCommand(rest, true, stderr)
+	case "hook":
+		return hookCommand(rest, stderr)
 	case "serve":
 		return serveCommand(rest, os.Stdin, os.Stdout, stderr)
 	case "watch":
@@ -120,6 +123,59 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy uninstall --platform <claude|codex|cursor|vscode|gemini> [--workspace <dir>]")
 	fmt.Fprintln(w, "       gogfy install-instructions [--file <path>] [--report <path>]")
 	fmt.Fprintln(w, "       gogfy uninstall-instructions [--file <path>]")
+	fmt.Fprintln(w, "       gogfy hook install [--repo <dir>] [--gogfy-bin <path>] [--out <dir>]")
+	fmt.Fprintln(w, "       gogfy hook uninstall [--repo <dir>]")
+}
+
+// hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The
+// hook structure (subcommand + verb) mirrors graphify's `graphify hook
+// install` shape and keeps the top-level help readable.
+func hookCommand(args []string, stderr io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("hook: missing verb (install|uninstall)")
+	}
+	verb, rest := args[0], args[1:]
+	if verb != "install" && verb != "uninstall" {
+		return fmt.Errorf("hook: unknown verb %q (expected install or uninstall)", verb)
+	}
+	fs := flag.NewFlagSet("hook "+verb, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repo := fs.String("repo", ".", "git repository root (defaults to cwd)")
+	bin := fs.String("gogfy-bin", "", "path or name of the gogfy binary the hook should invoke (defaults to the absolute path of the running gogfy)")
+	outDir := fs.String("out", "graphify-out", "graph output directory passed to gogfy run --update")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("hook %s: unexpected positional arguments: %v", verb, fs.Args())
+	}
+	abs, err := filepath.Abs(*repo)
+	if err != nil {
+		return fmt.Errorf("hook %s: resolve repo: %w", verb, err)
+	}
+	if verb == "uninstall" {
+		if err := githook.Uninstall(abs); err != nil {
+			return fmt.Errorf("hook uninstall: %w", err)
+		}
+		fmt.Fprintf(stderr, "gogfy: removed post-commit auto-rebuild from %s\n", abs)
+		return nil
+	}
+	resolvedBin := *bin
+	if resolvedBin == "" {
+		// Default to the absolute path of the currently-running binary so
+		// the hook works even when GUI git clients (Tower, SourceTree, the
+		// VS Code embedded git) launch with a stripped PATH.
+		if exe, err := os.Executable(); err == nil {
+			resolvedBin = exe
+		} else {
+			resolvedBin = "gogfy"
+		}
+	}
+	if err := githook.Install(abs, githook.Options{Bin: resolvedBin, OutDir: *outDir}); err != nil {
+		return fmt.Errorf("hook install: %w", err)
+	}
+	fmt.Fprintf(stderr, "gogfy: post-commit auto-rebuild installed at %s\n", githook.HookPath(abs))
+	return nil
 }
 
 // instructionsCommand backs `gogfy install-instructions` (and its

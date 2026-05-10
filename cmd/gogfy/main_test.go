@@ -505,6 +505,98 @@ func TestDispatchInstallInstructionsRejectsStrayPositional(t *testing.T) {
 	}
 }
 
+func TestDispatchHookInstallWritesPostCommit(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatalf("dispatch hook install: %v", err)
+	}
+	path := filepath.Join(repo, ".git", "hooks", "post-commit")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("hook not written: %v", err)
+	}
+	// The bin defaults to os.Executable(); under `go test` that's the test
+	// binary path, not literal "gogfy". Assert the invocation shape instead.
+	if !bytes.Contains(data, []byte(" run --update --out 'graphify-out' .")) {
+		t.Fatalf("hook missing run --update invocation:\n%s", data)
+	}
+	info, _ := os.Stat(path)
+	if info.Mode().Perm()&0111 == 0 {
+		t.Fatalf("hook not executable: %v", info.Mode())
+	}
+}
+
+func TestDispatchHookUninstallRemovesPostCommit(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "uninstall", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatalf("dispatch hook uninstall: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "post-commit")); !os.IsNotExist(err) {
+		t.Fatalf("hook should be removed when gogfy was sole content, got err=%v", err)
+	}
+}
+
+func TestDispatchHookRejectsUnknownVerb(t *testing.T) {
+	if err := dispatch([]string{"hook", "wat"}, os.Stderr); err == nil {
+		t.Fatal("expected error for unknown verb")
+	}
+}
+
+func TestDispatchHookRejectsMissingVerb(t *testing.T) {
+	if err := dispatch([]string{"hook"}, os.Stderr); err == nil {
+		t.Fatal("expected error for missing verb")
+	}
+}
+
+func TestDispatchHookRejectsStrayPositional(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install", "--repo", repo, "stray"}, os.Stderr); err == nil {
+		t.Fatal("expected error for stray positional in hook install")
+	}
+}
+
+func TestDispatchHookDefaultsBinToAbsolutePath(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(repo, ".git", "hooks", "post-commit"))
+	// Bare "gogfy" would mean we're trusting PATH at hook time — exactly
+	// the failure mode the absolute-path default prevents.
+	if bytes.Contains(data, []byte("\ngogfy run ")) {
+		t.Fatalf("hook left command as bare PATH-dependent 'gogfy':\n%s", data)
+	}
+}
+
+func TestDispatchHookHonorsCustomFlags(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "install", "--repo", repo, "--gogfy-bin", "/opt/bin/gogfy", "--out", "custom"}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(repo, ".git", "hooks", "post-commit"))
+	if !bytes.Contains(data, []byte("'/opt/bin/gogfy' run --update --out 'custom'")) {
+		t.Fatalf("custom flags not propagated:\n%s", data)
+	}
+}
+
 func TestServeCommandRejectsUnexpectedPositionalArgs(t *testing.T) {
 	err := serveCommand(
 		[]string{"--graph", "/tmp/x.json", "stray-arg"},
