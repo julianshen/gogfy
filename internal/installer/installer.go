@@ -21,6 +21,33 @@ import (
 	"sort"
 )
 
+// Options tunes the gogfy server entry the installer writes. Zero-value is
+// graphify-parity defaults: Bin="gogfy" (resolved via $PATH at agent
+// launch), OutDir="graphify-out".
+type Options struct {
+	// Bin is the executable name or path the agent should launch. Defaults
+	// to "gogfy" so it matches the upstream graphify CLI shape; users can
+	// override with an absolute path when the binary isn't on $PATH.
+	Bin string
+	// OutDir is the workspace-relative directory containing graph.json and
+	// GRAPH_REPORT.md. Must match what `gogfy run --out` produced.
+	OutDir string
+}
+
+func (o Options) bin() string {
+	if o.Bin == "" {
+		return "gogfy"
+	}
+	return o.Bin
+}
+
+func (o Options) outDir() string {
+	if o.OutDir == "" {
+		return "graphify-out"
+	}
+	return o.OutDir
+}
+
 // Installer writes/removes the gogfy MCP entry in one platform's config.
 type Installer interface {
 	// ConfigPath returns the absolute path the installer writes to, given
@@ -28,9 +55,10 @@ type Installer interface {
 	ConfigPath(workspace string) string
 	// Install adds (or refreshes) the gogfy server entry, preserving any
 	// other entries and top-level keys already in the file.
-	Install(workspace string) error
+	Install(workspace string, opts Options) error
 	// Uninstall removes only the gogfy server entry. No-op when the file
-	// does not exist; preserves other servers and top-level keys.
+	// does not exist or has no gogfy entry; preserves other servers and
+	// top-level keys.
 	Uninstall(workspace string) error
 }
 
@@ -67,14 +95,17 @@ func (j jsonInstaller) ConfigPath(workspace string) string {
 	return filepath.Join(workspace, j.relativePath)
 }
 
-func (j jsonInstaller) Install(workspace string) error {
+func (j jsonInstaller) Install(workspace string, opts Options) error {
 	path := j.ConfigPath(workspace)
 	cfg, err := readOrEmpty(path)
 	if err != nil {
 		return err
 	}
-	servers := ensureServersMap(cfg, j.serversKey)
-	servers["gogfy"] = gogfyServerEntry()
+	servers, err := ensureServersMap(cfg, j.serversKey)
+	if err != nil {
+		return err
+	}
+	servers["gogfy"] = gogfyServerEntry(opts)
 	return writeJSON(path, cfg)
 }
 
@@ -87,9 +118,17 @@ func (j jsonInstaller) Uninstall(workspace string) error {
 	if err != nil {
 		return err
 	}
-	servers, _ := cfg[j.serversKey].(map[string]any)
-	if servers == nil {
-		// Nothing to remove; leave the file alone.
+	raw, present := cfg[j.serversKey]
+	if !present {
+		// No servers section at all — nothing to remove, skip the rewrite.
+		return nil
+	}
+	servers, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("uninstall: %s exists in %s but is not a JSON object (%T) — refusing to clobber unknown data", j.serversKey, path, raw)
+	}
+	if _, has := servers["gogfy"]; !has {
+		// Nothing to remove; skip rewrite to preserve mtime/whitespace.
 		return nil
 	}
 	delete(servers, "gogfy")
@@ -120,26 +159,31 @@ func readOrEmpty(path string) (map[string]any, error) {
 }
 
 // ensureServersMap returns cfg[key] as a map[string]any, creating it if
-// missing. The returned map is the same one stored in cfg, so callers can
-// mutate it directly.
-func ensureServersMap(cfg map[string]any, key string) map[string]any {
-	if existing, ok := cfg[key].(map[string]any); ok {
-		return existing
+// missing. Returns an error if cfg[key] exists but isn't a JSON object —
+// silently overwriting unknown data (e.g. a misconfigured string) would
+// destroy user state.
+func ensureServersMap(cfg map[string]any, key string) (map[string]any, error) {
+	raw, present := cfg[key]
+	if !present {
+		m := map[string]any{}
+		cfg[key] = m
+		return m, nil
 	}
-	m := map[string]any{}
-	cfg[key] = m
-	return m
+	if existing, ok := raw.(map[string]any); ok {
+		return existing, nil
+	}
+	return nil, fmt.Errorf("install: %s already exists but is not a JSON object (%T) — refusing to clobber unknown data", key, raw)
 }
 
 // gogfyServerEntry is the canonical gogfy server value shape: command + args
 // wired to the *workspace-relative* graph artifacts. Relative paths survive
 // workspace moves and git checkouts on different machines; every MCP-capable
 // agent we support launches the server with the workspace as cwd.
-func gogfyServerEntry() map[string]any {
-	graph := filepath.Join("graphify-out", "graph.json")
-	report := filepath.Join("graphify-out", "GRAPH_REPORT.md")
+func gogfyServerEntry(opts Options) map[string]any {
+	graph := filepath.Join(opts.outDir(), "graph.json")
+	report := filepath.Join(opts.outDir(), "GRAPH_REPORT.md")
 	return map[string]any{
-		"command": "gogfy",
+		"command": opts.bin(),
 		"args":    []string{"serve", "--graph", graph, "--report", report},
 	}
 }

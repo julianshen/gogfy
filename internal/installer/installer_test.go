@@ -91,7 +91,7 @@ func TestInstallEachPlatformWritesValidConfig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("For(%q): %v", name, err)
 			}
-			if err := inst.Install(ws); err != nil {
+			if err := inst.Install(ws, Options{}); err != nil {
 				t.Fatalf("Install: %v", err)
 			}
 			path := inst.ConfigPath(ws)
@@ -108,10 +108,10 @@ func TestInstallEachPlatformWritesValidConfig(t *testing.T) {
 func TestInstallIsIdempotent(t *testing.T) {
 	ws := t.TempDir()
 	inst, _ := For("claude")
-	if err := inst.Install(ws); err != nil {
+	if err := inst.Install(ws, Options{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := inst.Install(ws); err != nil {
+	if err := inst.Install(ws, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	m := readJSON(t, inst.ConfigPath(ws))
@@ -134,7 +134,7 @@ func TestInstallPreservesExistingMcpServers(t *testing.T) {
 	if err := os.WriteFile(path, existing, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := inst.Install(ws); err != nil {
+	if err := inst.Install(ws, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	m := readJSON(t, path)
@@ -193,7 +193,7 @@ func TestUninstallNoOpWhenConfigMissing(t *testing.T) {
 func TestVSCodeUsesServersKey(t *testing.T) {
 	ws := t.TempDir()
 	inst, _ := For("vscode")
-	if err := inst.Install(ws); err != nil {
+	if err := inst.Install(ws, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := readJSON(t, inst.ConfigPath(ws))
@@ -211,12 +211,100 @@ func TestVSCodeUsesServersKey(t *testing.T) {
 func TestArgsArePathRelative(t *testing.T) {
 	ws := t.TempDir()
 	inst, _ := For("claude")
-	if err := inst.Install(ws); err != nil {
+	if err := inst.Install(ws, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(inst.ConfigPath(ws))
 	if bytes.Contains(data, []byte(ws)) {
 		t.Fatalf("config baked workspace path into args: %s", data)
+	}
+}
+
+// TestInstallHonorsOptionsBinAndOutDir — custom `--gogfy-bin` and `--out`
+// must flow through to the written config.
+func TestInstallHonorsOptionsBinAndOutDir(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("claude")
+	if err := inst.Install(ws, Options{Bin: "/opt/bin/gogfy", OutDir: "custom-out"}); err != nil {
+		t.Fatal(err)
+	}
+	m := readJSON(t, inst.ConfigPath(ws))
+	gogfy := m["mcpServers"].(map[string]any)["gogfy"].(map[string]any)
+	if gogfy["command"] != "/opt/bin/gogfy" {
+		t.Fatalf("custom Bin not honored: %v", gogfy["command"])
+	}
+	args := gogfy["args"].([]any)
+	wantGraph := filepath.Join("custom-out", "graph.json")
+	found := false
+	for _, a := range args {
+		if a == wantGraph {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("custom OutDir not honored: %v", args)
+	}
+}
+
+// TestInstallRejectsNonObjectServersKey — a misconfigured config (where
+// mcpServers is a string or array) must surface an error rather than being
+// silently overwritten.
+func TestInstallRejectsNonObjectServersKey(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("claude")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"mcpServers":"not an object"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{}); err == nil {
+		t.Fatal("expected error when mcpServers is not an object")
+	}
+}
+
+// TestUninstallSkipsWriteWhenNoGogfyEntry — if the config has no gogfy entry
+// to remove, Uninstall must leave the file byte-identical.
+func TestUninstallSkipsWriteWhenNoGogfyEntry(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("claude")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"mcpServers":{"otherserver":{"command":"other"}}}`)
+	if err := os.WriteFile(path, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+	preInfo, _ := os.Stat(path)
+	if err := inst.Uninstall(ws); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(got, original) {
+		t.Fatalf("uninstall rewrote config when no gogfy entry to remove:\nbefore: %s\nafter:  %s", original, got)
+	}
+	postInfo, _ := os.Stat(path)
+	if !preInfo.ModTime().Equal(postInfo.ModTime()) {
+		t.Fatalf("uninstall touched mtime when no gogfy entry to remove")
+	}
+}
+
+// TestUninstallRejectsNonObjectServersKey — like Install, refuse to silently
+// overwrite a misconfigured mcpServers value.
+func TestUninstallRejectsNonObjectServersKey(t *testing.T) {
+	ws := t.TempDir()
+	inst, _ := For("claude")
+	path := inst.ConfigPath(ws)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"mcpServers":42}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Uninstall(ws); err == nil {
+		t.Fatal("expected error when mcpServers is not an object")
 	}
 }
 
@@ -232,7 +320,7 @@ func TestInstallRejectsCorruptExistingConfig(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not json"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := inst.Install(ws); err == nil {
+	if err := inst.Install(ws, Options{}); err == nil {
 		t.Fatal("expected parse error on corrupt config")
 	}
 }
@@ -250,7 +338,7 @@ func TestInstallTreatsEmptyFileAsEmptyConfig(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := inst.Install(ws); err != nil {
+	if err := inst.Install(ws, Options{}); err != nil {
 		t.Fatalf("install on empty file: %v", err)
 	}
 	assertGogfyServerEntry(t, readJSON(t, path), "claude")
@@ -264,7 +352,7 @@ func TestInstallFailsWhenWorkspaceIsReadOnly(t *testing.T) {
 	}
 	defer os.Chmod(ws, 0755)
 	inst, _ := For("claude")
-	if err := inst.Install(ws); err == nil {
+	if err := inst.Install(ws, Options{}); err == nil {
 		t.Fatal("expected error writing to read-only workspace")
 	}
 }
@@ -312,7 +400,7 @@ func TestInstallFailsWhenParentPathIsAFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	inst, _ := For("cursor")
-	if err := inst.Install(ws); err == nil {
+	if err := inst.Install(ws, Options{}); err == nil {
 		t.Fatal("expected MkdirAll error when .cursor is a file")
 	}
 }

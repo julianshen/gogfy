@@ -128,8 +128,13 @@ func installCommand(args []string, remove bool, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	platform := fs.String("platform", "", "target platform: "+strings.Join(installer.SupportedPlatforms(), ", "))
 	workspace := fs.String("workspace", ".", "workspace root (defaults to cwd)")
+	bin := fs.String("gogfy-bin", "gogfy", "path or name of the gogfy binary the agent should launch")
+	outDir := fs.String("out", "graphify-out", "directory containing graph.json / GRAPH_REPORT.md (must match `gogfy run --out`)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("%s: unexpected positional arguments: %v", op, fs.Args())
 	}
 	if *platform == "" {
 		return fmt.Errorf("%s: --platform is required (one of: %s)", op, strings.Join(installer.SupportedPlatforms(), ", "))
@@ -149,7 +154,7 @@ func installCommand(args []string, remove bool, stderr io.Writer) error {
 		fmt.Fprintf(stderr, "gogfy: uninstalled from %s (%s)\n", *platform, inst.ConfigPath(abs))
 		return nil
 	}
-	if err := inst.Install(abs); err != nil {
+	if err := inst.Install(abs, installer.Options{Bin: *bin, OutDir: *outDir}); err != nil {
 		return fmt.Errorf("install %s: %w", *platform, err)
 	}
 	fmt.Fprintf(stderr, "gogfy: installed for %s at %s\n", *platform, inst.ConfigPath(abs))

@@ -414,6 +414,38 @@ func TestDispatchUninstallRemovesEntry(t *testing.T) {
 	}
 }
 
+func TestDispatchInstallRejectsStrayPositional(t *testing.T) {
+	ws := t.TempDir()
+	err := dispatch([]string{"install", "--platform", "claude", "--workspace", ws, "stray"}, os.Stderr)
+	if err == nil {
+		t.Fatal("expected error for stray positional in install")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("unexpected positional")) {
+		t.Fatalf("expected 'unexpected positional' in error, got %v", err)
+	}
+}
+
+func TestDispatchInstallHonorsCustomFlags(t *testing.T) {
+	ws := t.TempDir()
+	err := dispatch([]string{
+		"install",
+		"--platform", "claude",
+		"--workspace", ws,
+		"--gogfy-bin", "/opt/bin/gogfy",
+		"--out", "custom",
+	}, os.Stderr)
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(ws, ".mcp.json"))
+	if !bytes.Contains(data, []byte("/opt/bin/gogfy")) {
+		t.Fatalf("--gogfy-bin not propagated: %s", data)
+	}
+	if !bytes.Contains(data, []byte("custom/graph.json")) {
+		t.Fatalf("--out not propagated: %s", data)
+	}
+}
+
 func TestDispatchInstallRequiresPlatform(t *testing.T) {
 	if err := dispatch([]string{"install"}, os.Stderr); err == nil {
 		t.Fatal("expected error when --platform is missing")
