@@ -273,13 +273,7 @@ func TestDocxExtractorDuplicateHeadingsProduceDistinctIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ids := map[string]bool{}
-	for _, n := range res.Nodes {
-		if n.Label == "Examples" {
-			ids[n.ID] = true
-		}
-	}
-	if len(ids) != 2 {
+	if ids := sectionIDsForLabel(res, "Examples"); len(ids) != 2 {
 		t.Fatalf("two Heading2 'Examples' must produce two distinct IDs, got %d (%v)", len(ids), ids)
 	}
 }

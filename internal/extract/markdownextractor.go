@@ -1,7 +1,6 @@
 package extract
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,9 +76,7 @@ func walkMarkdown(node ast.Node, src []byte, path string, state *extractState) {
 	case *ast.Heading:
 		if n.Level >= 1 && n.Level <= 3 {
 			label := nodeText(node, src)
-			state.sectionSeq++
-			id := schema.LangID("markdown", "section",
-				fmt.Sprintf("%s:h%d:%s", path, state.sectionSeq, slugify(label)))
+			id := nextSectionID(state, "markdown", path, label)
 			state.nodes = append(state.nodes, schema.Node{
 				ID:         id,
 				Label:      label,
