@@ -34,6 +34,7 @@ require (
 require (
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/stadelmanma/tree-sitter-fortran v0.6.0 // indirect
+	github.com/tree-sitter/tree-sitter-elixir v0.0.0-00010101000000-000000000000 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 )
 
@@ -42,3 +43,9 @@ require (
 // `go mod tidy` resolvable. Production code uses the stadelmanma path
 // directly in internal/extract/fortranextractor.go.
 replace github.com/tree-sitter/tree-sitter-fortran => github.com/stadelmanma/tree-sitter-fortran v0.6.0
+
+// elixir-lang/tree-sitter-elixir declares its own module path under
+// "github.com/tree-sitter/tree-sitter-elixir" (a repo that doesn't exist),
+// but ships a working bindings/go. The replace makes the declared path
+// resolvable.
+replace github.com/tree-sitter/tree-sitter-elixir => github.com/elixir-lang/tree-sitter-elixir v0.3.4

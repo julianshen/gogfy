@@ -624,6 +624,8 @@ var supportedExtensions = map[string]extract.Extractor{
 	".f95":    extract.FortranExtractor{},
 	".f03":    extract.FortranExtractor{},
 	".f08":    extract.FortranExtractor{},
+	".ex":     extract.ElixirExtractor{},
+	".exs":    extract.ElixirExtractor{},
 }
 
 func supportedExtensionsList() []string {

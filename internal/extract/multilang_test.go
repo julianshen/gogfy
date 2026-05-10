@@ -72,6 +72,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		OCamlExtractor{},
 		SvelteExtractor{},
 		FortranExtractor{},
+		ElixirExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -674,6 +675,32 @@ func TestSvelteExtractorImports(t *testing.T) {
 			"svelte:import:svelte",
 			"svelte:import:./Button.svelte",
 			"svelte:import:side-effect.css",
+		},
+	})
+}
+
+func TestElixirExtractorBasic(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "elixir basic",
+		filename: "greeter.ex",
+		source: `defmodule MyApp.Greeter do
+  alias MyApp.Util
+  import Logger
+  require Ecto.Query
+
+  def greet(name) do
+    Util.upcase(name)
+  end
+
+  defp internal_helper(x), do: x + 1
+end
+`,
+		extractor: ElixirExtractor{}.Extract,
+		wantNodes: []string{"MyApp.Greeter", "greet", "internal_helper"},
+		wantEdges: []string{
+			"elixir:import:MyApp.Util",
+			"elixir:import:Logger",
+			"elixir:import:Ecto.Query",
 		},
 	})
 }
