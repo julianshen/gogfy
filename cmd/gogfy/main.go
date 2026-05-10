@@ -687,6 +687,8 @@ var supportedExtensions = map[string]extract.Extractor{
 	".exs":    extract.ElixirExtractor{},
 	".dart":   extract.DartExtractor{},
 	".swift":  extract.SwiftExtractor{},
+	".r":      extract.RExtractor{},
+	".R":      extract.RExtractor{},
 	".md":     extract.MarkdownExtractor{},
 	".mdx":    extract.MarkdownExtractor{},
 	".markdown": extract.MarkdownExtractor{},

@@ -76,6 +76,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		ElixirExtractor{},
 		DartExtractor{},
 		SwiftExtractor{},
+		RExtractor{},
 		MarkdownExtractor{},
 		HTMLExtractor{},
 		TextExtractor{},
@@ -1271,6 +1272,299 @@ Third
 	for _, want := range []string{"First", "Second", "Third"} {
 		if !labels[want] {
 			t.Fatalf("missing %q (first-appearance level inference broken): %v", want, labels)
+		}
+	}
+}
+
+func TestRExtractorBasic(t *testing.T) {
+	runExtractorCase(t, extractorCase{
+		name:     "r basic",
+		filename: "analysis.R",
+		source: `library(dplyr)
+require(ggplot2)
+
+#' Add two numbers
+add <- function(x, y) {
+  x + y
+}
+
+multiply <- function(a, b) a * b
+
+result <- add(1, 2)
+multiply(result, 3)
+`,
+		extractor: RExtractor{}.Extract,
+		wantNodes: []string{"analysis.R", "add", "multiply"},
+		wantEdges: []string{
+			"r:import:dplyr",
+			"r:import:ggplot2",
+			"r:call:add",
+			"r:call:multiply",
+		},
+	})
+}
+
+func TestRExtractorStringLiteralAndRequireNamespace(t *testing.T) {
+	// library("pkg") (quoted), require('pkg') (single-quoted), and
+	// requireNamespace("pkg") all need to be recognized as imports.
+	// Quoted forms are common in package-load helpers; requireNamespace
+	// is the lazy-load form widely used inside packages to avoid pulling
+	// dependencies into the user's namespace.
+	runExtractorCase(t, extractorCase{
+		name:     "r quoted + requireNamespace",
+		filename: "load.R",
+		source: `library("data.table")
+require('Matrix')
+requireNamespace("jsonlite")
+`,
+		extractor: RExtractor{}.Extract,
+		wantEdges: []string{
+			"r:import:data.table",
+			"r:import:Matrix",
+			"r:import:jsonlite",
+		},
+	})
+}
+
+func TestRExtractorAlternateAssignmentForms(t *testing.T) {
+	// All three R assignment operators (`<-`, `=`, `<<-`) parse to
+	// binary_operator and must be recognized as function decls when
+	// the rhs is a function_definition. Exercises each form as a decl
+	// site so a future regression that narrowed handling to one
+	// operator would surface here.
+	runExtractorCase(t, extractorCase{
+		name:     "r assignment forms",
+		filename: "ops.R",
+		source: `f_arrow <- function(x) x
+f_eq = function(x) x
+f_super <<- function(x) x
+`,
+		extractor: RExtractor{}.Extract,
+		wantNodes: []string{"f_arrow", "f_eq", "f_super"},
+	})
+}
+
+func TestRExtractorNonFunctionAssignmentsNotEmittedAsDecls(t *testing.T) {
+	// Pin that the binary_operator handler ONLY treats fn-rhs assignments
+	// as decls. A future loosening of the rhs check (e.g. emitting a node
+	// whenever lhs is an identifier) would silently produce phantom
+	// "function" nodes for value bindings.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vals.R")
+	source := `x <- 1
+y <- "hello"
+g <- some_other_fn
+result <- f(2)
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range res.Nodes {
+		switch n.Label {
+		case "x", "y", "g", "result":
+			t.Fatalf("non-function assignment must not produce a decl node: %+v", n)
+		}
+	}
+}
+
+func TestRExtractorNestedFunctionDefinitions(t *testing.T) {
+	// Inner function defs inside a function body must also be emitted as
+	// decls; this pins walkFnScope's recursion through walkR rather than
+	// just the top-level decl path.
+	runExtractorCase(t, extractorCase{
+		name:     "r nested fn",
+		filename: "nested.R",
+		source: `outer <- function() {
+  inner <- function(x) x + 1
+  inner(2)
+}
+`,
+		extractor: RExtractor{}.Extract,
+		wantNodes: []string{"outer", "inner"},
+		wantEdges: []string{"r:call:inner"},
+	})
+}
+
+func TestRExtractorFormulaWithFunctionRhsIsNotADecl(t *testing.T) {
+	// `y ~ function(x) x` parses as binary_operator(y, ~, function_def).
+	// Without an assignment-op gate, the walker would emit "y" as a
+	// phantom function decl. Pin that the formula operator is rejected.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "formula.R")
+	source := `y ~ function(x) x + 1
+real_fn <- function(z) z * 2
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range res.Nodes {
+		if n.Label == "y" {
+			t.Fatalf("formula `y ~ function...` must not produce a 'y' decl: %+v", n)
+		}
+	}
+	// Sanity: the real assignment in the same file still produces a decl.
+	var hasReal bool
+	for _, n := range res.Nodes {
+		if n.Label == "real_fn" {
+			hasReal = true
+		}
+	}
+	if !hasReal {
+		t.Fatalf("real_fn assignment should still produce a decl, got %+v", res.Nodes)
+	}
+}
+
+func TestRExtractorNamespacedAndExtractCalls(t *testing.T) {
+	// Namespace-qualified calls (dplyr::mutate) and $-method calls
+	// (foo$bar) parse with `function` as namespace_operator and
+	// extract_operator respectively. Both must produce call edges
+	// whose target is the rightmost identifier; otherwise R6/dplyr-
+	// style code drops most of its call edges silently.
+	runExtractorCase(t, extractorCase{
+		name:     "r namespace + extract calls",
+		filename: "calls.R",
+		source: `f <- function() {
+  dplyr::mutate(d, x = 1)
+  foo$bar(2)
+  base:::internal_fn(3)
+}
+`,
+		extractor: RExtractor{}.Extract,
+		wantNodes: []string{"f"},
+		wantEdges: []string{
+			"r:call:mutate",
+			"r:call:bar",
+			"r:call:internal_fn",
+		},
+	})
+}
+
+func TestRExtractorLibraryHelpIsNotImport(t *testing.T) {
+	// `library(help = "stats")` is a help lookup, not a package load.
+	// Treating any first-argument string as the package would emit a
+	// spurious "stats" import. Pin that named arguments (other than
+	// `package =`) are skipped.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "help.R")
+	source := `library(help = "stats")
+library(package = "dplyr")
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			imports[e.Target] = true
+		}
+	}
+	if imports["r:import:stats"] {
+		t.Fatalf("library(help=…) must not produce an import: %v", imports)
+	}
+	if !imports["r:import:dplyr"] {
+		t.Fatalf("library(package='dplyr') must still produce an import: %v", imports)
+	}
+}
+
+func TestRExtractorStringQuotedFunctionDecl(t *testing.T) {
+	// S3-method-style assignments using a quoted string LHS (e.g.
+	// `"opname" <- function(x) x`) parse as binary_operator with
+	// lhs=string. Without the string-LHS branch the decl was silently
+	// dropped — the function exists in R but had no node in the graph.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.R")
+	source := `"my_op" <- function(x, y) x + y
+` + "`+.MyClass`" + ` <- function(e1, e2) e1 + e2
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, n := range res.Nodes {
+		labels[n.Label] = true
+	}
+	if !labels["my_op"] {
+		t.Fatalf("string-quoted LHS should produce decl labeled 'my_op' (no quotes), got %v", labels)
+	}
+	// Backticked LHS is parsed as identifier with backticks in the text;
+	// we accept that as a label since it round-trips back to the source.
+	var hasBacktick bool
+	for l := range labels {
+		if strings.Contains(l, "+.MyClass") {
+			hasBacktick = true
+		}
+	}
+	if !hasBacktick {
+		t.Fatalf("backticked LHS should still produce a decl, got %v", labels)
+	}
+}
+
+func TestRExtractorCharacterOnlyDoesNotEmitImport(t *testing.T) {
+	// `library(pkg, character.only = TRUE)` is dynamic loading: the
+	// package name is in the variable `pkg`, not the literal "pkg".
+	// Emitting `pkg` as an import would create a fake dependency and
+	// hide the real one.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dyn.R")
+	source := `pkg_name <- "dplyr"
+library(pkg_name, character.only = TRUE)
+require(other_pkg, character.only = T)
+library(actually_static)
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			imports[e.Target] = true
+		}
+	}
+	for _, bad := range []string{"r:import:pkg_name", "r:import:other_pkg"} {
+		if imports[bad] {
+			t.Fatalf("character.only=TRUE should suppress import %q, got %v", bad, imports)
+		}
+	}
+	if !imports["r:import:actually_static"] {
+		t.Fatalf("static library() should still produce import, got %v", imports)
+	}
+}
+
+func TestRExtractorImportNotEmittedAsCall(t *testing.T) {
+	// library(dplyr) must NOT also emit a call edge to "library" — it's
+	// modeled as a call in the AST but represents an import semantically.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.R")
+	if err := os.WriteFile(path, []byte("library(dplyr)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range res.Edges {
+		if e.Relation == "calls" && e.Target == "r:call:library" {
+			t.Fatalf("library() should not produce a calls edge: %+v", e)
 		}
 	}
 }
