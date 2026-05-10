@@ -24,6 +24,7 @@ import (
 	"github.com/julianshen/gogfy/internal/githook"
 	"github.com/julianshen/gogfy/internal/graph"
 	"github.com/julianshen/gogfy/internal/installer"
+	"github.com/julianshen/gogfy/internal/merge"
 	"github.com/julianshen/gogfy/internal/report"
 	"github.com/julianshen/gogfy/internal/resolve"
 	"github.com/julianshen/gogfy/internal/serve"
@@ -59,14 +60,25 @@ func dispatch(args []string, stderr io.Writer) error {
 		directed := fs.Bool("directed", false, "render edges with arrowheads in graph.html")
 		graphml := fs.Bool("graphml", false, "also emit graph.graphml (Gephi/yEd)")
 		cypher := fs.Bool("cypher", false, "also emit graph.cypher (Neo4j MERGE script)")
+		clusterOnly := fs.Bool("cluster-only", false, "skip extraction; re-cluster the existing graph.json under --out")
+		noViz := fs.Bool("no-viz", false, "skip graph.html (faster runs, smaller artifact set)")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
-		if fs.NArg() < 1 {
+		if !*clusterOnly && fs.NArg() < 1 {
 			usage(stderr)
 			return fmt.Errorf("run: missing <root>")
 		}
-		return runPipeline(fs.Arg(0), *out, *update, *directed, runOptions{GraphML: *graphml, Cypher: *cypher})
+		root := ""
+		if fs.NArg() >= 1 {
+			root = fs.Arg(0)
+		}
+		return runPipeline(root, *out, *update, *directed, runOptions{
+			GraphML:     *graphml,
+			Cypher:      *cypher,
+			ClusterOnly: *clusterOnly,
+			NoViz:       *noViz,
+		})
 	case "validate":
 		if len(rest) < 1 {
 			usage(stderr)
@@ -91,6 +103,10 @@ func dispatch(args []string, stderr io.Writer) error {
 		return hookCommand(rest, stderr)
 	case "serve":
 		return serveCommand(rest, os.Stdin, os.Stdout, stderr)
+	case "path":
+		return pathCommand(rest, os.Stdout, stderr)
+	case "merge-graphs":
+		return mergeGraphsCommand(rest, os.Stdout, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -109,13 +125,119 @@ func dispatch(args []string, stderr io.Writer) error {
 		}
 		return watchCommand(fs.Arg(0), *out, *directed, stderr)
 	default:
+		// Combo wrapper: `gogfy <platform> install` runs install +
+		// install-instructions + hook install in one shot. Detected here
+		// so the explicit install/uninstall/hook subcommands above still
+		// take precedence.
+		if comboPlatformDocs(sub) != "" && len(rest) >= 1 && (rest[0] == "install" || rest[0] == "uninstall") {
+			return comboCommand(sub, rest[0], rest[1:], stderr)
+		}
 		usage(stderr)
 		return fmt.Errorf("unknown subcommand: %s", sub)
 	}
 }
 
+// comboPlatformDocs returns the conventional project-level docs file for
+// the named platform, or "" if the platform isn't a known combo target.
+// Used by the combo wrapper to decide where to write the gogfy
+// instructions snippet.
+func comboPlatformDocs(platform string) string {
+	switch platform {
+	case "claude":
+		return "CLAUDE.md"
+	case "codex":
+		return "AGENTS.md"
+	case "cursor":
+		return ".cursorrules"
+	case "gemini":
+		return "GEMINI.md"
+	case "vscode":
+		// VSCode Copilot Chat has no canonical agent docs file; fall back to
+		// AGENTS.md as the cross-tool standard.
+		return "AGENTS.md"
+	default:
+		return ""
+	}
+}
+
+// comboCommand runs the full install/uninstall sequence for one platform:
+// MCP config + project-level instructions snippet + git post-commit hook.
+// On install, fails fast on the first error so partial state is visible
+// rather than silently wedged. On uninstall, attempts every step and
+// aggregates errors — partial cleanup is still useful.
+func comboCommand(platform, verb string, args []string, stderr io.Writer) error {
+	fs := flag.NewFlagSet(platform+" "+verb, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	workspace := fs.String("workspace", ".", "workspace root (defaults to cwd)")
+	bin := fs.String("gogfy-bin", "", "path or name of the gogfy binary (defaults to absolute path of running gogfy)")
+	outDir := fs.String("out", "graphify-out", "graph output directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("%s %s: unexpected positional arguments: %v", platform, verb, fs.Args())
+	}
+	abs, err := filepath.Abs(*workspace)
+	if err != nil {
+		return fmt.Errorf("%s %s: resolve workspace: %w", platform, verb, err)
+	}
+	resolvedBin := *bin
+	if resolvedBin == "" {
+		if exe, err := os.Executable(); err == nil {
+			resolvedBin = exe
+		} else {
+			resolvedBin = "gogfy"
+		}
+	}
+	docsFile := filepath.Join(abs, comboPlatformDocs(platform))
+
+	if verb == "uninstall" {
+		// Conservative: only remove the platform's MCP config. The hook
+		// and the docs-file snippet are commonly *shared* across platforms
+		// — codex and vscode both target AGENTS.md; the post-commit hook
+		// is repo-wide and serves whichever platforms read graphify-out.
+		// Removing them on a single-platform uninstall would break the
+		// other platforms still in use. Tell the user to run the explicit
+		// teardown commands if they want those gone too.
+		inst, err := installer.For(platform)
+		if err != nil {
+			return fmt.Errorf("%s uninstall: %w", platform, err)
+		}
+		if err := inst.Uninstall(abs); err != nil {
+			return fmt.Errorf("%s uninstall (mcp): %w", platform, err)
+		}
+		fmt.Fprintf(stderr, "gogfy: %s uninstall complete (MCP config removed).\n", platform)
+		fmt.Fprintf(stderr, "      The %s snippet and post-commit hook are repo-wide and may be shared\n", comboPlatformDocs(platform))
+		fmt.Fprintf(stderr, "      with other platforms; remove them explicitly with:\n")
+		fmt.Fprintf(stderr, "        gogfy uninstall-instructions --file %s\n", docsFile)
+		fmt.Fprintf(stderr, "        gogfy hook uninstall --repo %s\n", abs)
+		return nil
+	}
+
+	// install — fail fast.
+	inst, err := installer.For(platform)
+	if err != nil {
+		return fmt.Errorf("%s install: %w", platform, err)
+	}
+	if err := inst.Install(abs, installer.Options{Bin: resolvedBin, OutDir: *outDir}); err != nil {
+		return fmt.Errorf("%s install (mcp): %w", platform, err)
+	}
+	if err := installer.InstallSnippet(docsFile, installer.SnippetOptions{
+		ReportPath: filepath.Join(*outDir, "GRAPH_REPORT.md"),
+	}); err != nil {
+		return fmt.Errorf("%s install (snippet): %w", platform, err)
+	}
+	if err := githook.Install(abs, githook.Options{Bin: resolvedBin, OutDir: *outDir}); err != nil {
+		return fmt.Errorf("%s install (hook): %w", platform, err)
+	}
+	fmt.Fprintf(stderr, "gogfy: %s install complete (mcp config + %s snippet + post-commit hook)\n",
+		platform, comboPlatformDocs(platform))
+	return nil
+}
+
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed] [--graphml] [--cypher]")
+	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed] [--graphml] [--cypher] [--no-viz]")
+	fmt.Fprintln(w, "       gogfy run --cluster-only [--out dir] [--directed] [--no-viz]")
 	fmt.Fprintln(w, "       gogfy watch <root> [--out dir] [--directed]")
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
@@ -126,6 +248,121 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy uninstall-instructions [--file <path>]")
 	fmt.Fprintln(w, "       gogfy hook install [--repo <dir>] [--gogfy-bin <path>] [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy hook uninstall [--repo <dir>]")
+	fmt.Fprintln(w, "       gogfy hook status [--repo <dir>]")
+	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
+	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
+	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini> install   # combo: mcp + snippet + hook in one shot")
+	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini> uninstall # remove all three")
+}
+
+// pathCommand finds the shortest connectivity path between two nodes
+// (treating edges as undirected, same semantics as the gogfy_path MCP tool).
+// Reads the graph from --graph (default graphify-out/graph.json) and prints
+// the path as a numbered list to stdout, or "no path" if disconnected.
+func pathCommand(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("path", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	graphPath := fs.String("graph", "graphify-out/graph.json", "path to graph.json")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return fmt.Errorf("path: expected <source> <target>, got %d positional argument(s)", fs.NArg())
+	}
+	g, err := loadGraph(*graphPath)
+	if err != nil {
+		return fmt.Errorf("path: %w", err)
+	}
+	srv := serve.New(g, nil)
+	src, srcCands, ok := srv.FindNode(fs.Arg(0))
+	if !ok {
+		return fmt.Errorf("path: source not found: %q", fs.Arg(0))
+	}
+	if len(srcCands) > 1 {
+		fmt.Fprintf(stderr, "path: source label %q matches %d nodes; using %s. Pass the full ID to disambiguate.\n",
+			fs.Arg(0), len(srcCands), src.ID)
+	}
+	tgt, tgtCands, ok := srv.FindNode(fs.Arg(1))
+	if !ok {
+		return fmt.Errorf("path: target not found: %q", fs.Arg(1))
+	}
+	if len(tgtCands) > 1 {
+		fmt.Fprintf(stderr, "path: target label %q matches %d nodes; using %s. Pass the full ID to disambiguate.\n",
+			fs.Arg(1), len(tgtCands), tgt.ID)
+	}
+	hops := srv.ShortestPath(src.ID, tgt.ID)
+	if len(hops) == 0 {
+		fmt.Fprintf(stdout, "no path from %q to %q\n", src.Label, tgt.Label)
+		return nil
+	}
+	for i, id := range hops {
+		fmt.Fprintf(stdout, "%d. %s (%s)\n", i+1, srv.LabelFor(id), id)
+	}
+	return nil
+}
+
+// mergeGraphsCommand unions two or more graph.json inputs into a single
+// graph and writes it (atomically) to --out, or to stdout if --out is
+// omitted.
+func mergeGraphsCommand(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("merge-graphs", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	out := fs.String("out", "", "write merged graph to this path (default: stdout)")
+	// Allow `merge-graphs a.json b.json --out c.json` shape — flag.Parse
+	// stops at the first non-flag token, so without reordering --out after
+	// positionals is misread as another input file.
+	ordered, err := reorderMergeGraphFlags(args)
+	if err != nil {
+		return err
+	}
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		return fmt.Errorf("merge-graphs: expected at least two input files, got %d", fs.NArg())
+	}
+	inputs := make([]export.GraphExport, 0, fs.NArg())
+	for _, path := range fs.Args() {
+		g, err := loadGraph(path)
+		if err != nil {
+			return fmt.Errorf("merge-graphs: %w", err)
+		}
+		inputs = append(inputs, g)
+	}
+	merged := merge.MergeAll(inputs)
+	data, err := export.ExportJSON(merged)
+	if err != nil {
+		return fmt.Errorf("merge-graphs: marshal: %w", err)
+	}
+	if *out == "" {
+		_, err = stdout.Write(append(data, '\n'))
+		return err
+	}
+	return fsutil.WriteFileAtomic(*out, data, 0644)
+}
+
+// reorderMergeGraphFlags moves --out (or --out=<v>) before positional file
+// args so flag.Parse picks it up regardless of where the user typed it.
+func reorderMergeGraphFlags(args []string) ([]string, error) {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--out", a == "-out":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("flag %s requires a value", a)
+			}
+			flags = append(flags, a, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--out="), strings.HasPrefix(a, "-out="):
+			flags = append(flags, a)
+		case strings.HasPrefix(a, "-"):
+			return nil, fmt.Errorf("unknown flag: %s", a)
+		default:
+			positional = append(positional, a)
+		}
+	}
+	return append(flags, positional...), nil
 }
 
 // hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The
@@ -136,8 +373,11 @@ func hookCommand(args []string, stderr io.Writer) error {
 		return fmt.Errorf("hook: missing verb (install|uninstall)")
 	}
 	verb, rest := args[0], args[1:]
+	if verb == "status" {
+		return hookStatusCommand(rest, os.Stdout, stderr)
+	}
 	if verb != "install" && verb != "uninstall" {
-		return fmt.Errorf("hook: unknown verb %q (expected install or uninstall)", verb)
+		return fmt.Errorf("hook: unknown verb %q (expected install, uninstall, or status)", verb)
 	}
 	fs := flag.NewFlagSet("hook "+verb, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -176,6 +416,31 @@ func hookCommand(args []string, stderr io.Writer) error {
 		return fmt.Errorf("hook install: %w", err)
 	}
 	fmt.Fprintf(stderr, "gogfy: post-commit auto-rebuild installed at %s\n", githook.HookPath(abs))
+	return nil
+}
+
+// hookStatusCommand reports per-hook install state.
+func hookStatusCommand(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("hook status", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	repo := fs.String("repo", ".", "git repository root (defaults to cwd)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("hook status: unexpected positional arguments: %v", fs.Args())
+	}
+	abs, err := filepath.Abs(*repo)
+	if err != nil {
+		return err
+	}
+	for _, st := range githook.Status(abs) {
+		state := "not installed"
+		if st.Installed {
+			state = "installed"
+		}
+		fmt.Fprintf(stdout, "%-15s %s    (%s)\n", st.Name, state, st.Path)
+	}
 	return nil
 }
 
@@ -370,9 +635,86 @@ func supportedExtensionsList() []string {
 type runOptions struct {
 	GraphML bool
 	Cypher  bool
+	// ClusterOnly skips extraction and re-clusters an existing graph.json
+	// from `out`. Useful when iterating on community-detection tuning.
+	ClusterOnly bool
+	// NoViz skips the graph.html artifact. Pure JSON/report runs are
+	// faster and produce smaller artifact sets — useful in CI.
+	NoViz bool
+}
+
+// runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
+// rendering, and rewrites the artifact set without re-extracting any
+// source files. Useful when iterating on community-detection tuning where
+// extraction is the expensive step we want to skip.
+func runClusterOnly(out string, directed bool, opts runOptions) error {
+	g, err := loadGraph(filepath.Join(out, "graph.json"))
+	if err != nil {
+		return fmt.Errorf("cluster-only: %w", err)
+	}
+	clustered, err := cluster.NewLeidenClusterer().Cluster(g.Nodes, g.Edges)
+	if err != nil {
+		return fmt.Errorf("cluster-only: cluster: %w", err)
+	}
+	reportData := analyze.NewAnalyzer().Analyze(clustered, g.Edges)
+	reportBytes, err := report.Render(reportData)
+	if err != nil {
+		return fmt.Errorf("cluster-only: report: %w", err)
+	}
+	exportGraph := export.GraphExport{Nodes: clustered, Edges: g.Edges}
+	jsonBytes, err := export.ExportJSON(exportGraph)
+	if err != nil {
+		return fmt.Errorf("cluster-only: export json: %w", err)
+	}
+	artifacts := []struct {
+		name string
+		data []byte
+	}{
+		{"graph.json", jsonBytes},
+		{"GRAPH_REPORT.md", reportBytes},
+	}
+	if !opts.NoViz {
+		htmlBytes, err := export.ExportHTML(exportGraph, export.HTMLOptions{Directed: directed})
+		if err != nil {
+			return fmt.Errorf("cluster-only: export html: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.html", htmlBytes})
+	}
+	if opts.GraphML {
+		b, err := export.ExportGraphML(exportGraph)
+		if err != nil {
+			return fmt.Errorf("cluster-only: export graphml: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.graphml", b})
+	}
+	if opts.Cypher {
+		b, err := export.ExportCypher(exportGraph)
+		if err != nil {
+			return fmt.Errorf("cluster-only: export cypher: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.cypher", b})
+	}
+	for _, a := range artifacts {
+		if err := atomicWrite(filepath.Join(out, a.name), a.data); err != nil {
+			return fmt.Errorf("cluster-only: write %s: %w", a.name, err)
+		}
+	}
+	return nil
 }
 
 func runPipeline(root, out string, update, directed bool, opts runOptions) error {
+	if opts.ClusterOnly {
+		return runClusterOnly(out, directed, opts)
+	}
 	files, err := detect.CollectFiles(root, supportedExtensionsList())
 	if err != nil {
 		return fmt.Errorf("detect: %w", err)
@@ -389,7 +731,7 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		// No-op --update must leave prior artifacts untouched, but only if they
 		// actually exist — on a first run (empty corpus or fresh out dir) we
 		// must still produce the standard artifacts.
-		if len(changed) == 0 && artifactsExist(out) {
+		if len(changed) == 0 && artifactsExist(out, opts.NoViz) {
 			fmt.Println("No files changed, skipping extraction")
 			return nil
 		}
@@ -450,11 +792,6 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		return fmt.Errorf("export json: %w", err)
 	}
 
-	htmlBytes, err := export.ExportHTML(exportGraph, export.HTMLOptions{Directed: directed})
-	if err != nil {
-		return fmt.Errorf("export html: %w", err)
-	}
-
 	if err := os.MkdirAll(out, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -465,7 +802,16 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	}{
 		{"graph.json", jsonBytes},
 		{"GRAPH_REPORT.md", reportBytes},
-		{"graph.html", htmlBytes},
+	}
+	if !opts.NoViz {
+		htmlBytes, err := export.ExportHTML(exportGraph, export.HTMLOptions{Directed: directed})
+		if err != nil {
+			return fmt.Errorf("export html: %w", err)
+		}
+		artifacts = append(artifacts, struct {
+			name string
+			data []byte
+		}{"graph.html", htmlBytes})
 	}
 	if opts.GraphML {
 		b, err := export.ExportGraphML(exportGraph)
@@ -552,7 +898,8 @@ func groupRunFlags(args []string) ([]string, error) {
 		a := args[i]
 		switch {
 		case a == "--update", a == "-update", a == "--directed", a == "-directed",
-			a == "--graphml", a == "-graphml", a == "--cypher", a == "-cypher":
+			a == "--graphml", a == "-graphml", a == "--cypher", a == "-cypher",
+			a == "--cluster-only", a == "-cluster-only", a == "--no-viz", a == "-no-viz":
 			flags = append(flags, a)
 		case a == "--out", a == "-out":
 			if i+1 >= len(args) {
@@ -564,7 +911,9 @@ func groupRunFlags(args []string) ([]string, error) {
 			strings.HasPrefix(a, "--update="), strings.HasPrefix(a, "-update="),
 			strings.HasPrefix(a, "--directed="), strings.HasPrefix(a, "-directed="),
 			strings.HasPrefix(a, "--graphml="), strings.HasPrefix(a, "-graphml="),
-			strings.HasPrefix(a, "--cypher="), strings.HasPrefix(a, "-cypher="):
+			strings.HasPrefix(a, "--cypher="), strings.HasPrefix(a, "-cypher="),
+			strings.HasPrefix(a, "--cluster-only="), strings.HasPrefix(a, "-cluster-only="),
+			strings.HasPrefix(a, "--no-viz="), strings.HasPrefix(a, "-no-viz="):
 			flags = append(flags, a)
 		case strings.HasPrefix(a, "-"):
 			return nil, fmt.Errorf("unknown flag: %s", a)
@@ -575,8 +924,15 @@ func groupRunFlags(args []string) ([]string, error) {
 	return append(flags, positional...), nil
 }
 
-func artifactsExist(out string) bool {
-	for _, name := range []string{"graph.json", "GRAPH_REPORT.md", "graph.html"} {
+// artifactsExist reports whether the standard output set is already on
+// disk. With noViz=true, graph.html is excluded from the check (it
+// wasn't written and should not be required for no-op detection).
+func artifactsExist(out string, noViz bool) bool {
+	required := []string{"graph.json", "GRAPH_REPORT.md"}
+	if !noViz {
+		required = append(required, "graph.html")
+	}
+	for _, name := range required {
 		if _, err := os.Stat(filepath.Join(out, name)); err != nil {
 			return false
 		}

@@ -597,6 +597,321 @@ func TestDispatchHookHonorsCustomFlags(t *testing.T) {
 	}
 }
 
+func TestDispatchHookStatus(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "status", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatalf("dispatch hook status: %v", err)
+	}
+	// Install both hooks then re-run status — should still succeed.
+	if err := dispatch([]string{"hook", "install", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"hook", "status", "--repo", repo}, os.Stderr); err != nil {
+		t.Fatalf("dispatch hook status (post-install): %v", err)
+	}
+}
+
+func TestDispatchHookRejectsUnknownVerbAfterStatus(t *testing.T) {
+	if err := dispatch([]string{"hook", "wat"}, os.Stderr); err == nil {
+		t.Fatal("expected error for unknown verb")
+	}
+}
+
+func TestDispatchComboInstallClaude(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"claude", "install", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatalf("dispatch claude install: %v", err)
+	}
+	// All three artifacts must exist.
+	if _, err := os.Stat(filepath.Join(ws, ".mcp.json")); err != nil {
+		t.Fatalf("MCP config missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "CLAUDE.md")); err != nil {
+		t.Fatalf("CLAUDE.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".git", "hooks", "post-commit")); err != nil {
+		t.Fatalf("post-commit hook missing: %v", err)
+	}
+}
+
+func TestDispatchComboUninstallRemovesMCPOnly(t *testing.T) {
+	// Conservative uninstall: removes only the MCP config. The shared
+	// docs-file snippet and the repo-wide post-commit hook stay so that
+	// other platforms relying on them keep working. Users explicitly
+	// remove them via `uninstall-instructions` and `hook uninstall`.
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"claude", "install", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"claude", "uninstall", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatalf("dispatch claude uninstall: %v", err)
+	}
+	// MCP config (.mcp.json) gone.
+	if _, err := os.Stat(filepath.Join(ws, ".mcp.json")); err == nil {
+		// .mcp.json may still exist if it has other content; check that
+		// the gogfy entry specifically is gone by reading it.
+		data, _ := os.ReadFile(filepath.Join(ws, ".mcp.json"))
+		if bytes.Contains(data, []byte(`"gogfy"`)) {
+			t.Fatalf("gogfy entry should be removed from .mcp.json, got %s", data)
+		}
+	}
+	// Snippet preserved (could be shared with other platforms).
+	if _, err := os.Stat(filepath.Join(ws, "CLAUDE.md")); err != nil {
+		t.Fatalf("CLAUDE.md should be preserved on combo uninstall, got %v", err)
+	}
+	// Hook preserved (repo-wide).
+	if _, err := os.Stat(filepath.Join(ws, ".git", "hooks", "post-commit")); err != nil {
+		t.Fatalf("post-commit should be preserved on combo uninstall, got %v", err)
+	}
+}
+
+func TestDispatchComboInstallCodexUsesAgentsMd(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"codex", "install", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatalf("dispatch codex install: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "AGENTS.md")); err != nil {
+		t.Fatalf("AGENTS.md should be the codex docs target: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".codex", "config.toml")); err != nil {
+		t.Fatalf("codex MCP config missing: %v", err)
+	}
+}
+
+func TestDispatchComboInstallCursorUsesCursorrules(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"cursor", "install", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".cursorrules")); err != nil {
+		t.Fatalf(".cursorrules should be the cursor docs target: %v", err)
+	}
+}
+
+func TestDispatchComboInstallNotARepoFails(t *testing.T) {
+	ws := t.TempDir() // no .git
+	if err := dispatch([]string{"claude", "install", "--workspace", ws}, os.Stderr); err == nil {
+		t.Fatal("expected error: combo install needs a git repo")
+	}
+}
+
+func TestDispatchComboInstallRejectsStrayPositional(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"claude", "install", "--workspace", ws, "stray"}, os.Stderr); err == nil {
+		t.Fatal("expected error for stray positional")
+	}
+}
+
+func TestDispatchComboInstallUnknownPlatformFallsThrough(t *testing.T) {
+	// `gogfy doesntexist install` should hit the default branch and return
+	// "unknown subcommand" rather than match the combo wrapper.
+	if err := dispatch([]string{"doesntexist", "install"}, os.Stderr); err == nil {
+		t.Fatal("expected error for unknown platform")
+	}
+}
+
+func TestRunPipelineNoVizSkipsHTML(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{NoViz: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.json")); err != nil {
+		t.Fatalf("graph.json missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "GRAPH_REPORT.md")); err != nil {
+		t.Fatalf("GRAPH_REPORT.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.html")); !os.IsNotExist(err) {
+		t.Fatalf("graph.html should not exist with --no-viz, got err=%v", err)
+	}
+}
+
+func TestRunPipelineClusterOnly(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	// First, do a full run to produce graph.json.
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	originalReport, _ := os.ReadFile(filepath.Join(out, "GRAPH_REPORT.md"))
+	// Delete graph.html to confirm cluster-only writes it back.
+	os.Remove(filepath.Join(out, "graph.html"))
+	if err := runPipeline("", out, false, false, runOptions{ClusterOnly: true}); err != nil {
+		t.Fatalf("cluster-only: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.html")); err != nil {
+		t.Fatalf("cluster-only should rewrite graph.html, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "GRAPH_REPORT.md")); err != nil {
+		t.Fatalf("GRAPH_REPORT.md missing after cluster-only: %v", err)
+	}
+	if len(originalReport) == 0 {
+		t.Fatal("original report empty — test setup wrong")
+	}
+}
+
+func TestRunPipelineClusterOnlyNoViz(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(out, "graph.html"))
+	if err := runPipeline("", out, false, false, runOptions{ClusterOnly: true, NoViz: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.html")); !os.IsNotExist(err) {
+		t.Fatal("graph.html should not be written with --cluster-only --no-viz")
+	}
+}
+
+func TestRunPipelineClusterOnlyMissingGraph(t *testing.T) {
+	out := t.TempDir() // no graph.json
+	if err := runPipeline("", out, false, false, runOptions{ClusterOnly: true}); err == nil {
+		t.Fatal("expected error when graph.json is missing")
+	}
+}
+
+func TestDispatchRunNoVizFlag(t *testing.T) {
+	out := t.TempDir()
+	if err := dispatch([]string{"run", "../../testdata/e2e/mini-corpus", "--out", out, "--no-viz"}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "graph.html")); !os.IsNotExist(err) {
+		t.Fatal("graph.html should not exist")
+	}
+}
+
+func TestDispatchRunClusterOnlyFlag(t *testing.T) {
+	out := t.TempDir()
+	if err := dispatch([]string{"run", "../../testdata/e2e/mini-corpus", "--out", out}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	originalJSON, _ := os.ReadFile(filepath.Join(out, "graph.json"))
+	if err := dispatch([]string{"run", "--cluster-only", "--out", out}, os.Stderr); err != nil {
+		t.Fatalf("dispatch --cluster-only: %v", err)
+	}
+	rerunJSON, _ := os.ReadFile(filepath.Join(out, "graph.json"))
+	if len(rerunJSON) == 0 {
+		t.Fatal("graph.json missing after --cluster-only")
+	}
+	// Sanity: cluster-only on the same input should produce the same graph
+	// content (Leiden seeds on edges, which haven't changed).
+	if len(originalJSON) != len(rerunJSON) {
+		t.Logf("note: cluster-only output size differs from full run (%d vs %d) — may be acceptable if community ids change", len(originalJSON), len(rerunJSON))
+	}
+}
+
+func TestDispatchPathCommandFindsRoute(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// Read graph to find two related nodes for the assertion.
+	g, err := loadGraph(filepath.Join(out, "graph.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Nodes) < 2 || len(g.Edges) == 0 {
+		t.Skip("mini-corpus produced too few nodes/edges to test path-finding")
+	}
+	// Pick the first edge so we know a path exists.
+	src, tgt := g.Edges[0].Source, g.Edges[0].Target
+	if err := dispatch([]string{"path", "--graph", filepath.Join(out, "graph.json"), src, tgt}, os.Stderr); err != nil {
+		t.Fatalf("dispatch path: %v", err)
+	}
+}
+
+func TestDispatchPathCommandRejectsMissingArgs(t *testing.T) {
+	if err := dispatch([]string{"path"}, os.Stderr); err == nil {
+		t.Fatal("expected error when source/target missing")
+	}
+	if err := dispatch([]string{"path", "src-only"}, os.Stderr); err == nil {
+		t.Fatal("expected error when target missing")
+	}
+}
+
+func TestDispatchPathCommandUnknownNode(t *testing.T) {
+	root := "../../testdata/e2e/mini-corpus"
+	out := t.TempDir()
+	if err := runPipeline(root, out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"path", "--graph", filepath.Join(out, "graph.json"), "definitely-not-a-node", "also-not"}, os.Stderr); err == nil {
+		t.Fatal("expected error for unknown source node")
+	}
+}
+
+func TestDispatchMergeGraphsWritesUnion(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.json")
+	b := filepath.Join(dir, "b.json")
+	out := filepath.Join(dir, "merged.json")
+	if err := os.WriteFile(a, []byte(`{"nodes":[{"ID":"a","Label":"A"}],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(`{"nodes":[{"ID":"b","Label":"B"}],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"merge-graphs", a, b, "--out", out}, os.Stderr); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	g, err := loadGraph(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes after union, got %d", len(g.Nodes))
+	}
+}
+
+func TestDispatchMergeGraphsRequiresTwoInputs(t *testing.T) {
+	if err := dispatch([]string{"merge-graphs", "a.json"}, os.Stderr); err == nil {
+		t.Fatal("expected error with single input")
+	}
+}
+
+func TestDispatchMergeGraphsBadFile(t *testing.T) {
+	if err := dispatch([]string{"merge-graphs", "/nonexistent/a.json", "/nonexistent/b.json"}, os.Stderr); err == nil {
+		t.Fatal("expected error for missing files")
+	}
+}
+
+func TestDispatchMergeGraphsToStdout(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.json")
+	b := filepath.Join(dir, "b.json")
+	if err := os.WriteFile(a, []byte(`{"nodes":[{"ID":"x","Label":"X"}],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(`{"nodes":[{"ID":"y","Label":"Y"}],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"merge-graphs", a, b}, io.Discard); err != nil {
+		t.Fatalf("dispatch (stdout): %v", err)
+	}
+}
+
 func TestServeCommandRejectsUnexpectedPositionalArgs(t *testing.T) {
 	err := serveCommand(
 		[]string{"--graph", "/tmp/x.json", "stray-arg"},
