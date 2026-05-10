@@ -1389,6 +1389,95 @@ func TestRExtractorNestedFunctionDefinitions(t *testing.T) {
 	})
 }
 
+func TestRExtractorFormulaWithFunctionRhsIsNotADecl(t *testing.T) {
+	// `y ~ function(x) x` parses as binary_operator(y, ~, function_def).
+	// Without an assignment-op gate, the walker would emit "y" as a
+	// phantom function decl. Pin that the formula operator is rejected.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "formula.R")
+	source := `y ~ function(x) x + 1
+real_fn <- function(z) z * 2
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range res.Nodes {
+		if n.Label == "y" {
+			t.Fatalf("formula `y ~ function...` must not produce a 'y' decl: %+v", n)
+		}
+	}
+	// Sanity: the real assignment in the same file still produces a decl.
+	var hasReal bool
+	for _, n := range res.Nodes {
+		if n.Label == "real_fn" {
+			hasReal = true
+		}
+	}
+	if !hasReal {
+		t.Fatalf("real_fn assignment should still produce a decl, got %+v", res.Nodes)
+	}
+}
+
+func TestRExtractorNamespacedAndExtractCalls(t *testing.T) {
+	// Namespace-qualified calls (dplyr::mutate) and $-method calls
+	// (foo$bar) parse with `function` as namespace_operator and
+	// extract_operator respectively. Both must produce call edges
+	// whose target is the rightmost identifier; otherwise R6/dplyr-
+	// style code drops most of its call edges silently.
+	runExtractorCase(t, extractorCase{
+		name:     "r namespace + extract calls",
+		filename: "calls.R",
+		source: `f <- function() {
+  dplyr::mutate(d, x = 1)
+  foo$bar(2)
+  base:::internal_fn(3)
+}
+`,
+		extractor: RExtractor{}.Extract,
+		wantNodes: []string{"f"},
+		wantEdges: []string{
+			"r:call:mutate",
+			"r:call:bar",
+			"r:call:internal_fn",
+		},
+	})
+}
+
+func TestRExtractorLibraryHelpIsNotImport(t *testing.T) {
+	// `library(help = "stats")` is a help lookup, not a package load.
+	// Treating any first-argument string as the package would emit a
+	// spurious "stats" import. Pin that named arguments (other than
+	// `package =`) are skipped.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "help.R")
+	source := `library(help = "stats")
+library(package = "dplyr")
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			imports[e.Target] = true
+		}
+	}
+	if imports["r:import:stats"] {
+		t.Fatalf("library(help=…) must not produce an import: %v", imports)
+	}
+	if !imports["r:import:dplyr"] {
+		t.Fatalf("library(package='dplyr') must still produce an import: %v", imports)
+	}
+}
+
 func TestRExtractorImportNotEmittedAsCall(t *testing.T) {
 	// library(dplyr) must NOT also emit a call edge to "library" — it's
 	// modeled as a call in the AST but represents an import semantically.
