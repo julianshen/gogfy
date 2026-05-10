@@ -382,6 +382,76 @@ func TestServeCommandTolerantOfMissingReport(t *testing.T) {
 	}
 }
 
+func TestDispatchInstallSubcommandWritesConfig(t *testing.T) {
+	ws := t.TempDir()
+	if err := dispatch([]string{"install", "--platform", "claude", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatalf("dispatch install: %v", err)
+	}
+	expected := filepath.Join(ws, ".mcp.json")
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("config not written at %s: %v", expected, err)
+	}
+}
+
+func TestDispatchInstallRejectsUnknownPlatform(t *testing.T) {
+	ws := t.TempDir()
+	if err := dispatch([]string{"install", "--platform", "definitely-not-real", "--workspace", ws}, os.Stderr); err == nil {
+		t.Fatal("expected error for unknown platform")
+	}
+}
+
+func TestDispatchUninstallRemovesEntry(t *testing.T) {
+	ws := t.TempDir()
+	if err := dispatch([]string{"install", "--platform", "claude", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch([]string{"uninstall", "--platform", "claude", "--workspace", ws}, os.Stderr); err != nil {
+		t.Fatalf("dispatch uninstall: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(ws, ".mcp.json"))
+	if bytes.Contains(data, []byte("gogfy")) {
+		t.Fatalf("gogfy entry still present after uninstall: %s", data)
+	}
+}
+
+func TestDispatchInstallRejectsStrayPositional(t *testing.T) {
+	ws := t.TempDir()
+	err := dispatch([]string{"install", "--platform", "claude", "--workspace", ws, "stray"}, os.Stderr)
+	if err == nil {
+		t.Fatal("expected error for stray positional in install")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("unexpected positional")) {
+		t.Fatalf("expected 'unexpected positional' in error, got %v", err)
+	}
+}
+
+func TestDispatchInstallHonorsCustomFlags(t *testing.T) {
+	ws := t.TempDir()
+	err := dispatch([]string{
+		"install",
+		"--platform", "claude",
+		"--workspace", ws,
+		"--gogfy-bin", "/opt/bin/gogfy",
+		"--out", "custom",
+	}, os.Stderr)
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(ws, ".mcp.json"))
+	if !bytes.Contains(data, []byte("/opt/bin/gogfy")) {
+		t.Fatalf("--gogfy-bin not propagated: %s", data)
+	}
+	if !bytes.Contains(data, []byte("custom/graph.json")) {
+		t.Fatalf("--out not propagated: %s", data)
+	}
+}
+
+func TestDispatchInstallRequiresPlatform(t *testing.T) {
+	if err := dispatch([]string{"install"}, os.Stderr); err == nil {
+		t.Fatal("expected error when --platform is missing")
+	}
+}
+
 func TestServeCommandRejectsUnexpectedPositionalArgs(t *testing.T) {
 	err := serveCommand(
 		[]string{"--graph", "/tmp/x.json", "stray-arg"},
