@@ -382,6 +382,21 @@ func TestServeCommandTolerantOfMissingReport(t *testing.T) {
 	}
 }
 
+func TestServeCommandRejectsUnexpectedPositionalArgs(t *testing.T) {
+	err := serveCommand(
+		[]string{"--graph", "/tmp/x.json", "stray-arg"},
+		bytes.NewBuffer(nil),
+		io.Discard,
+		os.Stderr,
+	)
+	if err == nil {
+		t.Fatal("expected error for stray positional argument")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("unexpected positional")) {
+		t.Fatalf("expected 'unexpected positional' in error, got %v", err)
+	}
+}
+
 func TestDispatchServeSubcommandHandlesInitialize(t *testing.T) {
 	root := "../../testdata/e2e/mini-corpus"
 	out := t.TempDir()

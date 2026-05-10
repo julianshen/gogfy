@@ -120,6 +120,9 @@ func serveCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) erro
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("serve: unexpected positional arguments: %v", fs.Args())
+	}
 	g, err := loadGraph(*graphPath)
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)

@@ -12,6 +12,7 @@ package serve
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -82,7 +83,7 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		default:
 		}
 		line := scanner.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		resp, ok := s.handle(line)
