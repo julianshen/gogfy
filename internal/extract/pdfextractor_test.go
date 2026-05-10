@@ -40,9 +40,9 @@ func buildMinimalPDF(title, body string) []byte {
 	var b strings.Builder
 	b.WriteString("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
 	offsets := make([]int, len(objs))
-	for i, body := range objs {
+	for i, obj := range objs {
 		offsets[i] = b.Len()
-		fmt.Fprintf(&b, "%d 0 obj\n%s\nendobj\n", i+1, body)
+		fmt.Fprintf(&b, "%d 0 obj\n%s\nendobj\n", i+1, obj)
 	}
 	xrefStart := b.Len()
 	fmt.Fprintf(&b, "xref\n0 %d\n0000000000 65535 f \n", len(objs)+1)

@@ -1,6 +1,10 @@
 package extract
 
-import "regexp"
+import (
+	"regexp"
+
+	"github.com/julianshen/gogfy/internal/schema"
+)
 
 // urlPatternInProse matches plausible HTTP(S) URLs embedded in free-form
 // prose: scheme + host + path, stopping at common closing punctuation.
@@ -18,6 +22,25 @@ func extractURLs(s string) []string {
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
 		out = append(out, trimURLTrailing(m))
+	}
+	return out
+}
+
+// urlEdges builds one references-relation edge per URL found in body,
+// each sourced from `source` and targeting `<lang>:link:<url>`. Used by
+// the structurally-thin extractors (text, pdf) where the document has
+// no internal sections to attribute URLs to and every link sources from
+// the module node.
+func urlEdges(lang, source, body string) []schema.Edge {
+	urls := extractURLs(body)
+	out := make([]schema.Edge, 0, len(urls))
+	for _, u := range urls {
+		out = append(out, schema.Edge{
+			Source:     source,
+			Target:     schema.LangID(lang, "link", u),
+			Relation:   "references",
+			Confidence: schema.Extracted,
+		})
 	}
 	return out
 }

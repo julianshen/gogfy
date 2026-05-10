@@ -53,21 +53,11 @@ func (PDFExtractor) Extract(path string) (Result, error) {
 		Label: pdfModuleLabel(r, abs),
 	})
 
-	body, err := pdfPlainText(r)
-	if err != nil {
-		// Plain-text extraction failed (encrypted PDF, malformed stream,
-		// font-mapping issues — common for PDFs that aren't pure-text).
-		// Bare module node so the file still appears in the graph.
-		return Result{Nodes: state.nodes}, nil
-	}
-	for _, u := range extractURLs(body) {
-		state.edges = append(state.edges, schema.Edge{
-			Source:     moduleID,
-			Target:     schema.LangID("pdf", "link", u),
-			Relation:   "references",
-			Confidence: schema.Extracted,
-		})
-	}
+	// Encrypted PDFs, malformed streams, and font-mapping failures all
+	// degrade to "no body" → bare module node, so the file still appears
+	// in the graph rather than failing the whole extraction run.
+	body := pdfPlainText(r)
+	state.edges = append(state.edges, urlEdges("pdf", moduleID, body)...)
 	return Result{Nodes: state.nodes, Edges: state.edges}, nil
 }
 
@@ -91,24 +81,19 @@ func pdfModuleLabel(r *pdf.Reader, abs string) string {
 	return title
 }
 
-// pdfPlainText returns the concatenated plain text of every page.
-// ledongthuc/pdf panics on a handful of edge cases (uncommon font
-// encodings, unusual content-stream operators); we recover so that a
-// pathological PDF gets a bare module node in the graph rather than
-// failing the whole extraction run.
-func pdfPlainText(r *pdf.Reader) (text string, err error) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			text, err = "", nil
-		}
-	}()
+// pdfPlainText returns the concatenated plain text of every page, or
+// "" on any failure (read error, library panic on uncommon font
+// encodings or content-stream operators). The caller treats empty
+// text as "no URLs to extract."
+func pdfPlainText(r *pdf.Reader) (text string) {
+	defer func() { _ = recover() }()
 	rd, err := r.GetPlainText()
 	if err != nil {
-		return "", err
+		return ""
 	}
 	b, err := io.ReadAll(rd)
 	if err != nil {
-		return "", err
+		return ""
 	}
-	return string(b), nil
+	return string(b)
 }
