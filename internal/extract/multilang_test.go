@@ -3,6 +3,7 @@ package extract
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -76,6 +77,7 @@ func TestExtractorsMissingFile(t *testing.T) {
 		DartExtractor{},
 		SwiftExtractor{},
 		MarkdownExtractor{},
+		HTMLExtractor{},
 	}
 	for _, ex := range extractors {
 		if _, err := ex.Extract("/nonexistent/path/does-not-exist.txt"); err == nil {
@@ -1011,6 +1013,118 @@ func TestMarkdownExtractorLinksAttributedToEnclosingSection(t *testing.T) {
 	}
 	if srcByTarget["markdown:link:https://b.example"] != secBID {
 		t.Fatalf("b-link should source from Sec B, got %s", srcByTarget["markdown:link:https://b.example"])
+	}
+}
+
+func TestHTMLExtractorTitleHeadingsAndLinks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.html")
+	source := `<!DOCTYPE html>
+<html>
+<head><title>My Doc</title></head>
+<body>
+  <h1>Page Heading</h1>
+  <p>Intro</p>
+  <h2>First Section</h2>
+  <p>See <a href="https://example.com/api">the API docs</a> and
+     <a href="./related.html">related</a>.</p>
+  <h2>Second Section</h2>
+  <p>Jump to <a href="#fragment">section above</a> — should be skipped.</p>
+  <p>Visit <a href="./other.html#anchor">other doc</a> instead.</p>
+  <h4>Too deep</h4>
+  <p>Should NOT become a section node.</p>
+</body>
+</html>`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := HTMLExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, n := range res.Nodes {
+		labels[n.Label] = true
+	}
+	if !labels["My Doc"] {
+		t.Fatalf("module label should be <title>, got labels=%v", labels)
+	}
+	for _, want := range []string{"Page Heading", "First Section", "Second Section"} {
+		if !labels[want] {
+			t.Fatalf("missing section %q in %v", want, labels)
+		}
+	}
+	if labels["Too deep"] {
+		t.Fatalf("h4 should not produce a section node: %v", labels)
+	}
+	targets := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "references" {
+			targets[e.Target] = true
+		}
+	}
+	for _, want := range []string{
+		"html:link:https://example.com/api",
+		"html:link:./related.html",
+		"html:link:./other.html#anchor",
+	} {
+		if !targets[want] {
+			t.Fatalf("missing reference target %q in %v", want, targets)
+		}
+	}
+	if targets["html:link:#fragment"] {
+		t.Fatalf("self-fragment link should be skipped: %v", targets)
+	}
+}
+
+func TestHTMLExtractorFallsBackThroughTitleH1Basename(t *testing.T) {
+	dir := t.TempDir()
+	// No <title>, no <h1> — basename should win.
+	path := filepath.Join(dir, "no_title.html")
+	if err := os.WriteFile(path, []byte(`<html><body><h2>Only h2</h2></body></html>`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := HTMLExtractor{}.Extract(path)
+	got := ""
+	for _, n := range res.Nodes {
+		if strings.Contains(n.ID, "html:module:") {
+			got = n.Label
+		}
+	}
+	if got != "no_title.html" {
+		t.Fatalf("expected basename fallback, got %q", got)
+	}
+
+	// <title> wins over <h1>.
+	path2 := filepath.Join(dir, "with_both.html")
+	if err := os.WriteFile(path2, []byte(`<html><head><title>T</title></head><body><h1>H</h1></body></html>`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res2, _ := HTMLExtractor{}.Extract(path2)
+	got2 := ""
+	for _, n := range res2.Nodes {
+		if strings.Contains(n.ID, "html:module:") {
+			got2 = n.Label
+		}
+	}
+	if got2 != "T" {
+		t.Fatalf("expected <title> to win, got %q", got2)
+	}
+
+	// No <title>, but <h1> present.
+	path3 := filepath.Join(dir, "h1_only.html")
+	if err := os.WriteFile(path3, []byte(`<html><body><h1>H Only</h1></body></html>`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res3, _ := HTMLExtractor{}.Extract(path3)
+	got3 := ""
+	for _, n := range res3.Nodes {
+		if strings.Contains(n.ID, "html:module:") {
+			got3 = n.Label
+		}
+	}
+	if got3 != "H Only" {
+		t.Fatalf("expected <h1> fallback, got %q", got3)
 	}
 }
 
