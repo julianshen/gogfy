@@ -200,6 +200,19 @@ func TestXlsxExtractorAcceptsAbsoluteWorksheetTargets(t *testing.T) {
 	if !found {
 		t.Fatalf("absolute /xl/... target should resolve and yield hyperlink edge, got %+v", res.Edges)
 	}
+	// Independently pin the section node — proves the absolute target
+	// also resolved into the workbook's structural section emission, not
+	// just the downstream hyperlink lookup. A future refactor that fed
+	// the raw target into one path but not the other would hide here.
+	var hasSheet bool
+	for _, n := range res.Nodes {
+		if n.Label == "Data" {
+			hasSheet = true
+		}
+	}
+	if !hasSheet {
+		t.Fatalf("absolute target should still produce 'Data' sheet section, got %+v", res.Nodes)
+	}
 }
 
 func TestXlsxExtractorMissingWorkbookReturnsBareModule(t *testing.T) {

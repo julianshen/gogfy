@@ -1275,7 +1275,9 @@ Third
 	}
 }
 
-// distinctIDs returns IDs of nodes with the given label.
+// sectionIDsForLabel returns the set of node IDs whose label equals
+// the given string. Used by duplicate-heading tests to assert that
+// same-labeled sections produce distinct LangIDs.
 func sectionIDsForLabel(res Result, label string) map[string]bool {
 	out := map[string]bool{}
 	for _, n := range res.Nodes {
@@ -1287,9 +1289,13 @@ func sectionIDsForLabel(res Result, label string) map[string]bool {
 }
 
 func TestMarkdownExtractorDuplicateHeadingsProduceDistinctIDs(t *testing.T) {
+	// Three collisions, not two: a fencepost in a future refactor of
+	// nextSectionID (e.g., counter starting at 0 instead of 1, or per-
+	// label map keyed differently) might still pass with n=2 but break
+	// at n=3.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.md")
-	source := "# Top\n\n## Examples\n\nFirst.\n\n## Examples\n\nSecond.\n"
+	source := "# Top\n\n## Examples\n\nFirst.\n\n## Examples\n\nSecond.\n\n## Examples\n\nThird.\n"
 	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -1298,8 +1304,8 @@ func TestMarkdownExtractorDuplicateHeadingsProduceDistinctIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := sectionIDsForLabel(res, "Examples")
-	if len(ids) != 2 {
-		t.Fatalf("two H2 'Examples' must produce two distinct IDs, got %d (%v)", len(ids), ids)
+	if len(ids) != 3 {
+		t.Fatalf("three H2 'Examples' must produce three distinct IDs, got %d (%v)", len(ids), ids)
 	}
 }
 
