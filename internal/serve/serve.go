@@ -24,16 +24,47 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
+// protocolVersion is the MCP revision we advertise on `initialize`. The
+// 2024-11-05 revision is the broadly-deployed baseline; bumping is a
+// one-line change here when client compatibility allows.
+const protocolVersion = "2024-11-05"
+
 // Server holds the in-memory graph + report bytes the MCP tools read from.
+//
+// Indices (nodesByID, labelMatches, outEdges, inEdges) and the cached
+// analyze report are built once in New and never mutated, so all per-request
+// lookups stay O(1) / O(deg).
 type Server struct {
-	graph  export.GraphExport
-	report []byte
+	graph        export.GraphExport
+	report       []byte
+	nodesByID    map[string]schema.Node
+	labelMatches map[string][]string // label → [nodeIDs]; multiple ids = collision
+	outEdges     map[string][]schema.Edge
+	inEdges      map[string][]schema.Edge
+	analyzed     analyze.Report
 }
 
 // New constructs a Server seeded with a graph snapshot and the rendered
 // GRAPH_REPORT.md. Both are read-only for the lifetime of the server.
 func New(graph export.GraphExport, report []byte) *Server {
-	return &Server{graph: graph, report: report}
+	s := &Server{
+		graph:        graph,
+		report:       report,
+		nodesByID:    make(map[string]schema.Node, len(graph.Nodes)),
+		labelMatches: make(map[string][]string),
+		outEdges:     make(map[string][]schema.Edge),
+		inEdges:      make(map[string][]schema.Edge),
+	}
+	for _, n := range graph.Nodes {
+		s.nodesByID[n.ID] = n
+		s.labelMatches[n.Label] = append(s.labelMatches[n.Label], n.ID)
+	}
+	for _, e := range graph.Edges {
+		s.outEdges[e.Source] = append(s.outEdges[e.Source], e)
+		s.inEdges[e.Target] = append(s.inEdges[e.Target], e)
+	}
+	s.analyzed = analyze.NewAnalyzer().Analyze(graph.Nodes, graph.Edges)
+	return s
 }
 
 // Serve runs the JSON-RPC loop until in returns EOF or ctx is cancelled.
@@ -88,11 +119,11 @@ func (s *Server) handle(line []byte) ([]byte, bool) {
 	case "initialize":
 		return jsonRPCResult(req.ID, s.initializeResult()), true
 	case "tools/list":
-		return jsonRPCResult(req.ID, map[string]any{"tools": toolDescriptors()}), true
+		return jsonRPCResult(req.ID, map[string]any{"tools": toolDescriptors}), true
 	case "tools/call":
 		return s.toolsCall(req), true
 	case "resources/list":
-		return jsonRPCResult(req.ID, map[string]any{"resources": s.resourceDescriptors()}), true
+		return jsonRPCResult(req.ID, map[string]any{"resources": resourceDescriptors}), true
 	case "resources/read":
 		return s.resourcesRead(req), true
 	default:
@@ -102,7 +133,7 @@ func (s *Server) handle(line []byte) ([]byte, bool) {
 
 func (s *Server) initializeResult() map[string]any {
 	return map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": protocolVersion,
 		"capabilities": map[string]any{
 			"tools":     map[string]any{},
 			"resources": map[string]any{},
@@ -171,9 +202,12 @@ func (s *Server) callGodNodes(args json.RawMessage) map[string]any {
 	var p struct {
 		Limit int `json:"limit"`
 	}
-	_ = json.Unmarshal(args, &p)
-	r := analyze.NewAnalyzer().Analyze(s.graph.Nodes, s.graph.Edges)
-	gods := r.GodNodes
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &p); err != nil {
+			return toolResult("invalid arguments: "+err.Error(), true)
+		}
+	}
+	gods := s.analyzed.GodNodes
 	if p.Limit > 0 && p.Limit < len(gods) {
 		gods = gods[:p.Limit]
 	}
@@ -194,10 +228,27 @@ func (s *Server) callExplain(args json.RawMessage) map[string]any {
 	if err := json.Unmarshal(args, &p); err != nil || p.ID == "" {
 		return toolResult("explain requires an `id` argument (node ID or label)", true)
 	}
-	target, ok := s.findNode(p.ID)
+	target, candidates, ok := s.findNode(p.ID)
 	if !ok {
 		return toolResult(fmt.Sprintf("no node matched %q (tried ID and label)", p.ID), true)
 	}
+	if len(candidates) > 1 {
+		// Label collision: multiple nodes share this label. Surface the
+		// alternatives so the agent can disambiguate by ID on a follow-up.
+		var b strings.Builder
+		fmt.Fprintf(&b, "label %q matches %d nodes; showing the first. Disambiguate by passing the full ID:\n", p.ID, len(candidates))
+		for _, id := range candidates {
+			fmt.Fprintf(&b, "- %s\n", id)
+		}
+		b.WriteString("\n")
+		head := b.String()
+		body := s.explainBody(target)
+		return toolResult(head+body, false)
+	}
+	return toolResult(s.explainBody(target), false)
+}
+
+func (s *Server) explainBody(target schema.Node) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## %s\n", target.Label)
 	fmt.Fprintf(&b, "- ID: %s\n", target.ID)
@@ -207,7 +258,8 @@ func (s *Server) callExplain(args json.RawMessage) map[string]any {
 	if target.Community != "" {
 		fmt.Fprintf(&b, "- Community: %s\n", target.Community)
 	}
-	outgoing, incoming := s.neighbors(target.ID)
+	outgoing := s.outEdges[target.ID]
+	incoming := s.inEdges[target.ID]
 	if len(outgoing) > 0 {
 		fmt.Fprintf(&b, "\n### Outgoing\n")
 		for _, e := range outgoing {
@@ -220,7 +272,7 @@ func (s *Server) callExplain(args json.RawMessage) map[string]any {
 			fmt.Fprintf(&b, "- %s <- %s\n", e.Relation, s.labelFor(e.Source))
 		}
 	}
-	return toolResult(b.String(), false)
+	return b.String()
 }
 
 func (s *Server) callQuery(args json.RawMessage) map[string]any {
@@ -238,7 +290,12 @@ func (s *Server) callQuery(args json.RawMessage) map[string]any {
 	}
 	matches := []schema.Node{}
 	for _, n := range s.graph.Nodes {
-		if strings.Contains(strings.ToLower(n.Label), needle) {
+		// Search across label, ID, and source file: agents reasonably expect
+		// to find a function by its name, its fully-qualified ID, or the
+		// file it lives in. All three are cheap on the same loop.
+		if strings.Contains(strings.ToLower(n.Label), needle) ||
+			strings.Contains(strings.ToLower(n.ID), needle) ||
+			strings.Contains(strings.ToLower(n.SourceFile), needle) {
 			matches = append(matches, n)
 			if len(matches) >= limit {
 				break
@@ -256,52 +313,35 @@ func (s *Server) callQuery(args json.RawMessage) map[string]any {
 	return toolResult(b.String(), false)
 }
 
-// findNode resolves a query string to one node, accepting either an exact ID
-// or a label. ID match wins; falls back to first label match.
-func (s *Server) findNode(q string) (schema.Node, bool) {
-	for _, n := range s.graph.Nodes {
-		if n.ID == q {
-			return n, true
-		}
+// findNode resolves a query string to a node, accepting either an exact ID
+// or a label. Returns the picked node, the full list of label-collision
+// candidates (for caller-side disambiguation), and whether anything matched.
+// ID match always wins and returns a one-element candidates slice.
+func (s *Server) findNode(q string) (schema.Node, []string, bool) {
+	if n, ok := s.nodesByID[q]; ok {
+		return n, []string{q}, true
 	}
-	for _, n := range s.graph.Nodes {
-		if n.Label == q {
-			return n, true
-		}
+	if ids, ok := s.labelMatches[q]; ok && len(ids) > 0 {
+		return s.nodesByID[ids[0]], ids, true
 	}
-	return schema.Node{}, false
-}
-
-func (s *Server) neighbors(id string) (out, in []schema.Edge) {
-	for _, e := range s.graph.Edges {
-		if e.Source == id {
-			out = append(out, e)
-		}
-		if e.Target == id {
-			in = append(in, e)
-		}
-	}
-	return out, in
+	return schema.Node{}, nil, false
 }
 
 func (s *Server) labelFor(id string) string {
-	for _, n := range s.graph.Nodes {
-		if n.ID == id {
-			return n.Label
-		}
+	if n, ok := s.nodesByID[id]; ok {
+		return n.Label
 	}
 	return id
 }
 
-func (s *Server) resourceDescriptors() []map[string]any {
-	return []map[string]any{
-		{
-			"uri":         "gogfy://report",
-			"name":        "GRAPH_REPORT.md",
-			"description": "Markdown report: god nodes, surprising connections, confidence summary, exploration questions.",
-			"mimeType":    "text/markdown",
-		},
-	}
+// resourceDescriptors is the static resources/list payload.
+var resourceDescriptors = []map[string]any{
+	{
+		"uri":         "gogfy://report",
+		"name":        "GRAPH_REPORT.md",
+		"description": "Markdown report: god nodes, surprising connections, confidence summary, exploration questions.",
+		"mimeType":    "text/markdown",
+	},
 }
 
 func (s *Server) resourcesRead(req rpcRequest) []byte {
@@ -327,40 +367,38 @@ func (s *Server) resourcesRead(req rpcRequest) []byte {
 
 // toolDescriptors is the static tools/list payload. JSON Schemas are kept
 // minimal — agents only need them to know argument names and required-ness.
-func toolDescriptors() []map[string]any {
-	return []map[string]any{
-		{
-			"name":        "gogfy_god_nodes",
-			"description": "List the most-connected nodes in the graph (the project's hubs).",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"limit": map[string]any{"type": "integer", "description": "Max nodes to return (default: all)."},
-				},
+var toolDescriptors = []map[string]any{
+	{
+		"name":        "gogfy_god_nodes",
+		"description": "List the most-connected nodes in the graph (the project's hubs).",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"limit": map[string]any{"type": "integer", "description": "Max nodes to return (default: all)."},
 			},
 		},
-		{
-			"name":        "gogfy_explain",
-			"description": "Show a node's metadata plus its incoming and outgoing edges.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"id": map[string]any{"type": "string", "description": "Node ID or label."},
-				},
-				"required": []any{"id"},
+	},
+	{
+		"name":        "gogfy_explain",
+		"description": "Show a node's metadata plus its incoming and outgoing edges. If the label collides across multiple nodes, the candidates are listed for ID-based disambiguation.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{"type": "string", "description": "Node ID or label."},
 			},
+			"required": []any{"id"},
 		},
-		{
-			"name":        "gogfy_query",
-			"description": "Find nodes whose label contains the given substring (case-insensitive).",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"text":  map[string]any{"type": "string"},
-					"limit": map[string]any{"type": "integer", "description": "Max matches to return (default: 25)."},
-				},
-				"required": []any{"text"},
+	},
+	{
+		"name":        "gogfy_query",
+		"description": "Find nodes whose label, ID, or source file contains the given substring (case-insensitive).",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"text":  map[string]any{"type": "string"},
+				"limit": map[string]any{"type": "integer", "description": "Max matches to return (default: 25)."},
 			},
+			"required": []any{"text"},
 		},
-	}
+	},
 }

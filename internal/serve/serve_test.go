@@ -343,6 +343,56 @@ func TestUnknownResourceURIReturnsError(t *testing.T) {
 	}
 }
 
+func TestExplainSurfacesLabelCollisions(t *testing.T) {
+	srv := New(export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "go:method:/a.go:Run", Label: "Run"},
+			{ID: "go:method:/b.go:Run", Label: "Run"},
+		},
+	}, nil)
+	resp := runOnce(t, srv, jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_explain",
+		"arguments": map[string]any{"id": "Run"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "matches 2 nodes") {
+		t.Fatalf("expected collision warning, got %q", text)
+	}
+	if !strings.Contains(text, "go:method:/a.go:Run") || !strings.Contains(text, "go:method:/b.go:Run") {
+		t.Fatalf("expected both candidate IDs listed, got %q", text)
+	}
+}
+
+func TestQueryMatchesIDAndSourceFile(t *testing.T) {
+	srv := New(export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "go:function:/special_path.go:foo", Label: "foo", SourceFile: "/special_path.go"},
+			{ID: "go:function:/other.go:bar", Label: "bar", SourceFile: "/other.go"},
+		},
+	}, nil)
+	// Match by source file substring — no node has "special" in its label.
+	resp := runOnce(t, srv, jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_query",
+		"arguments": map[string]any{"text": "special"},
+	}))
+	text := resp[0]["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "foo") {
+		t.Fatalf("expected source-file match to surface foo, got %q", text)
+	}
+	if strings.Contains(text, "bar") {
+		t.Fatalf("query should not match bar, got %q", text)
+	}
+}
+
+func TestGodNodesRejectsMalformedArgs(t *testing.T) {
+	resp := runOnce(t, sampleServer(), []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"gogfy_god_nodes","arguments":{"limit":"not-a-number"}}}`+"\n"))
+	result := resp[0]["result"].(map[string]any)
+	if isErr, _ := result["isError"].(bool); !isErr {
+		t.Fatalf("expected isError on malformed limit, got %v", result)
+	}
+}
+
 func TestNotificationInitializedProducesNoResponse(t *testing.T) {
 	// Notifications (no "id" field) MUST NOT produce a response per JSON-RPC 2.0.
 	in := bytes.NewBufferString(`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n")
