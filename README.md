@@ -69,13 +69,17 @@ Plus a `gogfy://report` resource pointing at `GRAPH_REPORT.md`, which the agent 
 
 ---
 
-## Languages supported
+## Languages and document formats supported
 
-23 via tree-sitter, AST-based extraction (no regex hacks):
+**Code (27 languages)** — AST-based via tree-sitter:
 
-Go · Python · JavaScript · TypeScript · Java · C · C++ · Rust · Ruby · YAML · TOML · Kotlin · Scala · PHP · Lua · Zig · Julia · Bash · C# · Haskell · OCaml · **Svelte**
+Go · Python · JavaScript · TypeScript · Java · C · C++ · Rust · Ruby · YAML · TOML · Kotlin · Scala · PHP · Lua · Zig · Julia · Bash · C# · Haskell · OCaml · Svelte · Fortran · Elixir · Dart · Swift
 
-File extensions: `.go .py .js .jsx .mjs .cjs .ts .tsx .java .c .h .cpp .cc .cxx .hpp .hxx .hh .rs .rb .yaml .yml .toml .kt .kts .scala .sc .php .lua .zig .jl .sh .bash .cs .hs .ml .mli .svelte`
+**Documents (1, growing)** — pure-Go, no Python or LLM dependency:
+
+Markdown (`.md` / `.mdx` / `.markdown`) — extracted via [goldmark](https://github.com/yuin/goldmark) into module + section + reference-edge graph.
+
+File extensions: `.go .py .js .jsx .mjs .cjs .ts .tsx .java .c .h .cpp .cc .cxx .hpp .hxx .hh .rs .rb .yaml .yml .toml .kt .kts .scala .sc .php .lua .zig .jl .sh .bash .cs .hs .ml .mli .svelte .f .f90 .f95 .f03 .f08 .ex .exs .dart .swift .md .mdx .markdown`
 
 ---
 
