@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+
+	"github.com/julianshen/gogfy/internal/fsutil"
 )
 
 // Cache tracks file content hashes to support incremental builds.
@@ -63,7 +65,9 @@ func (c *Cache) Save(files []string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.path, data, 0644)
+	// Atomic write: a partial write here previously corrupted the cache,
+	// forcing a full re-extract on the next run.
+	return fsutil.WriteFileAtomic(c.path, data, 0644)
 }
 
 func (c *Cache) load() (map[string]string, error) {
