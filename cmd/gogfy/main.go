@@ -614,10 +614,11 @@ var supportedExtensions = map[string]extract.Extractor{
 	".jl":    extract.JuliaExtractor{},
 	".sh":    extract.BashExtractor{},
 	".bash":  extract.BashExtractor{},
-	".cs":    extract.CSharpExtractor{},
-	".hs":    extract.HaskellExtractor{},
-	".ml":    extract.OCamlExtractor{},
-	".mli":   extract.OCamlExtractor{},
+	".cs":     extract.CSharpExtractor{},
+	".hs":     extract.HaskellExtractor{},
+	".ml":     extract.OCamlExtractor{},
+	".mli":    extract.OCamlExtractor{},
+	".svelte": extract.SvelteExtractor{},
 }
 
 func supportedExtensionsList() []string {

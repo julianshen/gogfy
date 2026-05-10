@@ -17,6 +17,8 @@ github.com/tree-sitter-grammars/tree-sitter-kotlin v1.1.0 h1:SWIUDASa+WPhDDem1U5
 github.com/tree-sitter-grammars/tree-sitter-kotlin v1.1.0/go.mod h1:eH+flFf3QOa9c9BY9g3Bz02F7zTq30kGIG3cgB0lSlI=
 github.com/tree-sitter-grammars/tree-sitter-lua v0.5.0 h1:4YHMdo2TzpbhHe3nfdI4qruBGeFGIwfYGfxZJW/tnjc=
 github.com/tree-sitter-grammars/tree-sitter-lua v0.5.0/go.mod h1:hIOfn+lxpU4SRrtejLVrU2+8SAoRwNC01m3XaR/Cw0A=
+github.com/tree-sitter-grammars/tree-sitter-svelte v1.0.2 h1:7rAjefEANjwuheEmbxnFAQh6aB0OQtNb8KhfY+hNEGo=
+github.com/tree-sitter-grammars/tree-sitter-svelte v1.0.2/go.mod h1:1MbScyxKDc43X5uboospfBjXerxJTFR9vJ2QIYXqchY=
 github.com/tree-sitter-grammars/tree-sitter-toml v0.7.0 h1:VQOyz+wSHzNZJ7gUMHAWVEP4Xt/YBZkeL7iurBv/9xc=
 github.com/tree-sitter-grammars/tree-sitter-toml v0.7.0/go.mod h1:hagl3VSOuQdsaDpGY13oGMz2cLK2tUDAf4mNNW2pDBQ=
 github.com/tree-sitter-grammars/tree-sitter-yaml v0.7.2 h1:Mmr9LYGTdr+8iD3ZEK1+j2FKZtY1Jt3y5Wq9dedgwfs=
