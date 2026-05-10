@@ -1478,6 +1478,78 @@ library(package = "dplyr")
 	}
 }
 
+func TestRExtractorStringQuotedFunctionDecl(t *testing.T) {
+	// S3-method-style assignments using a quoted string LHS (e.g.
+	// `"opname" <- function(x) x`) parse as binary_operator with
+	// lhs=string. Without the string-LHS branch the decl was silently
+	// dropped — the function exists in R but had no node in the graph.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ops.R")
+	source := `"my_op" <- function(x, y) x + y
+` + "`+.MyClass`" + ` <- function(e1, e2) e1 + e2
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, n := range res.Nodes {
+		labels[n.Label] = true
+	}
+	if !labels["my_op"] {
+		t.Fatalf("string-quoted LHS should produce decl labeled 'my_op' (no quotes), got %v", labels)
+	}
+	// Backticked LHS is parsed as identifier with backticks in the text;
+	// we accept that as a label since it round-trips back to the source.
+	var hasBacktick bool
+	for l := range labels {
+		if strings.Contains(l, "+.MyClass") {
+			hasBacktick = true
+		}
+	}
+	if !hasBacktick {
+		t.Fatalf("backticked LHS should still produce a decl, got %v", labels)
+	}
+}
+
+func TestRExtractorCharacterOnlyDoesNotEmitImport(t *testing.T) {
+	// `library(pkg, character.only = TRUE)` is dynamic loading: the
+	// package name is in the variable `pkg`, not the literal "pkg".
+	// Emitting `pkg` as an import would create a fake dependency and
+	// hide the real one.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dyn.R")
+	source := `pkg_name <- "dplyr"
+library(pkg_name, character.only = TRUE)
+require(other_pkg, character.only = T)
+library(actually_static)
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports := map[string]bool{}
+	for _, e := range res.Edges {
+		if e.Relation == "imports" {
+			imports[e.Target] = true
+		}
+	}
+	for _, bad := range []string{"r:import:pkg_name", "r:import:other_pkg"} {
+		if imports[bad] {
+			t.Fatalf("character.only=TRUE should suppress import %q, got %v", bad, imports)
+		}
+	}
+	if !imports["r:import:actually_static"] {
+		t.Fatalf("static library() should still produce import, got %v", imports)
+	}
+}
+
 func TestRExtractorImportNotEmittedAsCall(t *testing.T) {
 	// library(dplyr) must NOT also emit a call edge to "library" — it's
 	// modeled as a call in the AST but represents an import semantically.

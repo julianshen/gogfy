@@ -28,9 +28,8 @@ func walkR(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		}
 		rhs := node.ChildByFieldName("rhs")
 		if rhs != nil && rhs.Kind() == "function_definition" {
-			lhs := node.ChildByFieldName("lhs")
-			if lhs != nil && lhs.Kind() == "identifier" {
-				state.emitDecl("function", node, lhs, src)
+			if lhs := rDeclLHS(node); lhs != nil {
+				rEmitDecl(state, node, lhs, src)
 				state.walkFnScope("function", lhs, src, cursor, walkR)
 				return
 			}
@@ -43,6 +42,44 @@ func walkR(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		state.emitCall(node, src)
 	}
 	walkChildren(cursor, func() { walkR(cursor, src, state) })
+}
+
+// rDeclLHS returns the LHS node of a function-assignment binary_operator
+// when it names something the graph can use as a declaration. R supports
+// three syntactically distinct ways to name what's being assigned:
+//
+//   - Bare identifier: `add <- function(...)`
+//   - Backticked identifier: `` `+.MyClass` <- function(...) `` (S3 operator
+//     dispatch). tree-sitter-r parses these as `identifier` with the
+//     backticks included in the text — no special handling needed.
+//   - String literal: `"opname" <- function(...)`. Less common but valid R;
+//     the tree-sitter-r grammar parses the LHS as `string`. Without this
+//     case we'd silently drop S3-method registrations of this form.
+func rDeclLHS(node *sitter.Node) *sitter.Node {
+	lhs := node.ChildByFieldName("lhs")
+	if lhs == nil {
+		return nil
+	}
+	switch lhs.Kind() {
+	case "identifier", "string":
+		return lhs
+	}
+	return nil
+}
+
+// rEmitDecl emits the function-decl node, deriving a clean label from
+// the LHS — string-literal LHS like `"opname"` would otherwise carry
+// surrounding quotes into the graph label.
+func rEmitDecl(state *extractState, declNode, lhs *sitter.Node, src []byte) {
+	state.emitDecl("function", declNode, lhs, src)
+	if lhs.Kind() == "string" {
+		// Patch the label of the just-emitted node to drop quotes; the
+		// LangID still uses the raw text for uniqueness.
+		clean := trimQuotes(lhs.Utf8Text(src))
+		if i := len(state.nodes) - 1; i >= 0 && clean != "" {
+			state.nodes[i].Label = clean
+		}
+	}
 }
 
 // rIsAssignment reports whether a binary_operator node is one of R's
@@ -83,6 +120,13 @@ func rImportTarget(call *sitter.Node, src []byte) (string, bool) {
 	if args == nil {
 		return "", false
 	}
+	// `library(pkg, character.only = TRUE)` means the first arg is a
+	// variable holding the package name, not the literal package. Skip
+	// emission — emitting the variable identifier would produce a fake
+	// import edge and hide the real (dynamic) dependency.
+	if rHasCharacterOnly(args, src) {
+		return "", false
+	}
 	// NamedChild iteration skips anonymous tokens like the surrounding
 	// parens. tree-sitter-r exposes `comma` as a named child of
 	// `arguments`, so the kind-check below still has to discard those.
@@ -114,4 +158,31 @@ func rImportTarget(call *sitter.Node, src []byte) (string, bool) {
 		return "", false
 	}
 	return "", false
+}
+
+// rHasCharacterOnly reports whether an arguments node has an explicit
+// `character.only = TRUE` (or `T`) named argument. This signals dynamic
+// loading where the package-name argument is a variable; in that case
+// no static import edge should be emitted.
+func rHasCharacterOnly(args *sitter.Node, src []byte) bool {
+	n := args.NamedChildCount()
+	for i := uint(0); i < n; i++ {
+		a := args.NamedChild(i)
+		if a.Kind() != "argument" {
+			continue
+		}
+		argName := a.ChildByFieldName("name")
+		if argName == nil || argName.Utf8Text(src) != "character.only" {
+			continue
+		}
+		v := a.ChildByFieldName("value")
+		if v == nil {
+			continue
+		}
+		txt := v.Utf8Text(src)
+		if txt == "TRUE" || txt == "T" {
+			return true
+		}
+	}
+	return false
 }
