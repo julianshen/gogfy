@@ -50,7 +50,7 @@ func TestInstallCreatesPostCommitWhenMissing(t *testing.T) {
 	if !strings.Contains(s, hookStartMarker) || !strings.Contains(s, hookEndMarker) {
 		t.Fatalf("hook missing fenced markers:\n%s", s)
 	}
-	if !strings.Contains(s, "gogfy run --update") {
+	if !strings.Contains(s, "'gogfy' run --update") {
 		t.Fatalf("hook missing run --update invocation:\n%s", s)
 	}
 	// Hook must be executable.
@@ -96,7 +96,7 @@ func TestInstallReplacesExistingGogfyBlock(t *testing.T) {
 	if got := strings.Count(s, hookStartMarker); got != 1 {
 		t.Fatalf("expected one fenced block after reinstall, got %d:\n%s", got, s)
 	}
-	if !strings.Contains(s, "/opt/gogfy run --update") {
+	if !strings.Contains(s, "'/opt/gogfy' run --update") {
 		t.Fatalf("custom Bin not propagated:\n%s", s)
 	}
 }
@@ -210,7 +210,7 @@ func TestInstallHonorsCustomOutDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(HookPath(root))
-	if !strings.Contains(string(data), "--out custom-out") {
+	if !strings.Contains(string(data), "--out 'custom-out'") {
 		t.Fatalf("custom OutDir not propagated:\n%s", data)
 	}
 }
@@ -299,6 +299,12 @@ func TestInstallFailsOnUnreadableHook(t *testing.T) {
 		t.Skipf("chmod 0 not honored: %v", err)
 	}
 	defer os.Chmod(path, 0755)
+	// Some environments (root user, certain CI sandboxes) can read
+	// chmod-0 files anyway. Probe before asserting so the test stays
+	// deterministic instead of flaking on those hosts.
+	if _, err := os.ReadFile(path); err == nil {
+		t.Skip("chmod 0 doesn't block reads on this filesystem; skipping unreadable-hook assertion")
+	}
 	if err := Install(root, Options{}); err == nil {
 		t.Fatal("expected read error on unreadable hook")
 	}
@@ -386,6 +392,60 @@ func TestInstallRefusesBareRepo(t *testing.T) {
 	}
 	if err := Install(root, Options{}); err == nil {
 		t.Fatal("expected error on bare-repo shape")
+	}
+}
+
+// TestInstallShellQuotesBinAndOutDir — paths with spaces or shell
+// metacharacters must be safely quoted in the rendered hook.
+func TestInstallShellQuotesBinAndOutDir(t *testing.T) {
+	root := makeRepo(t)
+	if err := Install(root, Options{Bin: "/Users/Test User/bin/gogfy", OutDir: "weird; rm -rf /"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(HookPath(root))
+	s := string(data)
+	// Bin path with a space must appear inside single quotes.
+	if !strings.Contains(s, "'/Users/Test User/bin/gogfy'") {
+		t.Fatalf("bin path not single-quoted:\n%s", s)
+	}
+	// OutDir with shell metacharacters must be neutralized.
+	if !strings.Contains(s, "'weird; rm -rf /'") {
+		t.Fatalf("outDir not single-quoted:\n%s", s)
+	}
+	// Sanity: the metacharacter must NOT appear unquoted as a real
+	// command separator (i.e., a `; rm` outside any single-quoted span).
+	if strings.Contains(s, "out weird; rm") {
+		t.Fatalf("shell injection survived quoting:\n%s", s)
+	}
+}
+
+// TestHookPathResolvesWorktreeCommonDir — linked worktrees execute hooks
+// from the main repo's hooks directory, identified by the `commondir`
+// file inside the worktree's gitdir. Writing to <gitdir>/hooks would
+// install a hook Git never runs.
+func TestHookPathResolvesWorktreeCommonDir(t *testing.T) {
+	main := t.TempDir()
+	mainGit := filepath.Join(main, ".git")
+	if err := os.MkdirAll(filepath.Join(mainGit, "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	worktree := t.TempDir()
+	wtGit := filepath.Join(mainGit, "worktrees", "feature")
+	if err := os.MkdirAll(wtGit, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// `.git` file in the worktree points at the per-worktree gitdir.
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+wtGit+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// `commondir` inside the worktree gitdir points at the main `.git`.
+	if err := os.WriteFile(filepath.Join(wtGit, "commondir"), []byte("../..\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := HookPath(worktree)
+	want := filepath.Join(mainGit, "hooks", "post-commit")
+	if got != want {
+		t.Fatalf("worktree HookPath: got %q, want %q (must point at main repo's hooks dir)", got, want)
 	}
 }
 

@@ -52,9 +52,11 @@ func HookPath(repoRoot string) string {
 }
 
 // hooksDirFor returns the directory containing git hooks for repoRoot.
-// For a normal repo, this is `<root>/.git/hooks`. For a submodule or
-// worktree (where `.git` is a file pointing into `.git/modules/<name>`
-// or `.git/worktrees/<name>`), it's the resolved hooks directory.
+// For a normal repo, this is `<root>/.git/hooks`. For a submodule, it's
+// the submodule's resolved git dir + /hooks. For a linked worktree, Git
+// runs hooks from the *common* (main-repo) hooks dir — `<gitdir>/commondir`
+// names that path; we resolve and return it. Without that resolution we'd
+// write a hook Git never executes.
 func hooksDirFor(repoRoot string) string {
 	gitPath := filepath.Join(repoRoot, ".git")
 	info, err := os.Stat(gitPath)
@@ -68,14 +70,23 @@ func hooksDirFor(repoRoot string) string {
 	}
 	line := strings.TrimSpace(string(data))
 	const prefix = "gitdir:"
-	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-	if rest == "" || rest == line {
+	gitdir := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if gitdir == "" || gitdir == line {
 		return filepath.Join(gitPath, "hooks")
 	}
-	if !filepath.IsAbs(rest) {
-		rest = filepath.Join(repoRoot, rest)
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(repoRoot, gitdir)
 	}
-	return filepath.Join(rest, "hooks")
+	// Linked worktrees have a `commondir` file pointing at the main
+	// repo's git dir; submodules don't. When present, hooks live there.
+	if commonRel, err := os.ReadFile(filepath.Join(gitdir, "commondir")); err == nil {
+		commonPath := strings.TrimSpace(string(commonRel))
+		if !filepath.IsAbs(commonPath) {
+			commonPath = filepath.Join(gitdir, commonPath)
+		}
+		return filepath.Join(commonPath, "hooks")
+	}
+	return filepath.Join(gitdir, "hooks")
 }
 
 // Install writes (or refreshes) the gogfy auto-rebuild block in the repo's
@@ -164,10 +175,21 @@ func renderHookBlock(opts Options) []byte {
 	b.WriteString(hookStartMarker)
 	b.WriteString("\n")
 	b.WriteString(`GOGFY_LOG="$(git rev-parse --git-dir 2>/dev/null)/gogfy-rebuild.log"` + "\n")
-	fmt.Fprintf(&b, "%s run --update --out %s . >>\"$GOGFY_LOG\" 2>&1 || true\n", opts.bin(), opts.outDir())
+	// Shell-quote bin and outDir: os.Executable() can return paths with
+	// spaces (e.g. /Users/My Name/.../gogfy) and the user's --out value
+	// could contain shell metacharacters.
+	fmt.Fprintf(&b, "%s run --update --out %s . >>\"$GOGFY_LOG\" 2>&1 || true\n",
+		shellQuote(opts.bin()), shellQuote(opts.outDir()))
 	b.WriteString(hookEndMarker)
 	b.WriteString("\n")
 	return []byte(b.String())
+}
+
+// shellQuote wraps s in single quotes for safe use in /bin/sh, escaping
+// embedded single quotes via the standard `'\''` trick. Idempotent for
+// already-quoted values isn't required — callers always pass raw strings.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 // requireWorkingTreeRepo refuses bare repositories (where there's no

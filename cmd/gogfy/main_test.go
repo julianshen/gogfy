@@ -520,7 +520,7 @@ func TestDispatchHookInstallWritesPostCommit(t *testing.T) {
 	}
 	// The bin defaults to os.Executable(); under `go test` that's the test
 	// binary path, not literal "gogfy". Assert the invocation shape instead.
-	if !bytes.Contains(data, []byte(" run --update --out graphify-out .")) {
+	if !bytes.Contains(data, []byte(" run --update --out 'graphify-out' .")) {
 		t.Fatalf("hook missing run --update invocation:\n%s", data)
 	}
 	info, _ := os.Stat(path)
@@ -592,7 +592,7 @@ func TestDispatchHookHonorsCustomFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(repo, ".git", "hooks", "post-commit"))
-	if !bytes.Contains(data, []byte("/opt/bin/gogfy run --update --out custom")) {
+	if !bytes.Contains(data, []byte("'/opt/bin/gogfy' run --update --out 'custom'")) {
 		t.Fatalf("custom flags not propagated:\n%s", data)
 	}
 }
