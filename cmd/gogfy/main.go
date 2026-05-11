@@ -151,10 +151,17 @@ func comboPlatformDocs(platform string) string {
 		return ".cursorrules"
 	case "gemini":
 		return "GEMINI.md"
-	case "vscode":
-		// VSCode Copilot Chat has no canonical agent docs file; fall back to
-		// AGENTS.md as the cross-tool standard.
+	case "vscode", "opencode", "kilocode", "kimi":
+		// These platforms either share AGENTS.md as the cross-tool standard
+		// (opencode, kilocode, kimi) or have no canonical agent docs file
+		// (vscode Copilot Chat). AGENTS.md is the safe default; users with
+		// platform-specific docs files can run install-instructions explicitly.
 		return "AGENTS.md"
+	case "qwen":
+		// Qwen Code (Gemini CLI fork) reads QWEN.md; falls back to AGENTS.md
+		// if absent — but writing QWEN.md by default keeps the snippet
+		// discoverable to the agent that owns this combo target.
+		return "QWEN.md"
 	default:
 		return ""
 	}
@@ -242,8 +249,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
 	fmt.Fprintln(w, "       gogfy serve [--graph <graph.json>] [--report <GRAPH_REPORT.md>]")
-	fmt.Fprintln(w, "       gogfy install --platform <claude|codex|cursor|vscode|gemini> [--workspace <dir>] [--gogfy-bin <path>] [--out <dir>]")
-	fmt.Fprintln(w, "       gogfy uninstall --platform <claude|codex|cursor|vscode|gemini> [--workspace <dir>]")
+	fmt.Fprintln(w, "       gogfy install --platform <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi> [--workspace <dir>] [--gogfy-bin <path>] [--out <dir>]")
+	fmt.Fprintln(w, "       gogfy uninstall --platform <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi> [--workspace <dir>]")
 	fmt.Fprintln(w, "       gogfy install-instructions [--file <path>] [--report <path>]")
 	fmt.Fprintln(w, "       gogfy uninstall-instructions [--file <path>]")
 	fmt.Fprintln(w, "       gogfy hook install [--repo <dir>] [--gogfy-bin <path>] [--out <dir>]")
@@ -253,8 +260,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy hook uninstall-merge-driver [--repo <dir>]")
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
-	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini> install   # combo: mcp + snippet + hook in one shot")
-	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini> uninstall # remove all three")
+	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi> install   # combo: mcp + snippet + hook in one shot")
+	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi> uninstall # remove all three")
 }
 
 // pathCommand finds the shortest connectivity path between two nodes

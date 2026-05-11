@@ -24,7 +24,7 @@ func readJSON(t *testing.T, path string) map[string]any {
 
 func TestRegistryListsAllSupportedPlatforms(t *testing.T) {
 	got := SupportedPlatforms()
-	want := []string{"claude", "codex", "cursor", "gemini", "vscode"}
+	want := []string{"claude", "codex", "cursor", "gemini", "kilocode", "kimi", "opencode", "qwen", "vscode"}
 	if len(got) != len(want) {
 		t.Fatalf("expected %d platforms, got %d (%v)", len(want), len(got), got)
 	}
@@ -86,8 +86,10 @@ func assertGogfyServerEntry(t *testing.T, m map[string]any, platform string) {
 // is exercised by codex_test.go.
 func TestInstallEachPlatformWritesValidConfig(t *testing.T) {
 	for _, name := range SupportedPlatforms() {
-		if name == "codex" {
-			continue // TOML format; covered in codex_test.go.
+		// codex uses TOML (codex_test.go); opencode has its own
+		// flattened shape (TestOpenCodeInstallUsesMcpKeyAndFlattenedCommand).
+		if name == "codex" || name == "opencode" {
+			continue
 		}
 		t.Run(name, func(t *testing.T) {
 			ws := t.TempDir()
@@ -413,10 +415,14 @@ func TestInstallFailsWhenParentPathIsAFile(t *testing.T) {
 // (so installers documentation can rely on these paths).
 func TestPlatformConfigPaths(t *testing.T) {
 	cases := map[string]string{
-		"claude": ".mcp.json",
-		"cursor": ".cursor/mcp.json",
-		"vscode": ".vscode/mcp.json",
-		"gemini": ".gemini/settings.json",
+		"claude":   ".mcp.json",
+		"cursor":   ".cursor/mcp.json",
+		"vscode":   ".vscode/mcp.json",
+		"gemini":   ".gemini/settings.json",
+		"opencode": "opencode.json",
+		"kilocode": ".kilocode/mcp.json",
+		"qwen":     ".qwen/settings.json",
+		"kimi":     ".kimi/settings.json",
 	}
 	for name, suffix := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -426,6 +432,70 @@ func TestPlatformConfigPaths(t *testing.T) {
 			if got != want {
 				t.Fatalf("%s ConfigPath: got %q, want %q", name, got, want)
 			}
+		})
+	}
+}
+
+func TestOpenCodeInstallUsesMcpKeyAndFlattenedCommand(t *testing.T) {
+	// OpenCode's MCP schema differs from the standard mcpServers shape:
+	// the top-level key is `mcp`, and each server entry uses
+	// `{type: "local", command: [cmd, args...]}` (single array) instead
+	// of the split `{command, args: []}`. Without this test, a refactor
+	// of jsonInstaller could quietly regress OpenCode to the standard
+	// shape and silently break every OpenCode install.
+	ws := t.TempDir()
+	inst, err := For("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{Bin: "gogfy", OutDir: "graphify-out"}); err != nil {
+		t.Fatal(err)
+	}
+	m := readJSON(t, filepath.Join(ws, "opencode.json"))
+	mcp, ok := m["mcp"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing mcp key (got %v)", m)
+	}
+	if _, hasStandard := m["mcpServers"]; hasStandard {
+		t.Fatalf("opencode should not write mcpServers key: %v", m)
+	}
+	gogfy, ok := mcp["gogfy"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing gogfy entry: %v", mcp)
+	}
+	if gogfy["type"] != "local" {
+		t.Fatalf("expected type=local, got %v", gogfy["type"])
+	}
+	cmd, ok := gogfy["command"].([]any)
+	if !ok {
+		t.Fatalf("command should be a single array, got %T", gogfy["command"])
+	}
+	if len(cmd) < 4 || cmd[0] != "gogfy" || cmd[1] != "serve" {
+		t.Fatalf("command should start with [gogfy, serve, ...], got %v", cmd)
+	}
+	// Args must NOT be present (OpenCode folds them into command).
+	if _, hasArgs := gogfy["args"]; hasArgs {
+		t.Fatalf("opencode entry should not have separate args key: %v", gogfy)
+	}
+}
+
+func TestKiloCodeAndQwenAndKimiUseStandardMcpServersShape(t *testing.T) {
+	// kilocode, qwen, and kimi all share the standard {mcpServers:
+	// {<name>: {command, args[]}}} shape (the same Claude/Gemini use).
+	// Pin that they don't accidentally diverge to OpenCode's flattened
+	// form during future installer refactors.
+	for _, p := range []string{"kilocode", "qwen", "kimi"} {
+		t.Run(p, func(t *testing.T) {
+			ws := t.TempDir()
+			inst, err := For(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := inst.Install(ws, Options{Bin: "gogfy", OutDir: "graphify-out"}); err != nil {
+				t.Fatal(err)
+			}
+			m := readJSON(t, inst.ConfigPath(ws))
+			assertGogfyServerEntry(t, m, p)
 		})
 	}
 }

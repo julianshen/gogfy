@@ -1,16 +1,20 @@
 // Package installer writes per-agent-platform MCP configuration so coding
 // assistants can launch `gogfy serve` and use the gogfy graph as a tool.
 //
-// Supported platforms (all JSON-config, MCP-capable):
+// Supported platforms:
 //
-//   - claude → <workspace>/.mcp.json
-//   - cursor → <workspace>/.cursor/mcp.json
-//   - vscode → <workspace>/.vscode/mcp.json
-//   - gemini → <workspace>/.gemini/settings.json
+//   - claude   → <workspace>/.mcp.json                 (mcpServers)
+//   - cursor   → <workspace>/.cursor/mcp.json          (mcpServers)
+//   - vscode   → <workspace>/.vscode/mcp.json          (servers)
+//   - gemini   → <workspace>/.gemini/settings.json     (mcpServers)
+//   - codex    → <workspace>/.codex/config.toml        (TOML, separate impl)
+//   - opencode → <workspace>/opencode.json             (mcp, {type,command[]} entries)
+//   - kilocode → <workspace>/.kilocode/mcp.json        (mcpServers)
+//   - qwen     → <workspace>/.qwen/settings.json       (mcpServers)
+//   - kimi     → <workspace>/.kimi/settings.json       (mcpServers) — Moonshot's Kimi CLI
 //
-// All four use the same shape: a top-level `mcpServers` object keyed by
-// server name. Installs merge into existing configs without disturbing
-// unrelated entries; uninstalls remove only the gogfy entry.
+// Installs merge into existing configs without disturbing unrelated
+// entries; uninstalls remove only the gogfy entry.
 package installer
 
 import (
@@ -85,12 +89,22 @@ func SupportedPlatforms() []string {
 
 // jsonInstaller implements the install/uninstall flow for any platform that
 // stores its MCP config as JSON keyed by a top-level servers object. The
-// platform-specific bits are: (1) the path inside the workspace, and
+// platform-specific bits are: (1) the path inside the workspace,
 // (2) the name of the top-level key — most use `mcpServers` but VS Code's
-// native MCP config uses `servers`.
+// native MCP config uses `servers` and OpenCode uses `mcp`, and (3) the
+// shape of each server entry — standard is split `{command, args}` but
+// OpenCode flattens to `{type: "local", command: [...]}`.
 type jsonInstaller struct {
-	relativePath string // path relative to the workspace root, e.g. ".mcp.json"
-	serversKey   string // top-level key, e.g. "mcpServers" or "servers"
+	relativePath string                       // path relative to the workspace root, e.g. ".mcp.json"
+	serversKey   string                       // top-level key, e.g. "mcpServers" or "servers"
+	entry        func(Options) map[string]any // server-entry builder; nil = the standard {command,args} shape
+}
+
+func (j jsonInstaller) entryFor(opts Options) map[string]any {
+	if j.entry != nil {
+		return j.entry(opts)
+	}
+	return gogfyServerEntry(opts)
 }
 
 func (j jsonInstaller) ConfigPath(workspace string) string {
@@ -107,7 +121,7 @@ func (j jsonInstaller) Install(workspace string, opts Options) error {
 	if err != nil {
 		return err
 	}
-	servers["gogfy"] = gogfyServerEntry(opts)
+	servers["gogfy"] = j.entryFor(opts)
 	return writeJSON(path, cfg)
 }
 
@@ -204,9 +218,27 @@ func writeJSON(path string, cfg map[string]any) error {
 // "servers" rather than "mcpServers" — match each platform's actual
 // expected schema rather than a single conventional shape.
 var registry = map[string]Installer{
-	"claude": jsonInstaller{relativePath: ".mcp.json", serversKey: "mcpServers"},
-	"cursor": jsonInstaller{relativePath: filepath.Join(".cursor", "mcp.json"), serversKey: "mcpServers"},
-	"vscode": jsonInstaller{relativePath: filepath.Join(".vscode", "mcp.json"), serversKey: "servers"},
-	"gemini": jsonInstaller{relativePath: filepath.Join(".gemini", "settings.json"), serversKey: "mcpServers"},
-	"codex":  codexInstaller{relativePath: filepath.Join(".codex", "config.toml")},
+	"claude":   jsonInstaller{relativePath: ".mcp.json", serversKey: "mcpServers"},
+	"cursor":   jsonInstaller{relativePath: filepath.Join(".cursor", "mcp.json"), serversKey: "mcpServers"},
+	"vscode":   jsonInstaller{relativePath: filepath.Join(".vscode", "mcp.json"), serversKey: "servers"},
+	"gemini":   jsonInstaller{relativePath: filepath.Join(".gemini", "settings.json"), serversKey: "mcpServers"},
+	"codex":    codexInstaller{relativePath: filepath.Join(".codex", "config.toml")},
+	"opencode": jsonInstaller{relativePath: "opencode.json", serversKey: "mcp", entry: opencodeServerEntry},
+	"kilocode": jsonInstaller{relativePath: filepath.Join(".kilocode", "mcp.json"), serversKey: "mcpServers"},
+	"qwen":     jsonInstaller{relativePath: filepath.Join(".qwen", "settings.json"), serversKey: "mcpServers"},
+	"kimi":     jsonInstaller{relativePath: filepath.Join(".kimi", "settings.json"), serversKey: "mcpServers"},
+}
+
+// opencodeServerEntry builds the OpenCode-specific server entry shape.
+// OpenCode flattens `command` and `args` into a single array under
+// `command`, and tags local commands with `type: "local"`.
+//
+// See: https://opencode.ai/docs/mcp-servers/ for the schema.
+func opencodeServerEntry(opts Options) map[string]any {
+	graph := filepath.Join(opts.outDir(), "graph.json")
+	report := filepath.Join(opts.outDir(), "GRAPH_REPORT.md")
+	return map[string]any{
+		"type":    "local",
+		"command": []string{opts.bin(), "serve", "--graph", graph, "--report", report},
+	}
 }
