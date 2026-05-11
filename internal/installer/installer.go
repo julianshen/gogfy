@@ -1,33 +1,25 @@
 // Package installer writes per-agent-platform MCP configuration so coding
 // assistants can launch `gogfy serve` and use the gogfy graph as a tool.
 //
-// Supported platforms:
+// The registry at the bottom of this file is the authoritative platform
+// table; the package supports 19 platforms covering Claude Code, Codex,
+// Cursor, VS Code, Gemini CLI, OpenCode, and the broader graphify-aligned
+// set (Aider, OpenClaw, Copilot, Droid, Trae, Hermes, Kiro, Pi, Antigravity,
+// Kimi, Qwen, Kilo Code).
 //
-//   - claude   → <workspace>/.mcp.json                 (mcpServers)
-//   - cursor   → <workspace>/.cursor/mcp.json          (mcpServers)
-//   - vscode   → <workspace>/.vscode/mcp.json          (servers)
-//   - gemini   → <workspace>/.gemini/settings.json     (mcpServers)
-//   - codex    → <workspace>/.codex/config.toml        (TOML, separate impl)
-//   - opencode → <workspace>/opencode.json             (mcp, {type,command[]} entries)
-//   - kilocode → <workspace>/.kilocode/mcp.json        (mcpServers)
-//   - qwen     → <workspace>/.qwen/settings.json       (mcpServers)
-//   - kimi     → <workspace>/.kimi/settings.json       (mcpServers) — Moonshot's Kimi CLI
-//   - aider    → <workspace>/.aider/mcp.json           (mcpServers)
-//   - claw     → <workspace>/.openclaw/mcp.json        (mcpServers) — OpenClaw
-//   - copilot  → <workspace>/.copilot/mcp.json         (mcpServers) — GitHub Copilot CLI
-//   - droid    → <workspace>/.factory/mcp.json         (mcpServers) — Factory Droid
-//   - trae     → <workspace>/.trae/mcp.json            (mcpServers)
-//   - trae-cn  → <workspace>/.trae-cn/mcp.json         (mcpServers) — Trae CN
-//   - hermes   → <workspace>/.hermes/mcp.json          (mcpServers)
-//   - kiro     → <workspace>/.kiro/mcp.json            (mcpServers)
-//   - pi       → <workspace>/.pi/mcp.json              (mcpServers) — Pi coding agent
-//   - antigravity → <workspace>/.antigravity/mcp.json  (mcpServers) — Google Antigravity
-//
-// Platform-name + config-path conventions match safishamsi/graphify v7's
+// Platform-name + config-path conventions match safishamsi/graphify's
 // per-platform install paths (see graphify/__main__.py:_PLATFORM_CONFIG).
 // graphify installs a SKILL.md under each platform's user-home config dir;
 // gogfy registers an MCP server in each platform's workspace-relative
 // config — different architectures, same naming convention.
+//
+// Best-effort note: some platforms in the registry don't yet have official
+// workspace-relative MCP config support documented (e.g., Aider primarily
+// configures via .aider.conf.yml; GitHub Copilot CLI uses user-level
+// config). The install writes the file at the conventional location each
+// platform's config-dir suggests; consult the upstream platform's docs
+// to confirm whether your version reads it. Future PRs can refine the
+// paths as conventions stabilize.
 //
 // Installs merge into existing configs without disturbing unrelated
 // entries; uninstalls remove only the gogfy entry.

@@ -154,11 +154,9 @@ func comboPlatformDocs(platform string) string {
 	case "vscode", "opencode", "kilocode", "kimi",
 		"aider", "claw", "copilot", "droid", "trae", "trae-cn",
 		"hermes", "kiro", "pi", "antigravity":
-		// All these platforms either treat AGENTS.md as the cross-tool
-		// standard (most) or have no canonical agent docs file (vscode
-		// Copilot Chat). AGENTS.md is the safe default; users with
-		// platform-specific docs files can run install-instructions
-		// explicitly. graphify v7's platform list maps to these names.
+		// Default to AGENTS.md when no platform-specific docs path is
+		// wired up. Users with platform-specific docs files can override
+		// via the explicit install-instructions subcommand.
 		return "AGENTS.md"
 	case "qwen":
 		// Qwen Code (Gemini CLI fork) reads QWEN.md; falls back to AGENTS.md

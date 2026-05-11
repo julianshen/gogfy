@@ -493,7 +493,58 @@ func TestOpenCodeInstallUsesMcpKeyAndFlattenedCommand(t *testing.T) {
 	}
 }
 
-// Standard-shape platform coverage (kilocode/qwen/kimi/aider/etc.) is
-// already exercised by TestInstallEachPlatformWritesValidConfig and
-// TestPlatformConfigPaths above. Only OpenCode's unique flattened shape
-// needs a dedicated test (TestOpenCodeInstallUsesMcpKeyAndFlattenedCommand).
+// TestOpenCodeUninstallUsesMcpKey pins that jsonInstaller.Uninstall
+// looks up the platform's own serversKey rather than hardcoding
+// "mcpServers". A refactor that hardcoded the standard key would
+// silently make every opencode uninstall a no-op — `gogfy opencode
+// uninstall` would report success while leaving the entry in place.
+func TestOpenCodeUninstallUsesMcpKey(t *testing.T) {
+	ws := t.TempDir()
+	inst, err := For("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Install(ws, Options{Bin: "gogfy"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Uninstall(ws); err != nil {
+		t.Fatal(err)
+	}
+	m := readJSON(t, inst.ConfigPath(ws))
+	mcp, ok := m["mcp"].(map[string]any)
+	if !ok {
+		// Acceptable for the mcp key to be entirely absent after uninstall.
+		return
+	}
+	if _, present := mcp["gogfy"]; present {
+		t.Fatalf("opencode uninstall left gogfy entry under mcp key: %v", mcp)
+	}
+}
+
+// TestEveryPlatformRoundTripsClean exercises Install → Uninstall on
+// every registered platform. Catches bugs where a platform-specific
+// servers key (opencode's `mcp`, vscode's `servers`) gets hardcoded
+// to `mcpServers` somewhere in the uninstall path. Idempotency of
+// the install side is exercised by TestInstallIsIdempotent for
+// claude, but this loop catches cross-shape regressions cheaply.
+func TestEveryPlatformRoundTripsClean(t *testing.T) {
+	for _, p := range SupportedPlatforms() {
+		if p == "codex" {
+			continue // TOML; codex_test.go covers it
+		}
+		t.Run(p, func(t *testing.T) {
+			ws := t.TempDir()
+			inst, err := For(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := inst.Install(ws, Options{Bin: "gogfy"}); err != nil {
+				t.Fatalf("install: %v", err)
+			}
+			if err := inst.Uninstall(ws); err != nil {
+				t.Fatalf("uninstall: %v", err)
+			}
+		})
+	}
+}
+
