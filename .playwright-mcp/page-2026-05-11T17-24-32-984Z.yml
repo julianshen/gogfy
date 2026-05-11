@@ -1,0 +1,1017 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - link "Skip to content" [ref=e4] [cursor=pointer]:
+        - /url: "#start-of-content"
+      - banner [ref=e6]:
+        - heading "Navigation Menu" [level=2] [ref=e7]
+        - generic [ref=e8]:
+          - link "Homepage" [ref=e10] [cursor=pointer]:
+            - /url: /
+            - img [ref=e11]
+          - generic [ref=e13]:
+            - navigation "Global" [ref=e16]:
+              - list [ref=e17]:
+                - listitem [ref=e18]:
+                  - button "Platform" [ref=e20] [cursor=pointer]:
+                    - text: Platform
+                    - img [ref=e21]
+                - listitem [ref=e23]:
+                  - button "Solutions" [ref=e25] [cursor=pointer]:
+                    - text: Solutions
+                    - img [ref=e26]
+                - listitem [ref=e28]:
+                  - button "Resources" [ref=e30] [cursor=pointer]:
+                    - text: Resources
+                    - img [ref=e31]
+                - listitem [ref=e33]:
+                  - button "Open Source" [ref=e35] [cursor=pointer]:
+                    - text: Open Source
+                    - img [ref=e36]
+                - listitem [ref=e38]:
+                  - button "Enterprise" [ref=e40] [cursor=pointer]:
+                    - text: Enterprise
+                    - img [ref=e41]
+                - listitem [ref=e43]:
+                  - link "Pricing" [ref=e44] [cursor=pointer]:
+                    - /url: https://github.com/pricing
+                    - generic [ref=e45]: Pricing
+            - generic [ref=e46]:
+              - button "Search or jump to…" [ref=e49] [cursor=pointer]:
+                - img [ref=e51]
+              - link "Sign in" [ref=e54] [cursor=pointer]:
+                - /url: /login?return_to=https%3A%2F%2Fgithub.com%2Fsafishamsi%2Fgraphify%2Fblob%2Fv7%2FREADME.md
+              - link "Sign up" [ref=e55] [cursor=pointer]:
+                - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E%2Fblob%2Fshow&source=header-repo&source_repo=safishamsi%2Fgraphify
+              - button "Appearance settings" [ref=e58] [cursor=pointer]:
+                - img
+    - main [ref=e62]:
+      - generic [ref=e63]:
+        - generic [ref=e64]:
+          - generic [ref=e66]:
+            - img [ref=e67]
+            - link "safishamsi" [ref=e70] [cursor=pointer]:
+              - /url: /safishamsi
+            - generic [ref=e71]: /
+            - strong [ref=e72]:
+              - link "graphify" [ref=e73] [cursor=pointer]:
+                - /url: /safishamsi/graphify
+            - generic [ref=e74]: Public
+          - generic [ref=e75]:
+            - list:
+              - listitem [ref=e76]:
+                - link "Sponsor @safishamsi" [ref=e77] [cursor=pointer]:
+                  - /url: /sponsors/safishamsi
+                  - generic [ref=e79]:
+                    - img [ref=e80]
+                    - text: Sponsor
+              - listitem [ref=e82]:
+                - link "You must be signed in to change notification settings" [ref=e83] [cursor=pointer]:
+                  - /url: /login?return_to=%2Fsafishamsi%2Fgraphify
+                  - img [ref=e84]
+                  - text: Notifications
+              - listitem [ref=e86]:
+                - link "Fork 5.1k" [ref=e87] [cursor=pointer]:
+                  - /url: /login?return_to=%2Fsafishamsi%2Fgraphify
+                  - img [ref=e88]
+                  - text: Fork
+                  - generic "5,054" [ref=e90]: 5.1k
+              - listitem [ref=e91]:
+                - link "You must be signed in to star a repository" [ref=e93] [cursor=pointer]:
+                  - /url: /login?return_to=%2Fsafishamsi%2Fgraphify
+                  - img [ref=e94]
+                  - text: Star
+                  - generic "46575 users starred this repository" [ref=e96]: 46.6k
+        - navigation "Repository" [ref=e97]:
+          - list [ref=e98]:
+            - listitem [ref=e99]:
+              - link "Code" [ref=e100] [cursor=pointer]:
+                - /url: /safishamsi/graphify
+                - img [ref=e101]
+                - generic [ref=e103]: Code
+            - listitem [ref=e104]:
+              - link "Issues 92" [ref=e105] [cursor=pointer]:
+                - /url: /safishamsi/graphify/issues
+                - img [ref=e106]
+                - generic [ref=e109]: Issues
+                - generic "92" [ref=e110]
+            - listitem [ref=e111]:
+              - link "Pull requests 154" [ref=e112] [cursor=pointer]:
+                - /url: /safishamsi/graphify/pulls
+                - img [ref=e113]
+                - generic [ref=e115]: Pull requests
+                - generic "154" [ref=e116]
+            - listitem [ref=e117]:
+              - link "Discussions" [ref=e118] [cursor=pointer]:
+                - /url: /safishamsi/graphify/discussions
+                - img [ref=e119]
+                - generic [ref=e121]: Discussions
+            - listitem [ref=e122]:
+              - link "Actions" [ref=e123] [cursor=pointer]:
+                - /url: /safishamsi/graphify/actions
+                - img [ref=e124]
+                - generic [ref=e126]: Actions
+            - listitem [ref=e127]:
+              - link "Projects" [ref=e128] [cursor=pointer]:
+                - /url: /safishamsi/graphify/projects
+                - img [ref=e129]
+                - generic [ref=e131]: Projects
+            - listitem [ref=e132]:
+              - link "Security and quality" [ref=e133] [cursor=pointer]:
+                - /url: /safishamsi/graphify/security
+                - img [ref=e134]
+                - generic [ref=e136]: Security and quality
+            - listitem [ref=e137]:
+              - link "Insights" [ref=e138] [cursor=pointer]:
+                - /url: /safishamsi/graphify/pulse
+                - img [ref=e139]
+                - generic [ref=e141]: Insights
+      - generic [ref=e149]:
+        - generic [ref=e151]:
+          - generic [ref=e154]:
+            - generic [ref=e155]:
+              - generic [ref=e156]:
+                - heading "Collapse file tree" [level=2] [ref=e157]:
+                  - button "Collapse file tree" [expanded] [ref=e158] [cursor=pointer]:
+                    - img [ref=e159]
+                - heading "Files" [level=2] [ref=e162]
+              - generic [ref=e163]:
+                - button "v7 branch" [ref=e165] [cursor=pointer]:
+                  - generic [ref=e166]:
+                    - generic [ref=e168]:
+                      - img [ref=e170]
+                      - generic [ref=e173]: v7
+                    - generic:
+                      - img
+                - button "Search this repository (forward slash)" [ref=e175] [cursor=pointer]:
+                  - img [ref=e176]
+            - generic [ref=e179]:
+              - img [ref=e181]
+              - combobox "Go to file" [ref=e183]
+            - navigation "File Tree Navigation" [ref=e189]:
+              - tree "Files" [ref=e191]:
+                - treeitem ".github" [level=1] [ref=e192]:
+                  - generic [ref=e193] [cursor=pointer]:
+                    - img [ref=e195]
+                    - generic [ref=e197]:
+                      - img [ref=e201]
+                      - generic [ref=e203]: .github
+                - treeitem "docs" [level=1] [ref=e204]:
+                  - generic [ref=e205] [cursor=pointer]:
+                    - img [ref=e207]
+                    - generic [ref=e209]:
+                      - img [ref=e213]
+                      - generic [ref=e215]: docs
+                - treeitem "graphify" [level=1] [ref=e216]:
+                  - generic [ref=e217] [cursor=pointer]:
+                    - img [ref=e219]
+                    - generic [ref=e221]:
+                      - img [ref=e225]
+                      - generic [ref=e227]: graphify
+                - treeitem "tests" [level=1] [ref=e228]:
+                  - generic [ref=e229] [cursor=pointer]:
+                    - img [ref=e231]
+                    - generic [ref=e233]:
+                      - img [ref=e237]
+                      - generic [ref=e239]: tests
+                - treeitem "worked" [level=1] [ref=e240]:
+                  - generic [ref=e241] [cursor=pointer]:
+                    - img [ref=e243]
+                    - generic [ref=e245]:
+                      - img [ref=e249]
+                      - generic [ref=e251]: worked
+                - treeitem ".gitignore" [level=1] [ref=e252]:
+                  - generic [ref=e254] [cursor=pointer]:
+                    - img [ref=e257]
+                    - generic [ref=e259]: .gitignore
+                - treeitem "AGENTS.md" [level=1] [ref=e260]:
+                  - generic [ref=e262] [cursor=pointer]:
+                    - img [ref=e265]
+                    - generic [ref=e267]: AGENTS.md
+                - treeitem "ARCHITECTURE.md" [level=1] [ref=e268]:
+                  - generic [ref=e270] [cursor=pointer]:
+                    - img [ref=e273]
+                    - generic [ref=e275]: ARCHITECTURE.md
+                - treeitem "CHANGELOG.md" [level=1] [ref=e276]:
+                  - generic [ref=e278] [cursor=pointer]:
+                    - img [ref=e281]
+                    - generic [ref=e283]: CHANGELOG.md
+                - treeitem "LICENSE" [level=1] [ref=e284]:
+                  - generic [ref=e286] [cursor=pointer]:
+                    - img [ref=e289]
+                    - generic [ref=e291]: LICENSE
+                - treeitem "README.md" [level=1] [ref=e292]:
+                  - generic [ref=e294] [cursor=pointer]:
+                    - img [ref=e297]
+                    - generic [ref=e299]: README.md
+                - treeitem "SECURITY.md" [level=1] [ref=e300]:
+                  - generic [ref=e302] [cursor=pointer]:
+                    - img [ref=e305]
+                    - generic [ref=e307]: SECURITY.md
+                - treeitem "pyproject.toml" [level=1] [ref=e308]:
+                  - generic [ref=e310] [cursor=pointer]:
+                    - img [ref=e313]
+                    - generic [ref=e315]: pyproject.toml
+          - slider "Draggable pane splitter" [ref=e317]
+        - generic [ref=e320]:
+          - generic [ref=e324]:
+            - generic [ref=e326]:
+              - navigation "Breadcrumbs" [ref=e327]:
+                - heading "Breadcrumbs" [level=2] [ref=e328]
+                - list [ref=e329]:
+                  - listitem [ref=e330]:
+                    - link "graphify" [ref=e331] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/tree/v7
+              - generic [ref=e332]:
+                - text: /
+                - heading "README.md" [level=1] [ref=e333]
+              - button "Copy path" [ref=e334] [cursor=pointer]:
+                - img [ref=e335]
+            - button "More file actions" [ref=e341] [cursor=pointer]:
+              - img [ref=e342]
+          - generic [ref=e344]:
+            - generic [ref=e346]:
+              - heading "Latest commit" [level=2] [ref=e347]
+              - generic [ref=e348]:
+                - generic [ref=e350]:
+                  - link "safishamsi" [ref=e351] [cursor=pointer]:
+                    - /url: /safishamsi
+                    - img "safishamsi" [ref=e352]
+                  - link "commits by safishamsi" [ref=e353] [cursor=pointer]:
+                    - /url: /safishamsi/graphify/commits?author=safishamsi
+                    - text: safishamsi
+                - generic [ref=e354]:
+                  - link "document GRAPHIFY_OLLAMA_NUM_CTX and GRAPHIFY_OLLAMA_KEEP_ALIVE env vars" [ref=e357] [cursor=pointer]:
+                    - /url: /safishamsi/graphify/commit/4cec58e07242a42a94e7d7c41568120e46aac862
+                  - button "success" [ref=e358] [cursor=pointer]:
+                    - img [ref=e359]
+              - generic [ref=e361]:
+                - generic [ref=e363]:
+                  - link "Commit 4cec58e" [ref=e364] [cursor=pointer]:
+                    - /url: /safishamsi/graphify/commit/4cec58e07242a42a94e7d7c41568120e46aac862
+                    - text: 4cec58e
+                  - text: ·
+                  - generic "May 10, 2026, 6:48 AM GMT+8" [ref=e365]: May 10, 20262 days ago
+                - generic [ref=e366]:
+                  - heading "History" [level=2] [ref=e367]
+                  - link "History" [ref=e368] [cursor=pointer]:
+                    - /url: /safishamsi/graphify/commits/v7/README.md
+                    - generic [ref=e369]:
+                      - generic:
+                        - img
+                      - generic [ref=e370]: History
+            - generic [ref=e372]:
+              - generic [ref=e374]:
+                - heading "File metadata and controls" [level=2] [ref=e375]
+                - list "File view" [ref=e377]:
+                  - listitem [ref=e378]:
+                    - button "Preview" [ref=e379] [cursor=pointer]:
+                      - generic [ref=e381]: Preview
+                  - listitem [ref=e382]:
+                    - button "Code" [ref=e383] [cursor=pointer]:
+                      - generic [ref=e385]: Code
+                  - listitem [ref=e386]:
+                    - button "Blame" [ref=e387] [cursor=pointer]:
+                      - generic [ref=e389]: Blame
+                - generic [ref=e390]:
+                  - generic [ref=e391]:
+                    - generic [ref=e392]:
+                      - link "Raw" [ref=e394] [cursor=pointer]:
+                        - /url: https://github.com/safishamsi/graphify/raw/refs/heads/v7/README.md
+                        - generic [ref=e396]: Raw
+                      - button "Copy raw file" [ref=e398] [cursor=pointer]:
+                        - img [ref=e399]
+                      - button "Download raw file" [ref=e403] [cursor=pointer]:
+                        - img [ref=e404]
+                    - generic [ref=e407]:
+                      - button "You must be signed in to make or propose changes" [disabled] [ref=e409]:
+                        - img [ref=e410]
+                      - button "More edit options" [ref=e413] [cursor=pointer]:
+                        - img [ref=e414]
+                  - button "Outline" [ref=e416] [cursor=pointer]:
+                    - img [ref=e417]
+              - region "README.md" [ref=e420]:
+                - article [ref=e422]:
+                  - paragraph [ref=e423]:
+                    - link "Graphify" [ref=e424] [cursor=pointer]:
+                      - /url: https://graphifylabs.ai
+                      - img "Graphify" [ref=e425]
+                  - paragraph [ref=e426]:
+                    - text: 🇺🇸
+                    - link "English" [ref=e427] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/README.md
+                    - text: "| 🇨🇳"
+                    - link "简体中文" [ref=e428] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.zh-CN.md
+                    - text: "| 🇯🇵"
+                    - link "日本語" [ref=e429] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.ja-JP.md
+                    - text: "| 🇰🇷"
+                    - link "한국어" [ref=e430] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.ko-KR.md
+                    - text: "| 🇩🇪"
+                    - link "Deutsch" [ref=e431] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.de-DE.md
+                    - text: "| 🇫🇷"
+                    - link "Français" [ref=e432] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.fr-FR.md
+                    - text: "| 🇪🇸"
+                    - link "Español" [ref=e433] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.es-ES.md
+                    - text: "| 🇮🇳"
+                    - link "हिन्दी" [ref=e434] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.hi-IN.md
+                    - text: "| 🇧🇷"
+                    - link "Português" [ref=e435] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.pt-BR.md
+                    - text: "| 🇷🇺"
+                    - link "Русский" [ref=e436] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.ru-RU.md
+                    - text: "| 🇸🇦"
+                    - link "العربية" [ref=e437] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.ar-SA.md
+                    - text: "| 🇮🇹"
+                    - link "Italiano" [ref=e438] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.it-IT.md
+                    - text: "| 🇵🇱"
+                    - link "Polski" [ref=e439] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.pl-PL.md
+                    - text: "| 🇳🇱"
+                    - link "Nederlands" [ref=e440] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.nl-NL.md
+                    - text: "| 🇹🇷"
+                    - link "Türkçe" [ref=e441] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.tr-TR.md
+                    - text: "| 🇺🇦"
+                    - link "Українська" [ref=e442] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.uk-UA.md
+                    - text: "| 🇻🇳"
+                    - link "Tiếng Việt" [ref=e443] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.vi-VN.md
+                    - text: "| 🇮🇩"
+                    - link "Bahasa Indonesia" [ref=e444] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.id-ID.md
+                    - text: "| 🇸🇪"
+                    - link "Svenska" [ref=e445] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.sv-SE.md
+                    - text: "| 🇬🇷"
+                    - link "Ελληνικά" [ref=e446] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.el-GR.md
+                    - text: "| 🇷🇴"
+                    - link "Română" [ref=e447] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.ro-RO.md
+                    - text: "| 🇨🇿"
+                    - link "Čeština" [ref=e448] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.cs-CZ.md
+                    - text: "| 🇫🇮"
+                    - link "Suomi" [ref=e449] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.fi-FI.md
+                    - text: "| 🇩🇰"
+                    - link "Dansk" [ref=e450] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.da-DK.md
+                    - text: "| 🇳🇴"
+                    - link "Norsk" [ref=e451] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.no-NO.md
+                    - text: "| 🇭🇺"
+                    - link "Magyar" [ref=e452] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.hu-HU.md
+                    - text: "| 🇹🇭"
+                    - link "ภาษาไทย" [ref=e453] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.th-TH.md
+                    - text: "| 🇹🇼"
+                    - link "繁體中文" [ref=e454] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/blob/v7/docs/translations/README.zh-TW.md
+                  - paragraph [ref=e455]:
+                    - link "The Memory Layer" [ref=e456] [cursor=pointer]:
+                      - /url: https://safishamsi.gumroad.com/l/qetvlo
+                      - img "The Memory Layer" [ref=e457]
+                    - link "CI" [ref=e458] [cursor=pointer]:
+                      - /url: https://github.com/safishamsi/graphify/actions/workflows/ci.yml
+                      - img "CI" [ref=e459]
+                    - link "PyPI" [ref=e460] [cursor=pointer]:
+                      - /url: https://pypi.org/project/graphifyy/
+                      - img "PyPI" [ref=e461]
+                    - link "Downloads" [ref=e462] [cursor=pointer]:
+                      - /url: https://clickpy.clickhouse.com/dashboard/graphifyy
+                      - img "Downloads" [ref=e463]
+                    - link "Sponsor" [ref=e464] [cursor=pointer]:
+                      - /url: https://github.com/sponsors/safishamsi
+                      - img "Sponsor" [ref=e465]
+                    - link "LinkedIn" [ref=e466] [cursor=pointer]:
+                      - /url: https://www.linkedin.com/in/safi-shamsi
+                      - img "LinkedIn" [ref=e467]
+                    - link "X" [ref=e468] [cursor=pointer]:
+                      - /url: https://x.com/graphifyy
+                      - img "X" [ref=e469]
+                  - paragraph [ref=e470]:
+                    - link "Star History Chart" [ref=e471] [cursor=pointer]:
+                      - /url: https://star-history.com/#safishamsi/graphify&Date
+                      - img "Star History Chart" [ref=e472]
+                  - paragraph [ref=e473]:
+                    - text: Type
+                    - code [ref=e474]: /graphify
+                    - text: in your AI coding assistant and it maps your entire project — code, docs, PDFs, images, videos — into a knowledge graph you can query instead of grepping through files.
+                  - paragraph [ref=e475]: Works in Claude Code, Codex, OpenCode, Cursor, Gemini CLI, GitHub Copilot CLI, VS Code Copilot Chat, Aider, OpenClaw, Factory Droid, Trae, Hermes, Kimi Code, Kiro, Pi, and Google Antigravity.
+                  - generic [ref=e476]:
+                    - code [ref=e478]: /graphify .
+                    - button "Copy code to clipboard" [ref=e480] [cursor=pointer]:
+                      - img [ref=e481]
+                  - paragraph [ref=e484]: "That's it. You get three files:"
+                  - generic [ref=e485]:
+                    - code [ref=e487]: "graphify-out/ ├── graph.html open in any browser — click nodes, filter, search ├── GRAPH_REPORT.md the highlights: key concepts, surprising connections, suggested questions └── graph.json the full graph — query it anytime without re-reading your files"
+                    - button "Copy code to clipboard" [ref=e489] [cursor=pointer]:
+                      - img [ref=e490]
+                  - paragraph [ref=e493]: "For a readable architecture page with Mermaid call-flow diagrams, run:"
+                  - generic [ref=e494]:
+                    - generic [ref=e495]: graphify export callflow-html
+                    - button "Copy code to clipboard" [ref=e497] [cursor=pointer]:
+                      - img [ref=e498]
+                  - separator [ref=e501]
+                  - generic [ref=e502]:
+                    - heading "Install" [level=2] [ref=e503]
+                    - 'link "Permalink: Install" [ref=e504] [cursor=pointer]':
+                      - /url: "#install"
+                      - img [ref=e505]
+                  - paragraph [ref=e507]:
+                    - strong [ref=e508]: Requires Python 3.10+
+                  - generic [ref=e509]:
+                    - generic [ref=e510]:
+                      - text: uv tool install graphifyy && graphify install
+                      - generic [ref=e511]: "# or: pipx install graphifyy && graphify install"
+                      - generic [ref=e512]: "# or: pip install graphifyy && graphify install"
+                    - button "Copy code to clipboard" [ref=e514] [cursor=pointer]:
+                      - img [ref=e515]
+                  - blockquote [ref=e518]:
+                    - paragraph [ref=e519]:
+                      - strong [ref=e520]: "Official package:"
+                      - text: The PyPI package is
+                      - code [ref=e521]: graphifyy
+                      - text: (double-y). Other
+                      - code [ref=e522]: graphify*
+                      - text: packages on PyPI are not affiliated. The CLI command is still
+                      - code [ref=e523]: graphify
+                      - text: .
+                  - blockquote [ref=e524]:
+                    - paragraph [ref=e525]:
+                      - strong [ref=e526]: "PowerShell note:"
+                      - text: Use
+                      - code [ref=e527]: graphify .
+                      - text: not
+                      - code [ref=e528]: /graphify .
+                      - text: — the leading slash is a path separator in PowerShell and will cause a "not recognized" error.
+                  - blockquote [ref=e529]:
+                    - paragraph [ref=e530]:
+                      - strong [ref=e531]:
+                        - code [ref=e532]: "graphify: command not found"
+                        - text: "?"
+                      - text: Use
+                      - code [ref=e533]: uv tool install graphifyy
+                      - text: or
+                      - code [ref=e534]: pipx install graphifyy
+                      - text: — both put the CLI on PATH automatically. With plain
+                      - code [ref=e535]: pip
+                      - text: ", add"
+                      - code [ref=e536]: ~/.local/bin
+                      - text: (Linux) or
+                      - code [ref=e537]: ~/Library/Python/3.x/bin
+                      - text: (Mac) to your PATH, or run
+                      - code [ref=e538]: python -m graphify
+                      - text: .
+                  - generic [ref=e539]:
+                    - heading "Pick your platform" [level=3] [ref=e540]
+                    - 'link "Permalink: Pick your platform" [ref=e541] [cursor=pointer]':
+                      - /url: "#pick-your-platform"
+                      - img [ref=e542]
+                  - table [ref=e545]:
+                    - rowgroup [ref=e546]:
+                      - row "Platform Install command" [ref=e547]:
+                        - columnheader "Platform" [ref=e548]
+                        - columnheader "Install command" [ref=e549]
+                    - rowgroup [ref=e550]:
+                      - row "Claude Code (Linux/Mac) graphify install" [ref=e551]:
+                        - cell "Claude Code (Linux/Mac)" [ref=e552]
+                        - cell "graphify install" [ref=e553]:
+                          - code [ref=e554]: graphify install
+                      - row "Claude Code (Windows) graphify install --platform windows" [ref=e555]:
+                        - cell "Claude Code (Windows)" [ref=e556]
+                        - cell "graphify install --platform windows" [ref=e557]:
+                          - code [ref=e558]: graphify install --platform windows
+                      - row "Codex graphify install --platform codex" [ref=e559]:
+                        - cell "Codex" [ref=e560]
+                        - cell "graphify install --platform codex" [ref=e561]:
+                          - code [ref=e562]: graphify install --platform codex
+                      - row "OpenCode graphify install --platform opencode" [ref=e563]:
+                        - cell "OpenCode" [ref=e564]
+                        - cell "graphify install --platform opencode" [ref=e565]:
+                          - code [ref=e566]: graphify install --platform opencode
+                      - row "GitHub Copilot CLI graphify install --platform copilot" [ref=e567]:
+                        - cell "GitHub Copilot CLI" [ref=e568]
+                        - cell "graphify install --platform copilot" [ref=e569]:
+                          - code [ref=e570]: graphify install --platform copilot
+                      - row "VS Code Copilot Chat graphify vscode install" [ref=e571]:
+                        - cell "VS Code Copilot Chat" [ref=e572]
+                        - cell "graphify vscode install" [ref=e573]:
+                          - code [ref=e574]: graphify vscode install
+                      - row "Aider graphify install --platform aider" [ref=e575]:
+                        - cell "Aider" [ref=e576]
+                        - cell "graphify install --platform aider" [ref=e577]:
+                          - code [ref=e578]: graphify install --platform aider
+                      - row "OpenClaw graphify install --platform claw" [ref=e579]:
+                        - cell "OpenClaw" [ref=e580]
+                        - cell "graphify install --platform claw" [ref=e581]:
+                          - code [ref=e582]: graphify install --platform claw
+                      - row "Factory Droid graphify install --platform droid" [ref=e583]:
+                        - cell "Factory Droid" [ref=e584]
+                        - cell "graphify install --platform droid" [ref=e585]:
+                          - code [ref=e586]: graphify install --platform droid
+                      - row "Trae graphify install --platform trae" [ref=e587]:
+                        - cell "Trae" [ref=e588]
+                        - cell "graphify install --platform trae" [ref=e589]:
+                          - code [ref=e590]: graphify install --platform trae
+                      - row "Trae CN graphify install --platform trae-cn" [ref=e591]:
+                        - cell "Trae CN" [ref=e592]
+                        - cell "graphify install --platform trae-cn" [ref=e593]:
+                          - code [ref=e594]: graphify install --platform trae-cn
+                      - row "Gemini CLI graphify install --platform gemini" [ref=e595]:
+                        - cell "Gemini CLI" [ref=e596]
+                        - cell "graphify install --platform gemini" [ref=e597]:
+                          - code [ref=e598]: graphify install --platform gemini
+                      - row "Hermes graphify install --platform hermes" [ref=e599]:
+                        - cell "Hermes" [ref=e600]
+                        - cell "graphify install --platform hermes" [ref=e601]:
+                          - code [ref=e602]: graphify install --platform hermes
+                      - row "Kimi Code graphify install --platform kimi" [ref=e603]:
+                        - cell "Kimi Code" [ref=e604]
+                        - cell "graphify install --platform kimi" [ref=e605]:
+                          - code [ref=e606]: graphify install --platform kimi
+                      - row "Kiro IDE/CLI graphify kiro install" [ref=e607]:
+                        - cell "Kiro IDE/CLI" [ref=e608]
+                        - cell "graphify kiro install" [ref=e609]:
+                          - code [ref=e610]: graphify kiro install
+                      - row "Pi coding agent graphify install --platform pi" [ref=e611]:
+                        - cell "Pi coding agent" [ref=e612]
+                        - cell "graphify install --platform pi" [ref=e613]:
+                          - code [ref=e614]: graphify install --platform pi
+                      - row "Cursor graphify cursor install" [ref=e615]:
+                        - cell "Cursor" [ref=e616]
+                        - cell "graphify cursor install" [ref=e617]:
+                          - code [ref=e618]: graphify cursor install
+                      - row "Google Antigravity graphify antigravity install" [ref=e619]:
+                        - cell "Google Antigravity" [ref=e620]
+                        - cell "graphify antigravity install" [ref=e621]:
+                          - code [ref=e622]: graphify antigravity install
+                  - blockquote [ref=e623]:
+                    - paragraph [ref=e624]:
+                      - text: "Codex users: also add"
+                      - code [ref=e625]: multi_agent = true
+                      - text: under
+                      - code [ref=e626]: "[features]"
+                      - text: in
+                      - code [ref=e627]: ~/.codex/config.toml
+                      - text: . Codex uses
+                      - code [ref=e628]: $graphify
+                      - text: instead of
+                      - code [ref=e629]: /graphify
+                      - text: .
+                  - separator [ref=e630]
+                  - generic [ref=e631]:
+                    - heading "Make your assistant always use the graph" [level=2] [ref=e632]
+                    - 'link "Permalink: Make your assistant always use the graph" [ref=e633] [cursor=pointer]':
+                      - /url: "#make-your-assistant-always-use-the-graph"
+                      - img [ref=e634]
+                  - paragraph [ref=e636]: "Run this once in your project after building a graph:"
+                  - table [ref=e638]:
+                    - rowgroup [ref=e639]:
+                      - row "Platform Command" [ref=e640]:
+                        - columnheader "Platform" [ref=e641]
+                        - columnheader "Command" [ref=e642]
+                    - rowgroup [ref=e643]:
+                      - row "Claude Code graphify claude install" [ref=e644]:
+                        - cell "Claude Code" [ref=e645]
+                        - cell "graphify claude install" [ref=e646]:
+                          - code [ref=e647]: graphify claude install
+                      - row "Codex graphify codex install" [ref=e648]:
+                        - cell "Codex" [ref=e649]
+                        - cell "graphify codex install" [ref=e650]:
+                          - code [ref=e651]: graphify codex install
+                      - row "OpenCode graphify opencode install" [ref=e652]:
+                        - cell "OpenCode" [ref=e653]
+                        - cell "graphify opencode install" [ref=e654]:
+                          - code [ref=e655]: graphify opencode install
+                      - row "GitHub Copilot CLI graphify copilot install" [ref=e656]:
+                        - cell "GitHub Copilot CLI" [ref=e657]
+                        - cell "graphify copilot install" [ref=e658]:
+                          - code [ref=e659]: graphify copilot install
+                      - row "VS Code Copilot Chat graphify vscode install" [ref=e660]:
+                        - cell "VS Code Copilot Chat" [ref=e661]
+                        - cell "graphify vscode install" [ref=e662]:
+                          - code [ref=e663]: graphify vscode install
+                      - row "Aider graphify aider install" [ref=e664]:
+                        - cell "Aider" [ref=e665]
+                        - cell "graphify aider install" [ref=e666]:
+                          - code [ref=e667]: graphify aider install
+                      - row "OpenClaw graphify claw install" [ref=e668]:
+                        - cell "OpenClaw" [ref=e669]
+                        - cell "graphify claw install" [ref=e670]:
+                          - code [ref=e671]: graphify claw install
+                      - row "Factory Droid graphify droid install" [ref=e672]:
+                        - cell "Factory Droid" [ref=e673]
+                        - cell "graphify droid install" [ref=e674]:
+                          - code [ref=e675]: graphify droid install
+                      - row "Trae graphify trae install" [ref=e676]:
+                        - cell "Trae" [ref=e677]
+                        - cell "graphify trae install" [ref=e678]:
+                          - code [ref=e679]: graphify trae install
+                      - row "Trae CN graphify trae-cn install" [ref=e680]:
+                        - cell "Trae CN" [ref=e681]
+                        - cell "graphify trae-cn install" [ref=e682]:
+                          - code [ref=e683]: graphify trae-cn install
+                      - row "Cursor graphify cursor install" [ref=e684]:
+                        - cell "Cursor" [ref=e685]
+                        - cell "graphify cursor install" [ref=e686]:
+                          - code [ref=e687]: graphify cursor install
+                      - row "Gemini CLI graphify gemini install" [ref=e688]:
+                        - cell "Gemini CLI" [ref=e689]
+                        - cell "graphify gemini install" [ref=e690]:
+                          - code [ref=e691]: graphify gemini install
+                      - row "Hermes graphify hermes install" [ref=e692]:
+                        - cell "Hermes" [ref=e693]
+                        - cell "graphify hermes install" [ref=e694]:
+                          - code [ref=e695]: graphify hermes install
+                      - row "Kimi Code graphify install --platform kimi" [ref=e696]:
+                        - cell "Kimi Code" [ref=e697]
+                        - cell "graphify install --platform kimi" [ref=e698]:
+                          - code [ref=e699]: graphify install --platform kimi
+                      - row "Kiro IDE/CLI graphify kiro install" [ref=e700]:
+                        - cell "Kiro IDE/CLI" [ref=e701]
+                        - cell "graphify kiro install" [ref=e702]:
+                          - code [ref=e703]: graphify kiro install
+                      - row "Pi coding agent graphify pi install" [ref=e704]:
+                        - cell "Pi coding agent" [ref=e705]
+                        - cell "graphify pi install" [ref=e706]:
+                          - code [ref=e707]: graphify pi install
+                      - row "Google Antigravity graphify antigravity install" [ref=e708]:
+                        - cell "Google Antigravity" [ref=e709]
+                        - cell "graphify antigravity install" [ref=e710]:
+                          - code [ref=e711]: graphify antigravity install
+                  - paragraph [ref=e712]:
+                    - text: This writes a small config file that tells your assistant to read
+                    - code [ref=e713]: GRAPH_REPORT.md
+                    - text: before answering questions about your codebase. On platforms that support hooks (Claude Code, Codex, Gemini CLI), a hook fires automatically before every file-read call — your assistant navigates by the graph instead of grepping through everything.
+                  - paragraph [ref=e714]:
+                    - text: "To remove graphify from all platforms at once:"
+                    - code [ref=e715]: graphify uninstall
+                    - text: (add
+                    - code [ref=e716]: "--purge"
+                    - text: to also delete
+                    - code [ref=e717]: graphify-out/
+                    - text: ). Or use the per-platform command (e.g.
+                    - code [ref=e718]: graphify claude uninstall
+                    - text: ).
+                  - separator [ref=e719]
+                  - generic [ref=e720]:
+                    - heading "What's in the report" [level=2] [ref=e721]
+                    - 'link "Permalink: What''s in the report" [ref=e722] [cursor=pointer]':
+                      - /url: "#whats-in-the-report"
+                      - img [ref=e723]
+                  - list [ref=e725]:
+                    - listitem [ref=e726]:
+                      - strong [ref=e727]: God nodes
+                      - text: — the most-connected concepts in your project. Everything flows through these.
+                    - listitem [ref=e728]:
+                      - strong [ref=e729]: Surprising connections
+                      - text: — links between things that live in different files or modules. Ranked by how unexpected they are.
+                    - listitem [ref=e730]:
+                      - strong [ref=e731]: The "why"
+                      - text: — inline comments (
+                      - code [ref=e732]: "# NOTE:"
+                      - text: ","
+                      - code [ref=e733]: "# WHY:"
+                      - text: ","
+                      - code [ref=e734]: "# HACK:"
+                      - text: ), docstrings, and design rationale from docs are extracted as separate nodes linked to the code they explain.
+                    - listitem [ref=e735]:
+                      - strong [ref=e736]: Suggested questions
+                      - text: — 4–5 questions the graph is uniquely positioned to answer.
+                    - listitem [ref=e737]:
+                      - strong [ref=e738]: Confidence tags
+                      - text: — every inferred relationship is marked
+                      - code [ref=e739]: EXTRACTED
+                      - text: ","
+                      - code [ref=e740]: INFERRED
+                      - text: ", or"
+                      - code [ref=e741]: AMBIGUOUS
+                      - text: . You always know what was found vs guessed.
+                  - separator [ref=e742]
+                  - generic [ref=e743]:
+                    - heading "What files it handles" [level=2] [ref=e744]
+                    - 'link "Permalink: What files it handles" [ref=e745] [cursor=pointer]':
+                      - /url: "#what-files-it-handles"
+                      - img [ref=e746]
+                  - table [ref=e749]:
+                    - rowgroup [ref=e750]:
+                      - row "Type Extensions" [ref=e751]:
+                        - columnheader "Type" [ref=e752]
+                        - columnheader "Extensions" [ref=e753]
+                    - rowgroup [ref=e754]:
+                      - row "Code (29 languages) .py .ts .js .jsx .tsx .mjs .go .rs .java .c .cpp .h .hpp .rb .cs .kt .scala .php .swift .lua .luau .zig .ps1 .ex .exs .m .mm .jl .vue .svelte .groovy .gradle .dart .v .sv .sql .f .f90 .f95 .f03 .f08 .pas .pp .dpr .dpk .lpr .inc .dfm .lfm .lpk" [ref=e755]:
+                        - cell "Code (29 languages)" [ref=e756]
+                        - cell ".py .ts .js .jsx .tsx .mjs .go .rs .java .c .cpp .h .hpp .rb .cs .kt .scala .php .swift .lua .luau .zig .ps1 .ex .exs .m .mm .jl .vue .svelte .groovy .gradle .dart .v .sv .sql .f .f90 .f95 .f03 .f08 .pas .pp .dpr .dpk .lpr .inc .dfm .lfm .lpk" [ref=e757]:
+                          - code [ref=e758]: .py .ts .js .jsx .tsx .mjs .go .rs .java .c .cpp .h .hpp .rb .cs .kt .scala .php .swift .lua .luau .zig .ps1 .ex .exs .m .mm .jl .vue .svelte .groovy .gradle .dart .v .sv .sql .f .f90 .f95 .f03 .f08 .pas .pp .dpr .dpk .lpr .inc .dfm .lfm .lpk
+                      - row "Docs .md .mdx .qmd .html .txt .rst .yaml .yml" [ref=e759]:
+                        - cell "Docs" [ref=e760]
+                        - cell ".md .mdx .qmd .html .txt .rst .yaml .yml" [ref=e761]:
+                          - code [ref=e762]: .md .mdx .qmd .html .txt .rst .yaml .yml
+                      - row "Office .docx .xlsx (requires pip install graphifyy[office])" [ref=e763]:
+                        - cell "Office" [ref=e764]
+                        - cell ".docx .xlsx (requires pip install graphifyy[office])" [ref=e765]:
+                          - code [ref=e766]: .docx .xlsx
+                          - text: (requires
+                          - code [ref=e767]: pip install graphifyy[office]
+                          - text: )
+                      - row "Google Workspace .gdoc .gsheet .gslides (opt-in; requires gws auth and --google-workspace; Sheets need pip install graphifyy[google])" [ref=e768]:
+                        - cell "Google Workspace" [ref=e769]
+                        - cell ".gdoc .gsheet .gslides (opt-in; requires gws auth and --google-workspace; Sheets need pip install graphifyy[google])" [ref=e770]:
+                          - code [ref=e771]: .gdoc .gsheet .gslides
+                          - text: (opt-in; requires
+                          - code [ref=e772]: gws
+                          - text: auth and
+                          - code [ref=e773]: "--google-workspace"
+                          - text: ; Sheets need
+                          - code [ref=e774]: pip install graphifyy[google]
+                          - text: )
+                      - row "PDFs .pdf" [ref=e775]:
+                        - cell "PDFs" [ref=e776]
+                        - cell ".pdf" [ref=e777]:
+                          - code [ref=e778]: .pdf
+                      - row "Images .png .jpg .webp .gif" [ref=e779]:
+                        - cell "Images" [ref=e780]
+                        - cell ".png .jpg .webp .gif" [ref=e781]:
+                          - code [ref=e782]: .png .jpg .webp .gif
+                      - row "Video / Audio .mp4 .mov .mp3 .wav and more (requires pip install graphifyy[video])" [ref=e783]:
+                        - cell "Video / Audio" [ref=e784]
+                        - cell ".mp4 .mov .mp3 .wav and more (requires pip install graphifyy[video])" [ref=e785]:
+                          - code [ref=e786]: .mp4 .mov .mp3 .wav
+                          - text: and more (requires
+                          - code [ref=e787]: pip install graphifyy[video]
+                          - text: )
+                      - row "YouTube / URLs any video URL (requires pip install graphifyy[video])" [ref=e788]:
+                        - cell "YouTube / URLs" [ref=e789]
+                        - cell "any video URL (requires pip install graphifyy[video])" [ref=e790]:
+                          - text: any video URL (requires
+                          - code [ref=e791]: pip install graphifyy[video]
+                          - text: )
+                  - paragraph [ref=e792]: Code is extracted locally with no API calls (AST via tree-sitter). Everything else goes through your AI assistant's model API.
+                  - paragraph [ref=e793]:
+                    - text: Google Drive for desktop
+                    - code [ref=e794]: .gdoc
+                    - text: ","
+                    - code [ref=e795]: .gsheet
+                    - text: ", and"
+                    - code [ref=e796]: .gslides
+                    - text: files are shortcut pointers, not document content. To include native Google Docs, Sheets, and Slides in a headless extraction, install and authenticate the
+                    - link "gws CLI" [ref=e797] [cursor=pointer]:
+                      - /url: https://github.com/googleworkspace/cli
+                      - code [ref=e798]: gws
+                      - text: CLI
+                    - text: ", then run:"
+                  - generic [ref=e799]:
+                    - generic [ref=e800]:
+                      - text: pip install
+                      - generic [ref=e801]: "\"graphifyy[google]\""
+                      - generic [ref=e802]: "# needed for Google Sheets table rendering"
+                      - text: gws auth login -s drive graphify extract ./docs --google-workspace
+                    - button "Copy code to clipboard" [ref=e804] [cursor=pointer]:
+                      - img [ref=e805]
+                  - paragraph [ref=e808]:
+                    - text: You can also set
+                    - code [ref=e809]: GRAPHIFY_GOOGLE_WORKSPACE=1
+                    - text: . Graphify exports shortcuts into
+                    - code [ref=e810]: graphify-out/converted/
+                    - text: as Markdown sidecars, then extracts those files.
+                  - separator [ref=e811]
+                  - generic [ref=e812]:
+                    - heading "Common commands" [level=2] [ref=e813]
+                    - 'link "Permalink: Common commands" [ref=e814] [cursor=pointer]':
+                      - /url: "#common-commands"
+                      - img [ref=e815]
+                  - generic [ref=e817]:
+                    - generic [ref=e818]:
+                      - text: /graphify .
+                      - generic [ref=e819]: "# build graph for current folder"
+                      - text: /graphify ./docs --update
+                      - generic [ref=e820]: "# re-extract only changed files"
+                      - text: /graphify . --cluster-only
+                      - generic [ref=e821]: "# rerun clustering without re-extracting"
+                      - text: /graphify . --no-viz
+                      - generic [ref=e822]: "# skip the HTML, just the report + JSON"
+                      - text: /graphify . --wiki
+                      - generic [ref=e823]: "# build a markdown wiki from the graph"
+                      - text: graphify export callflow-html
+                      - generic [ref=e824]: "# architecture/call-flow HTML from graphify-out/"
+                      - text: /graphify query
+                      - generic [ref=e825]: "\"what connects auth to the database?\""
+                      - text: /graphify path
+                      - generic [ref=e826]: "\"UserService\""
+                      - generic [ref=e827]: "\"DatabasePool\""
+                      - text: /graphify explain
+                      - generic [ref=e828]: "\"RateLimiter\""
+                      - text: /graphify add https://arxiv.org/abs/1706.03762
+                      - generic [ref=e829]: "# fetch a paper and add it"
+                      - text: /graphify add <youtube-url>
+                      - generic [ref=e830]: "# transcribe and add a video"
+                      - text: graphify hook install
+                      - generic [ref=e831]: "# auto-rebuild on git commit"
+                      - text: graphify merge-graphs a.json b.json
+                      - generic [ref=e832]: "# combine two graphs"
+                    - button "Copy code to clipboard" [ref=e834] [cursor=pointer]:
+                      - img [ref=e835]
+                  - paragraph [ref=e838]:
+                    - text: See the
+                    - link "full command reference" [ref=e839] [cursor=pointer]:
+                      - /url: "#full-command-reference"
+                    - text: below.
+                  - separator [ref=e840]
+                  - generic [ref=e841]:
+                    - heading "Ignoring files" [level=2] [ref=e842]
+                    - 'link "Permalink: Ignoring files" [ref=e843] [cursor=pointer]':
+                      - /url: "#ignoring-files"
+                      - img [ref=e844]
+                  - paragraph [ref=e846]:
+                    - text: Create a
+                    - code [ref=e847]: .graphifyignore
+                    - text: in your project root — same syntax as
+                    - code [ref=e848]: .gitignore
+                    - text: ", including"
+                    - code [ref=e849]: "!"
+                    - text: "negation:"
+                  - generic [ref=e850]:
+                    - code [ref=e852]: "# .graphifyignore node_modules/ dist/ *.generated.py # only index src/, ignore everything else * !src/ !src/**"
+                    - button "Copy code to clipboard" [ref=e854] [cursor=pointer]:
+                      - img [ref=e855]
+                  - separator [ref=e858]
+                  - generic [ref=e859]:
+                    - heading "Team setup" [level=2] [ref=e860]
+                    - 'link "Permalink: Team setup" [ref=e861] [cursor=pointer]':
+                      - /url: "#team-setup"
+                      - img [ref=e862]
+                  - paragraph [ref=e864]:
+                    - code [ref=e865]: graphify-out/
+                    - text: is meant to be committed to git so everyone on the team starts with a map.
+                  - paragraph [ref=e866]:
+                    - strong [ref=e867]:
+                      - text: Recommended
+                      - code [ref=e868]: .gitignore
+                      - text: "additions:"
+                  - generic [ref=e869]:
+                    - code [ref=e871]: "graphify-out/manifest.json # mtime-based, breaks after git clone graphify-out/cost.json # local only # graphify-out/cache/ # optional: commit for speed, skip to keep repo small"
+                    - button "Copy code to clipboard" [ref=e873] [cursor=pointer]:
+                      - img [ref=e874]
+                  - paragraph [ref=e877]:
+                    - strong [ref=e878]: "Workflow:"
+                  - list [ref=e879]:
+                    - listitem [ref=e880]:
+                      - text: One person runs
+                      - code [ref=e881]: /graphify .
+                      - text: and commits
+                      - code [ref=e882]: graphify-out/
+                      - text: .
+                    - listitem [ref=e883]: Everyone pulls — their assistant reads the graph immediately.
+                    - listitem [ref=e884]:
+                      - text: Run
+                      - code [ref=e885]: graphify hook install
+                      - text: to auto-rebuild after each commit (AST only, no API cost). This also sets up a git merge driver so
+                      - code [ref=e886]: graph.json
+                      - text: is never left with conflict markers — two devs committing in parallel get their graphs union-merged automatically.
+                    - listitem [ref=e887]:
+                      - text: When docs or papers change, run
+                      - code [ref=e888]: /graphify --update
+                      - text: to refresh those nodes.
+                  - separator [ref=e889]
+                  - generic [ref=e890]:
+                    - heading "Using the graph directly" [level=2] [ref=e891]
+                    - 'link "Permalink: Using the graph directly" [ref=e892] [cursor=pointer]':
+                      - /url: "#using-the-graph-directly"
+                      - img [ref=e893]
+                  - generic [ref=e895]:
+                    - generic [ref=e896]:
+                      - generic [ref=e897]: "# query the graph from the terminal"
+                      - text: graphify query
+                      - generic [ref=e898]: "\"show the auth flow\""
+                      - text: graphify query
+                      - generic [ref=e899]: "\"what connects DigestAuth to Response?\""
+                      - text: "--graph graphify-out/graph.json"
+                      - generic [ref=e900]: "# expose the graph as an MCP server (for repeated tool-call access)"
+                      - text: python -m graphify.serve graphify-out/graph.json
+                      - generic [ref=e901]: "# register with Kimi Code:"
+                      - text: kimi mcp add --transport stdio graphify -- python -m graphify.serve graphify-out/graph.json
+                    - button "Copy code to clipboard" [ref=e903] [cursor=pointer]:
+                      - img [ref=e904]
+                  - paragraph [ref=e907]:
+                    - text: "The MCP server gives your assistant structured access:"
+                    - code [ref=e908]: query_graph
+                    - text: ","
+                    - code [ref=e909]: get_node
+                    - text: ","
+                    - code [ref=e910]: get_neighbors
+                    - text: ","
+                    - code [ref=e911]: shortest_path
+                    - text: .
+                  - blockquote [ref=e912]:
+                    - paragraph [ref=e913]:
+                      - strong [ref=e914]: "WSL / Linux note:"
+                      - text: Ubuntu ships
+                      - code [ref=e915]: python3
+                      - text: ", not"
+                      - code [ref=e916]: python
+                      - text: ". Use a venv to avoid conflicts:"
+                    - generic [ref=e917]:
+                      - generic [ref=e918]:
+                        - text: python3 -m venv .venv && .venv/bin/pip install
+                        - generic [ref=e919]: "\"graphifyy[mcp]\""
+                      - button "Copy code to clipboard" [ref=e921] [cursor=pointer]:
+                        - img [ref=e922]
+                  - separator [ref=e925]
+                  - generic [ref=e926]:
+                    - heading "Privacy" [level=2] [ref=e927]
+                    - 'link "Permalink: Privacy" [ref=e928] [cursor=pointer]':
+                      - /url: "#privacy"
+                      - img [ref=e929]
+                  - list [ref=e931]:
+                    - listitem [ref=e932]:
+                      - strong [ref=e933]: Code files
+                      - text: — processed locally via tree-sitter. Nothing leaves your machine.
+                    - listitem [ref=e934]:
+                      - strong [ref=e935]: Video / audio
+                      - text: — transcribed locally with faster-whisper. Nothing leaves your machine.
+                    - listitem [ref=e936]:
+                      - strong [ref=e937]: Docs, PDFs, images
+                      - text: — sent to your AI assistant for semantic extraction (via the
+                      - code [ref=e938]: /graphify
+                      - text: skill, using whatever model your IDE session runs). Headless
+                      - code [ref=e939]: graphify extract
+                      - text: requires
+                      - code [ref=e940]: GEMINI_API_KEY
+                      - text: /
+                      - code [ref=e941]: GOOGLE_API_KEY
+                      - text: (Gemini),
+                      - code [ref=e942]: MOONSHOT_API_KEY
+                      - text: (Kimi),
+                      - code [ref=e943]: ANTHROPIC_API_KEY
+                      - text: (Claude),
+                      - code [ref=e944]: OPENAI_API_KEY
+                      - text: (OpenAI), a running Ollama instance (
+                      - code [ref=e945]: OLLAMA_BASE_URL
+                      - text: ), or AWS credentials via the standard provider chain (Bedrock - no API key needed, uses IAM). The
+                      - code [ref=e946]: "--dedup-llm"
+                      - text: flag uses the same key.
+                    - listitem [ref=e947]: No telemetry, no usage tracking, no analytics.
+                  - separator [ref=e948]
+                  - generic [ref=e949]:
+                    - heading "Full command reference" [level=2] [ref=e950]
+                    - 'link "Permalink: Full command reference" [ref=e951] [cursor=pointer]':
+                      - /url: "#full-command-reference"
+                      - img [ref=e952]
+                  - generic [ref=e954]:
+                    - code [ref=e956]: "/graphify # run on current directory /graphify ./raw # run on a specific folder /graphify ./raw --mode deep # more aggressive relationship extraction /graphify ./raw --update # re-extract only changed files /graphify ./raw --directed # preserve edge direction /graphify ./raw --cluster-only # rerun clustering on existing graph /graphify ./raw --no-viz # skip HTML visualization /graphify ./raw --obsidian # generate Obsidian vault /graphify ./raw --wiki # build agent-crawlable markdown wiki /graphify ./raw --svg # export graph.svg /graphify ./raw --graphml # export for Gephi / yEd /graphify ./raw --neo4j # generate cypher.txt for Neo4j /graphify ./raw --neo4j-push bolt://localhost:7687 /graphify ./raw --watch # auto-sync as files change /graphify ./raw --mcp # start MCP stdio server /graphify add https://arxiv.org/abs/1706.03762 /graphify add <video-url> /graphify add https://... --author \"Name\" --contributor \"Name\" /graphify query \"what connects attention to the optimizer?\" /graphify query \"...\" --dfs --budget 1500 /graphify path \"DigestAuth\" \"Response\" /graphify explain \"SwinTransformer\" graphify uninstall # remove from all platforms in one shot graphify uninstall --purge # also delete graphify-out/ graphify hook install # post-commit + post-checkout hooks graphify hook uninstall graphify hook status graphify claude install / uninstall graphify codex install / uninstall graphify opencode install graphify cursor install / uninstall graphify gemini install / uninstall graphify copilot install / uninstall graphify aider install / uninstall graphify claw install / uninstall graphify droid install / uninstall graphify trae install / uninstall graphify trae-cn install / uninstall graphify hermes install / uninstall graphify kiro install / uninstall graphify antigravity install / uninstall graphify extract ./docs # headless LLM extraction for CI (no IDE needed) graphify extract ./docs --backend gemini # explicit backend: gemini, kimi, claude, openai, ollama, or bedrock graphify extract ./docs --backend gemini --model gemini-3.1-pro-preview graphify extract ./docs --backend ollama # local Ollama (set OLLAMA_BASE_URL / OLLAMA_MODEL) - no API key needed for loopback GRAPHIFY_OLLAMA_NUM_CTX=32768 graphify extract ./docs --backend ollama # override KV-cache window (auto-sized by default) GRAPHIFY_OLLAMA_KEEP_ALIVE=0 graphify extract ./docs --backend ollama # unload model after each chunk (saves VRAM on small GPUs) graphify extract ./docs --backend bedrock # AWS Bedrock via IAM - no API key, uses AWS credential chain graphify extract ./docs --max-workers 16 # AST parallelism (also GRAPHIFY_MAX_WORKERS) graphify extract ./docs --token-budget 30000 # smaller semantic chunks for local/small models graphify extract ./docs --max-concurrency 2 # fewer parallel LLM calls (useful for local inference) graphify extract ./docs --api-timeout 900 # longer HTTP timeout for slow local models (default 600s) graphify extract ./docs --google-workspace # export .gdoc/.gsheet/.gslides via gws before extraction graphify extract ./docs --no-cluster # raw extraction only, skip clustering graphify extract ./docs --dedup-llm # LLM tiebreaker for ambiguous entity pairs (uses same API key) graphify extract ./docs --global --as myrepo # extract and register into the cross-project global graph GRAPHIFY_MAX_OUTPUT_TOKENS=32768 graphify extract ./docs --backend claude # raise output cap for dense corpora graphify export callflow-html # graphify-out/<project>-callflow.html graphify export callflow-html --max-sections 8 # cap generated architecture sections graphify export callflow-html --output docs/arch.html graphify export callflow-html ./some-repo/graphify-out graphify global add graphify-out/graph.json myrepo # register a project graph into ~/.graphify/global.json graphify global remove myrepo # remove a project from the global graph graphify global list # show all registered repos + node/edge counts graphify global path # print path to the global graph file graphify clone https://github.com/karpathy/nanoGPT graphify merge-graphs a.json b.json --out merged.json graphify watch ./src graphify check-update ./src graphify update ./src graphify cluster-only ./my-project graphify cluster-only ./my-project --graph path/to/graph.json # custom graph location"
+                    - button "Copy code to clipboard" [ref=e958] [cursor=pointer]:
+                      - img [ref=e959]
+                  - separator [ref=e962]
+                  - generic [ref=e963]:
+                    - heading "Learn more" [level=2] [ref=e964]
+                    - 'link "Permalink: Learn more" [ref=e965] [cursor=pointer]':
+                      - /url: "#learn-more"
+                      - img [ref=e966]
+                  - list [ref=e968]:
+                    - listitem [ref=e969]:
+                      - link "How it works" [ref=e970] [cursor=pointer]:
+                        - /url: /safishamsi/graphify/blob/v7/docs/how-it-works.md
+                      - text: — the extraction pipeline, community detection, confidence scoring, benchmarks
+                    - listitem [ref=e971]:
+                      - link "ARCHITECTURE.md" [ref=e972] [cursor=pointer]:
+                        - /url: /safishamsi/graphify/blob/v7/ARCHITECTURE.md
+                      - text: — module breakdown, how to add a language
+                    - listitem [ref=e973]:
+                      - link "Optional integrations" [ref=e974] [cursor=pointer]:
+                        - /url: /safishamsi/graphify/blob/v7/docs/docker-mcp-sqlite.md
+                      - text: — Docker MCP Toolkit + SQLite
+                  - separator [ref=e975]
+                  - generic [ref=e976]:
+                    - heading "Built on graphify — Penpax" [level=2] [ref=e977]
+                    - 'link "Permalink: Built on graphify — Penpax" [ref=e978] [cursor=pointer]':
+                      - /url: "#built-on-graphify--penpax"
+                      - img [ref=e979]
+                  - paragraph [ref=e981]:
+                    - link "Penpax" [ref=e982] [cursor=pointer]:
+                      - /url: https://graphifylabs.ai
+                      - strong [ref=e983]: Penpax
+                    - text: "is the always-on layer built on top of graphify — it applies the same graph approach to your entire working life: meetings, browser history, emails, files, and code, updating continuously in the background."
+                  - paragraph [ref=e984]: Built for people whose work lives across hundreds of conversations and documents they can never fully reconstruct. No cloud, fully on-device.
+                  - paragraph [ref=e985]:
+                    - strong [ref=e986]: Free trial launching soon.
+                    - link "Join the waitlist →" [ref=e987] [cursor=pointer]:
+                      - /url: https://graphifylabs.ai
+                  - separator [ref=e988]
+                  - group [ref=e989]:
+                    - generic "Contributing" [ref=e990] [cursor=pointer]
+  - alert [ref=e994]

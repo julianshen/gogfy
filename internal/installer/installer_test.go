@@ -24,7 +24,11 @@ func readJSON(t *testing.T, path string) map[string]any {
 
 func TestRegistryListsAllSupportedPlatforms(t *testing.T) {
 	got := SupportedPlatforms()
-	want := []string{"claude", "codex", "cursor", "gemini", "kilocode", "kimi", "opencode", "qwen", "vscode"}
+	want := []string{
+		"aider", "antigravity", "claude", "claw", "codex", "copilot",
+		"cursor", "droid", "gemini", "hermes", "kilocode", "kimi",
+		"kiro", "opencode", "pi", "qwen", "trae", "trae-cn", "vscode",
+	}
 	if len(got) != len(want) {
 		t.Fatalf("expected %d platforms, got %d (%v)", len(want), len(got), got)
 	}
@@ -415,14 +419,24 @@ func TestInstallFailsWhenParentPathIsAFile(t *testing.T) {
 // (so installers documentation can rely on these paths).
 func TestPlatformConfigPaths(t *testing.T) {
 	cases := map[string]string{
-		"claude":   ".mcp.json",
-		"cursor":   ".cursor/mcp.json",
-		"vscode":   ".vscode/mcp.json",
-		"gemini":   ".gemini/settings.json",
-		"opencode": "opencode.json",
-		"kilocode": ".kilocode/mcp.json",
-		"qwen":     ".qwen/settings.json",
-		"kimi":     ".kimi/settings.json",
+		"claude":      ".mcp.json",
+		"cursor":      ".cursor/mcp.json",
+		"vscode":      ".vscode/mcp.json",
+		"gemini":      ".gemini/settings.json",
+		"opencode":    "opencode.json",
+		"kilocode":    ".kilocode/mcp.json",
+		"qwen":        ".qwen/settings.json",
+		"kimi":        ".kimi/settings.json",
+		"aider":       ".aider/mcp.json",
+		"claw":        ".openclaw/mcp.json",
+		"copilot":     ".copilot/mcp.json",
+		"droid":       ".factory/mcp.json",
+		"trae":        ".trae/mcp.json",
+		"trae-cn":     ".trae-cn/mcp.json",
+		"hermes":      ".hermes/mcp.json",
+		"kiro":        ".kiro/mcp.json",
+		"pi":          ".pi/mcp.json",
+		"antigravity": ".antigravity/mcp.json",
 	}
 	for name, suffix := range cases {
 		t.Run(name, func(t *testing.T) {

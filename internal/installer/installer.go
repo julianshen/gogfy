@@ -12,6 +12,22 @@
 //   - kilocode → <workspace>/.kilocode/mcp.json        (mcpServers)
 //   - qwen     → <workspace>/.qwen/settings.json       (mcpServers)
 //   - kimi     → <workspace>/.kimi/settings.json       (mcpServers) — Moonshot's Kimi CLI
+//   - aider    → <workspace>/.aider/mcp.json           (mcpServers)
+//   - claw     → <workspace>/.openclaw/mcp.json        (mcpServers) — OpenClaw
+//   - copilot  → <workspace>/.copilot/mcp.json         (mcpServers) — GitHub Copilot CLI
+//   - droid    → <workspace>/.factory/mcp.json         (mcpServers) — Factory Droid
+//   - trae     → <workspace>/.trae/mcp.json            (mcpServers)
+//   - trae-cn  → <workspace>/.trae-cn/mcp.json         (mcpServers) — Trae CN
+//   - hermes   → <workspace>/.hermes/mcp.json          (mcpServers)
+//   - kiro     → <workspace>/.kiro/mcp.json            (mcpServers)
+//   - pi       → <workspace>/.pi/mcp.json              (mcpServers) — Pi coding agent
+//   - antigravity → <workspace>/.antigravity/mcp.json  (mcpServers) — Google Antigravity
+//
+// Platform-name + config-path conventions match safishamsi/graphify v7's
+// per-platform install paths (see graphify/__main__.py:_PLATFORM_CONFIG).
+// graphify installs a SKILL.md under each platform's user-home config dir;
+// gogfy registers an MCP server in each platform's workspace-relative
+// config — different architectures, same naming convention.
 //
 // Installs merge into existing configs without disturbing unrelated
 // entries; uninstalls remove only the gogfy entry.
@@ -226,7 +242,17 @@ var registry = map[string]Installer{
 	"opencode": jsonInstaller{relativePath: "opencode.json", serversKey: "mcp", entry: opencodeServerEntry},
 	"kilocode": jsonInstaller{relativePath: filepath.Join(".kilocode", "mcp.json"), serversKey: "mcpServers"},
 	"qwen":     jsonInstaller{relativePath: filepath.Join(".qwen", "settings.json"), serversKey: "mcpServers"},
-	"kimi":     jsonInstaller{relativePath: filepath.Join(".kimi", "settings.json"), serversKey: "mcpServers"},
+	"kimi":        jsonInstaller{relativePath: filepath.Join(".kimi", "settings.json"), serversKey: "mcpServers"},
+	"aider":       jsonInstaller{relativePath: filepath.Join(".aider", "mcp.json"), serversKey: "mcpServers"},
+	"claw":        jsonInstaller{relativePath: filepath.Join(".openclaw", "mcp.json"), serversKey: "mcpServers"},
+	"copilot":     jsonInstaller{relativePath: filepath.Join(".copilot", "mcp.json"), serversKey: "mcpServers"},
+	"droid":       jsonInstaller{relativePath: filepath.Join(".factory", "mcp.json"), serversKey: "mcpServers"},
+	"trae":        jsonInstaller{relativePath: filepath.Join(".trae", "mcp.json"), serversKey: "mcpServers"},
+	"trae-cn":     jsonInstaller{relativePath: filepath.Join(".trae-cn", "mcp.json"), serversKey: "mcpServers"},
+	"hermes":      jsonInstaller{relativePath: filepath.Join(".hermes", "mcp.json"), serversKey: "mcpServers"},
+	"kiro":        jsonInstaller{relativePath: filepath.Join(".kiro", "mcp.json"), serversKey: "mcpServers"},
+	"pi":          jsonInstaller{relativePath: filepath.Join(".pi", "mcp.json"), serversKey: "mcpServers"},
+	"antigravity": jsonInstaller{relativePath: filepath.Join(".antigravity", "mcp.json"), serversKey: "mcpServers"},
 }
 
 // opencodeServerEntry builds the OpenCode-specific server entry shape.

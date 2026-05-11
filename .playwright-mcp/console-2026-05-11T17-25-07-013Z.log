@@ -1,0 +1,1 @@
+[   12223ms] [ERROR] Blocked script execution in 'https://raw.githubusercontent.com/safishamsi/graphify/v7/graphify/manifest.py' because the document's frame is sandboxed and the 'allow-scripts' permission is not set. @ https://raw.githubusercontent.com/safishamsi/graphify/v7/graphify/manifest.py:0

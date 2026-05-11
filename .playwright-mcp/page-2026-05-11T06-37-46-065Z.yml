@@ -1,0 +1,1168 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - link "Skip to content" [ref=e4] [cursor=pointer]:
+      - /url: "#start-of-content"
+    - banner [ref=e6]:
+      - heading "Navigation Menu" [level=2] [ref=e7]
+      - generic [ref=e8]:
+        - link "Homepage" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img [ref=e11]
+        - generic [ref=e13]:
+          - navigation "Global" [ref=e16]:
+            - list [ref=e17]:
+              - listitem [ref=e18]:
+                - button "Platform" [ref=e20] [cursor=pointer]:
+                  - text: Platform
+                  - img [ref=e21]
+              - listitem [ref=e23]:
+                - button "Solutions" [ref=e25] [cursor=pointer]:
+                  - text: Solutions
+                  - img [ref=e26]
+              - listitem [ref=e28]:
+                - button "Resources" [ref=e30] [cursor=pointer]:
+                  - text: Resources
+                  - img [ref=e31]
+              - listitem [ref=e33]:
+                - button "Open Source" [ref=e35] [cursor=pointer]:
+                  - text: Open Source
+                  - img [ref=e36]
+              - listitem [ref=e38]:
+                - button "Enterprise" [ref=e40] [cursor=pointer]:
+                  - text: Enterprise
+                  - img [ref=e41]
+              - listitem [ref=e43]:
+                - link "Pricing" [ref=e44] [cursor=pointer]:
+                  - /url: https://github.com/pricing
+                  - generic [ref=e45]: Pricing
+          - generic [ref=e46]:
+            - button "Search or jump to…" [ref=e49] [cursor=pointer]:
+              - img [ref=e51]
+            - link "Sign in" [ref=e54] [cursor=pointer]:
+              - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FGen-Verse%2FOpenClaw-RL
+            - link "Sign up" [ref=e55] [cursor=pointer]:
+              - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E&source=header-repo&source_repo=Gen-Verse%2FOpenClaw-RL
+            - button "Appearance settings" [ref=e58] [cursor=pointer]:
+              - img
+  - main [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e66]:
+          - img [ref=e67]
+          - link "Gen-Verse" [ref=e70] [cursor=pointer]:
+            - /url: /Gen-Verse
+          - generic [ref=e71]: /
+          - strong [ref=e72]:
+            - link "OpenClaw-RL" [ref=e73] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL
+          - generic [ref=e74]: Public
+        - generic [ref=e75]:
+          - list:
+            - listitem [ref=e76]:
+              - link "You must be signed in to change notification settings" [ref=e77] [cursor=pointer]:
+                - /url: /login?return_to=%2FGen-Verse%2FOpenClaw-RL
+                - img [ref=e78]
+                - text: Notifications
+            - listitem [ref=e80]:
+              - link "Fork 571" [ref=e81] [cursor=pointer]:
+                - /url: /login?return_to=%2FGen-Verse%2FOpenClaw-RL
+                - img [ref=e82]
+                - text: Fork
+                - generic "571" [ref=e84]
+            - listitem [ref=e85]:
+              - link "You must be signed in to star a repository" [ref=e87] [cursor=pointer]:
+                - /url: /login?return_to=%2FGen-Verse%2FOpenClaw-RL
+                - img [ref=e88]
+                - text: Star
+                - generic "5276 users starred this repository" [ref=e90]: 5.3k
+      - navigation "Repository" [ref=e91]:
+        - list [ref=e92]:
+          - listitem [ref=e93]:
+            - link "Code" [ref=e94] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL
+              - img [ref=e95]
+              - generic [ref=e97]: Code
+          - listitem [ref=e98]:
+            - link "Issues 48" [ref=e99] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/issues
+              - img [ref=e100]
+              - generic [ref=e103]: Issues
+              - generic "48" [ref=e104]
+          - listitem [ref=e105]:
+            - link "Pull requests 19" [ref=e106] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/pulls
+              - img [ref=e107]
+              - generic [ref=e109]: Pull requests
+              - generic "19" [ref=e110]
+          - listitem [ref=e111]:
+            - link "Actions" [ref=e112] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/actions
+              - img [ref=e113]
+              - generic [ref=e115]: Actions
+          - listitem [ref=e116]:
+            - link "Projects" [ref=e117] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/projects
+              - img [ref=e118]
+              - generic [ref=e120]: Projects
+          - listitem [ref=e121]:
+            - link "Security and quality" [ref=e122] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/security
+              - img [ref=e123]
+              - generic [ref=e125]: Security and quality
+          - listitem [ref=e126]:
+            - link "Insights" [ref=e127] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/pulse
+              - img [ref=e128]
+              - generic [ref=e130]: Insights
+    - generic [ref=e143]:
+      - heading "Gen-Verse/OpenClaw-RL" [level=1] [ref=e145]
+      - generic [ref=e146]:
+        - generic [ref=e149]:
+          - generic [ref=e150]:
+            - generic [ref=e151]:
+              - button "main branch" [ref=e153] [cursor=pointer]:
+                - generic [ref=e154]:
+                  - generic [ref=e156]:
+                    - img [ref=e158]
+                    - generic [ref=e161]: main
+                  - generic:
+                    - img
+              - generic [ref=e162]:
+                - link "4 Branches" [ref=e163] [cursor=pointer]:
+                  - /url: /Gen-Verse/OpenClaw-RL/branches
+                  - generic [ref=e164]:
+                    - generic:
+                      - img
+                    - generic [ref=e166]:
+                      - strong [ref=e167]: "4"
+                      - text: Branches
+                - link "0 Tags" [ref=e168] [cursor=pointer]:
+                  - /url: /Gen-Verse/OpenClaw-RL/tags
+                  - generic [ref=e169]:
+                    - generic:
+                      - img
+                    - generic [ref=e171]:
+                      - strong [ref=e172]: "0"
+                      - text: Tags
+            - generic [ref=e173]:
+              - generic [ref=e177]:
+                - img [ref=e179]
+                - combobox "Go to file" [ref=e181]
+              - button "Code" [ref=e182] [cursor=pointer]:
+                - generic [ref=e183]:
+                  - generic:
+                    - img
+                  - generic [ref=e184]: Code
+                  - generic:
+                    - img
+          - generic [ref=e185]:
+            - generic [ref=e186]:
+              - heading "Folders and files" [level=2] [ref=e187]
+              - table "Folders and files" [ref=e188]:
+                - rowgroup:
+                  - row "Name Last commit message Last commit date":
+                    - columnheader "Name"
+                    - columnheader "Last commit message":
+                      - generic "Last commit message"
+                    - columnheader "Last commit date":
+                      - generic "Last commit date"
+                - rowgroup [ref=e189]:
+                  - row "Latest commit yinjjiew commits by yinjjiew Update README.md Commit d69351a · May 7, 20264 days ago History 248 Commits" [ref=e190]:
+                    - cell "Latest commit yinjjiew commits by yinjjiew Update README.md Commit d69351a · May 7, 20264 days ago History 248 Commits" [ref=e191]:
+                      - generic [ref=e192]:
+                        - heading "Latest commit" [level=2] [ref=e193]
+                        - generic [ref=e194]:
+                          - generic [ref=e196]:
+                            - link "yinjjiew" [ref=e197] [cursor=pointer]:
+                              - /url: /yinjjiew
+                              - img "yinjjiew" [ref=e198]
+                            - link "commits by yinjjiew" [ref=e199] [cursor=pointer]:
+                              - /url: /Gen-Verse/OpenClaw-RL/commits?author=yinjjiew
+                              - text: yinjjiew
+                          - link "Update README.md" [ref=e203] [cursor=pointer]:
+                            - /url: /Gen-Verse/OpenClaw-RL/commit/d69351a8c8d3b5d1581d671016666f09a4a54e50
+                        - generic [ref=e204]:
+                          - generic [ref=e206]:
+                            - link "Commit d69351a" [ref=e207] [cursor=pointer]:
+                              - /url: /Gen-Verse/OpenClaw-RL/commit/d69351a8c8d3b5d1581d671016666f09a4a54e50
+                              - text: d69351a
+                            - text: ·
+                            - generic "May 7, 2026, 5:30 PM GMT+8" [ref=e208]: May 7, 20264 days ago
+                          - generic [ref=e209]:
+                            - heading "History" [level=2] [ref=e210]
+                            - link "248 Commits" [ref=e211] [cursor=pointer]:
+                              - /url: /Gen-Verse/OpenClaw-RL/commits/main/
+                              - generic [ref=e212]:
+                                - generic:
+                                  - img
+                                - generic [ref=e213]: 248 Commits
+                  - row "Megatron-LM, (Directory) Add OpenClaw-RL source code Feb 26, 20263 months ago" [ref=e214]:
+                    - cell "Megatron-LM, (Directory)" [ref=e215]:
+                      - generic [ref=e216]:
+                        - img [ref=e217]
+                        - link "Megatron-LM, (Directory)" [ref=e222] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/Megatron-LM
+                          - text: Megatron-LM
+                    - cell "Add OpenClaw-RL source code" [ref=e223]:
+                      - link "Add OpenClaw-RL source code" [ref=e226] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/69305d227fe0850873db2c3a3c8124063f71b7fd
+                    - cell "Feb 26, 20263 months ago" [ref=e227]:
+                      - generic [ref=e228]: Feb 26, 20263 months ago
+                  - row "assets, (Directory) Add files via upload May 7, 20264 days ago" [ref=e229]:
+                    - cell "assets, (Directory)" [ref=e230]:
+                      - generic [ref=e231]:
+                        - img [ref=e232]
+                        - link "assets, (Directory)" [ref=e237] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/assets
+                          - text: assets
+                    - cell "Add files via upload" [ref=e238]:
+                      - link "Add files via upload" [ref=e241] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/c0bb84f362ad43a53ce94283eddee97b29aca91b
+                    - cell "May 7, 20264 days ago" [ref=e242]:
+                      - generic [ref=e243]: May 7, 20264 days ago
+                  - row "extensions/rl-training-headers, (Directory) Add files via upload Apr 4, 2026last month" [ref=e244]:
+                    - cell "extensions/rl-training-headers, (Directory)" [ref=e245]:
+                      - generic [ref=e246]:
+                        - img [ref=e247]
+                        - link "extensions/rl-training-headers, (Directory)" [ref=e252] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/extensions/rl-training-headers
+                          - text: extensions/rl-training-headers
+                    - cell "Add files via upload" [ref=e253]:
+                      - link "Add files via upload" [ref=e256] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/b4277ab8db90fdb422efbcb2f64de9bd0ab5cde5
+                    - cell "Apr 4, 2026last month" [ref=e257]:
+                      - generic [ref=e258]: Apr 4, 2026last month
+                  - row "gui-rl, (Directory) Update gui_qwen3vl_8b_rl.sh Apr 17, 20263 weeks ago" [ref=e259]:
+                    - cell "gui-rl, (Directory)" [ref=e260]:
+                      - generic [ref=e261]:
+                        - img [ref=e262]
+                        - link "gui-rl, (Directory)" [ref=e267] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/gui-rl
+                          - text: gui-rl
+                    - cell "Update gui_qwen3vl_8b_rl.sh" [ref=e268]:
+                      - link "Update gui_qwen3vl_8b_rl.sh" [ref=e271] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/ba17865d37b475e3142640dabbb40aa443c494f0
+                    - cell "Apr 17, 20263 weeks ago" [ref=e272]:
+                      - generic [ref=e273]: Apr 17, 20263 weeks ago
+                  - row "instructions, (Directory) Update README.md Apr 11, 2026last month" [ref=e274]:
+                    - cell "instructions, (Directory)" [ref=e275]:
+                      - generic [ref=e276]:
+                        - img [ref=e277]
+                        - link "instructions, (Directory)" [ref=e282] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/instructions
+                          - text: instructions
+                    - cell "Update README.md" [ref=e283]:
+                      - link "Update README.md" [ref=e286] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/bc594d23fd07a57e5d508717f3ffe5d12cc2015c
+                    - cell "Apr 11, 2026last month" [ref=e287]:
+                      - generic [ref=e288]: Apr 11, 2026last month
+                  - 'row "openclaw-combine, (Directory) feat(openclaw): add hybrid top-k OPD training May 7, 20264 days ago" [ref=e289]':
+                    - cell "openclaw-combine, (Directory)" [ref=e290]:
+                      - generic [ref=e291]:
+                        - img [ref=e292]
+                        - link "openclaw-combine, (Directory)" [ref=e297] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/openclaw-combine
+                          - text: openclaw-combine
+                    - 'cell "feat(openclaw): add hybrid top-k OPD training" [ref=e298]':
+                      - 'link "feat(openclaw): add hybrid top-k OPD training" [ref=e301] [cursor=pointer]':
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/d7b0c689b9125fb442ad0c61b12e4d11acc31e92
+                    - cell "May 7, 20264 days ago" [ref=e302]:
+                      - generic [ref=e303]: May 7, 20264 days ago
+                  - row "openclaw-fireworks, (Directory) Fix SDK class names that were incorrectly renamed Apr 16, 2026last month" [ref=e304]:
+                    - cell "openclaw-fireworks, (Directory)" [ref=e305]:
+                      - generic [ref=e306]:
+                        - img [ref=e307]
+                        - link "openclaw-fireworks, (Directory)" [ref=e312] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/openclaw-fireworks
+                          - text: openclaw-fireworks
+                    - cell "Fix SDK class names that were incorrectly renamed" [ref=e313]:
+                      - link "Fix SDK class names that were incorrectly renamed" [ref=e316] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/9a352e12cee81a76f3353f0176744c06ef647c64
+                    - cell "Apr 16, 2026last month" [ref=e317]:
+                      - generic [ref=e318]: Apr 16, 2026last month
+                  - 'row "openclaw-opd, (Directory) feat(combine): add Megatron-based PRM teacher for OPD distillation Apr 15, 2026last month" [ref=e319]':
+                    - cell "openclaw-opd, (Directory)" [ref=e320]:
+                      - generic [ref=e321]:
+                        - img [ref=e322]
+                        - link "openclaw-opd, (Directory)" [ref=e327] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/openclaw-opd
+                          - text: openclaw-opd
+                    - 'cell "feat(combine): add Megatron-based PRM teacher for OPD distillation" [ref=e328]':
+                      - 'link "feat(combine): add Megatron-based PRM teacher for OPD distillation" [ref=e331] [cursor=pointer]':
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/2e89585d6f548c41753505a7d5cb18370c14b728
+                    - cell "Apr 15, 2026last month" [ref=e332]:
+                      - generic [ref=e333]: Apr 15, 2026last month
+                  - 'row "openclaw-rl, (Directory) feat: add openclaw-rl/oel module for OEL (Online Experiential Learning) Apr 20, 20263 weeks ago" [ref=e334]':
+                    - cell "openclaw-rl, (Directory)" [ref=e335]:
+                      - generic [ref=e336]:
+                        - img [ref=e337]
+                        - link "openclaw-rl, (Directory)" [ref=e342] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/openclaw-rl
+                          - text: openclaw-rl
+                    - 'cell "feat: add openclaw-rl/oel module for OEL (Online Experiential Learning)" [ref=e343]':
+                      - 'link "feat: add openclaw-rl/oel module for OEL (Online Experiential Learning)" [ref=e346] [cursor=pointer]':
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/a111c686b0a55a4601f28f1b2e973885b303dcfa
+                    - cell "Apr 20, 20263 weeks ago" [ref=e347]:
+                      - generic [ref=e348]: Apr 20, 20263 weeks ago
+                  - row "openclaw-test, (Directory) Update README.md May 7, 20264 days ago" [ref=e349]:
+                    - cell "openclaw-test, (Directory)" [ref=e350]:
+                      - generic [ref=e351]:
+                        - img [ref=e352]
+                        - link "openclaw-test, (Directory)" [ref=e357] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/openclaw-test
+                          - text: openclaw-test
+                    - cell "Update README.md" [ref=e358]:
+                      - link "Update README.md" [ref=e361] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/2475c1d5159a46c3f8d9fa1e4991a9968d4709b4
+                    - cell "May 7, 20264 days ago" [ref=e362]:
+                      - generic [ref=e363]: May 7, 20264 days ago
+                  - row "openclaw-tinker, (Directory) Add files via upload Mar 31, 20262 months ago" [ref=e364]:
+                    - cell "openclaw-tinker, (Directory)" [ref=e365]:
+                      - generic [ref=e366]:
+                        - img [ref=e367]
+                        - link "openclaw-tinker, (Directory)" [ref=e372] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/openclaw-tinker
+                          - text: openclaw-tinker
+                    - cell "Add files via upload" [ref=e373]:
+                      - link "Add files via upload" [ref=e376] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/041859d9e5652fc03ae385997940ade05df3679e
+                    - cell "Mar 31, 20262 months ago" [ref=e377]:
+                      - generic [ref=e378]: Mar 31, 20262 months ago
+                  - 'row "slime, (Directory) feat(openclaw): add hybrid top-k OPD training May 7, 20264 days ago" [ref=e379]':
+                    - cell "slime, (Directory)" [ref=e380]:
+                      - generic [ref=e381]:
+                        - img [ref=e382]
+                        - link "slime, (Directory)" [ref=e387] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/slime
+                          - text: slime
+                    - 'cell "feat(openclaw): add hybrid top-k OPD training" [ref=e388]':
+                      - 'link "feat(openclaw): add hybrid top-k OPD training" [ref=e391] [cursor=pointer]':
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/d7b0c689b9125fb442ad0c61b12e4d11acc31e92
+                    - cell "May 7, 20264 days ago" [ref=e392]:
+                      - generic [ref=e393]: May 7, 20264 days ago
+                  - row "swe-rl, (Directory) sanitize swe-rl 4b scripts and document required env overrides Apr 19, 20263 weeks ago" [ref=e394]:
+                    - cell "swe-rl, (Directory)" [ref=e395]:
+                      - generic [ref=e396]:
+                        - img [ref=e397]
+                        - link "swe-rl, (Directory)" [ref=e402] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/swe-rl
+                          - text: swe-rl
+                    - cell "sanitize swe-rl 4b scripts and document required env overrides" [ref=e403]:
+                      - link "sanitize swe-rl 4b scripts and document required env overrides" [ref=e406] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/593b44f56771f7f481a8b2e6a3b93b0e8b61a48b
+                    - cell "Apr 19, 20263 weeks ago" [ref=e407]:
+                      - generic [ref=e408]: Apr 19, 20263 weeks ago
+                  - row "terminal-rl, (Directory) Update README.md Apr 17, 2026last month" [ref=e409]:
+                    - cell "terminal-rl, (Directory)" [ref=e410]:
+                      - generic [ref=e411]:
+                        - img [ref=e412]
+                        - link "terminal-rl, (Directory)" [ref=e417] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/terminal-rl
+                          - text: terminal-rl
+                    - cell "Update README.md" [ref=e418]:
+                      - link "Update README.md" [ref=e421] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/ccb79a959c148ce4f5919c530d241128042b4104
+                    - cell "Apr 17, 2026last month" [ref=e422]:
+                      - generic [ref=e423]: Apr 17, 2026last month
+                  - row "toolcall-rl, (Directory) Update README.md Apr 21, 20263 weeks ago" [ref=e424]:
+                    - cell "toolcall-rl, (Directory)" [ref=e425]:
+                      - generic [ref=e426]:
+                        - img [ref=e427]
+                        - link "toolcall-rl, (Directory)" [ref=e432] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/tree/main/toolcall-rl
+                          - text: toolcall-rl
+                    - cell "Update README.md" [ref=e433]:
+                      - link "Update README.md" [ref=e436] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/2035e75040abfb6ec3125191ee544f3a2bc0823a
+                    - cell "Apr 21, 20263 weeks ago" [ref=e437]:
+                      - generic [ref=e438]: Apr 21, 20263 weeks ago
+                  - row ".gitignore, (File) Add terminal-rl directory with Terminal RL training scripts and infra… Mar 11, 20262 months ago" [ref=e439]:
+                    - cell ".gitignore, (File)" [ref=e440]:
+                      - generic [ref=e441]:
+                        - img [ref=e442]
+                        - link ".gitignore, (File)" [ref=e447] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/blob/main/.gitignore
+                          - text: .gitignore
+                    - cell "Add terminal-rl directory with Terminal RL training scripts and infra…" [ref=e448]:
+                      - link "Add terminal-rl directory with Terminal RL training scripts and infra…" [ref=e451] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/86531e9f2fc63271c694876cfd13cf937479e027
+                    - cell "Mar 11, 20262 months ago" [ref=e452]:
+                      - generic [ref=e453]: Mar 11, 20262 months ago
+                  - 'row "LICENSE, (File) chore: switch license from MIT to Apache 2.0 Mar 16, 20262 months ago" [ref=e454]':
+                    - cell "LICENSE, (File)" [ref=e455]:
+                      - generic [ref=e456]:
+                        - img [ref=e457]
+                        - link "LICENSE, (File)" [ref=e462] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/blob/main/LICENSE
+                          - text: LICENSE
+                    - 'cell "chore: switch license from MIT to Apache 2.0" [ref=e463]':
+                      - 'link "chore: switch license from MIT to Apache 2.0" [ref=e466] [cursor=pointer]':
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/976b4cd547d788233d45e315828492176534f300
+                    - cell "Mar 16, 20262 months ago" [ref=e467]:
+                      - generic [ref=e468]: Mar 16, 20262 months ago
+                  - row "README.md, (File) Update README.md May 7, 20264 days ago" [ref=e469]:
+                    - cell "README.md, (File)" [ref=e470]:
+                      - generic [ref=e471]:
+                        - img [ref=e472]
+                        - link "README.md, (File)" [ref=e477] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/blob/main/README.md
+                          - text: README.md
+                    - cell "Update README.md" [ref=e478]:
+                      - link "Update README.md" [ref=e481] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/d69351a8c8d3b5d1581d671016666f09a4a54e50
+                    - cell "May 7, 20264 days ago" [ref=e482]:
+                      - generic [ref=e483]: May 7, 20264 days ago
+                  - row "requirements.txt, (File) Update requirements.txt Mar 23, 20262 months ago" [ref=e484]:
+                    - cell "requirements.txt, (File)" [ref=e485]:
+                      - generic [ref=e486]:
+                        - img [ref=e487]
+                        - link "requirements.txt, (File)" [ref=e492] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/blob/main/requirements.txt
+                          - text: requirements.txt
+                    - cell "Update requirements.txt" [ref=e493]:
+                      - link "Update requirements.txt" [ref=e496] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/commit/62416be22317dae9c881843263abe0af01668cc8
+                    - cell "Mar 23, 20262 months ago" [ref=e497]:
+                      - generic [ref=e498]: Mar 23, 20262 months ago
+            - generic [ref=e500]:
+              - generic [ref=e501]:
+                - heading "Repository files navigation" [level=2] [ref=e502]
+                - navigation "Repository files" [ref=e503]:
+                  - list [ref=e504]:
+                    - listitem [ref=e505]:
+                      - link "README" [ref=e506] [cursor=pointer]:
+                        - /url: "#"
+                        - img [ref=e508]
+                        - generic [ref=e510]: README
+                    - listitem [ref=e511]:
+                      - link "Apache-2.0 license" [ref=e512] [cursor=pointer]:
+                        - /url: "#"
+                        - img [ref=e514]
+                        - generic [ref=e516]: Apache-2.0 license
+                - button "Outline" [ref=e517] [cursor=pointer]:
+                  - img [ref=e518]
+              - article [ref=e521]:
+                - generic [ref=e522]:
+                  - generic [ref=e523]:
+                    - heading "OpenClaw-RL Claw-RL logo" [level=1] [ref=e524]:
+                      - link [ref=e525] [cursor=pointer]:
+                        - /url: /Gen-Verse/OpenClaw-RL/blob/main/assets/spacer.png
+                      - text: OpenClaw-RL
+                      - superscript [ref=e526]:
+                        - link "Claw-RL logo" [ref=e527] [cursor=pointer]:
+                          - /url: /Gen-Verse/OpenClaw-RL/blob/main/assets/clawistool.png
+                          - img "Claw-RL logo" [ref=e528]
+                        - superscript
+                    - 'link "Permalink: OpenClaw-RL" [ref=e529] [cursor=pointer]':
+                      - /url: "#--------openclaw-rl----------"
+                      - img [ref=e530]
+                  - paragraph [ref=e532]: Empowering OpenClaw with RL — Train a personalized agent simply by talking to it.
+                  - paragraph [ref=e533]: Scalable RL in real-world settings — Agentic RL for terminal, GUI, SWE, and tool-call settings.
+                - paragraph [ref=e534]:
+                  - link "Fully Async" [ref=e535] [cursor=pointer]:
+                    - /url: https://camo.githubusercontent.com/07cb8a6fdf1ccb8306be730b53589a5e1879ade09d28f3865b7c5bf99da867d0/68747470733a2f2f696d672e736869656c64732e696f2f62616467652fe29aa15f46756c6c795f4173796e632d79656c6c6f773f7374796c653d666f722d7468652d6261646765
+                    - img "Fully Async" [ref=e536]
+                  - link "Zero API or Zero GPU" [ref=e537] [cursor=pointer]:
+                    - /url: https://camo.githubusercontent.com/1c1d2cd2d2532b48e9496806d7bd92058d93b00b0d8d73b444b6ab2080f117a8/68747470733a2f2f696d672e736869656c64732e696f2f62616467652ff09f92b05f5a65726f5f4150495f6f725f5a65726f5f4750552d626c75653f7374796c653d666f722d7468652d6261646765
+                    - img "Zero API or Zero GPU" [ref=e538]
+                  - link "Personalized" [ref=e539] [cursor=pointer]:
+                    - /url: https://camo.githubusercontent.com/21408d392ba2f756aae5dacd730842477a7b64597bb64ebc9b398e7d5620a04c/68747470733a2f2f696d672e736869656c64732e696f2f62616467652ff09fa4965f506572736f6e616c697a65642d737563636573733f7374796c653d666f722d7468652d6261646765
+                    - img "Personalized" [ref=e540]
+                  - link "Auto" [ref=e541] [cursor=pointer]:
+                    - /url: https://camo.githubusercontent.com/33e6d18d9f940e76a50a5bd4639feb62448a3c06d79e0a40612e529251d3ceb7/68747470733a2f2f696d672e736869656c64732e696f2f62616467652ff09f9ba0efb88f5f4175746f5f4f7074696d697a6174696f6e2d6f72616e67653f7374796c653d666f722d7468652d6261646765
+                    - img "Auto" [ref=e542]
+                  - link "Language Feedback" [ref=e543] [cursor=pointer]:
+                    - /url: https://camo.githubusercontent.com/39670ba313a9dfa203a2ae042b2163878043626a7b3b0b0f19d3ae16fc04bdd4/68747470733a2f2f696d672e736869656c64732e696f2f62616467652ff09f92ac5f4c616e67756167655f466565646261636b2d707572706c653f7374796c653d666f722d7468652d6261646765
+                    - img "Language Feedback" [ref=e544]
+                  - link "Hybrid RL" [ref=e545] [cursor=pointer]:
+                    - /url: https://camo.githubusercontent.com/410e198aff21eb251af95af28fe8644da8f046a61f0ee36faa2b0fa00c1d5835/68747470733a2f2f696d672e736869656c64732e696f2f62616467652ff09fa7a05f4879627269645f524c2d7265643f7374796c653d666f722d7468652d6261646765
+                    - img "Hybrid RL" [ref=e546]
+                  - link "General Agentic RL" [ref=e547] [cursor=pointer]:
+                    - /url: https://camo.githubusercontent.com/8296b23ba8156b57eb860d09bc696bde0b2792bb39f64fa88c23550db2675eda/68747470733a2f2f696d672e736869656c64732e696f2f62616467652ff09f8c8d5f5265616c5f576f726c645f4167656e7469635f524c2d677265656e3f7374796c653d666f722d7468652d6261646765
+                    - img "General Agentic RL" [ref=e548]
+                  - link "Tech Report" [ref=e549] [cursor=pointer]:
+                    - /url: https://arxiv.org/abs/2603.10165
+                    - img "Tech Report" [ref=e550]
+                  - link "OpenClaw-RL Blog" [ref=e551] [cursor=pointer]:
+                    - /url: https://yinjjiew.github.io/projects/openclawrl1
+                    - img "OpenClaw-RL Blog" [ref=e552]
+                  - link "OpenClaw Plugin" [ref=e553] [cursor=pointer]:
+                    - /url: https://openclaw.ai
+                    - img "OpenClaw Plugin" [ref=e554]
+                  - link "Slime Based" [ref=e555] [cursor=pointer]:
+                    - /url: https://github.com/THUDM/slime
+                    - img "Slime Based" [ref=e556]
+                  - link "Tinker Supported" [ref=e557] [cursor=pointer]:
+                    - /url: https://thinkingmachines.ai/tinker/
+                    - img "Tinker Supported" [ref=e558]
+                  - link "License Apache 2.0" [ref=e559] [cursor=pointer]:
+                    - /url: /Gen-Verse/OpenClaw-RL/blob/main/LICENSE
+                    - img "License Apache 2.0" [ref=e560]
+                - paragraph
+                - group [ref=e561]:
+                  - generic "demo.mp4" [ref=e562] [cursor=pointer]:
+                    - img [ref=e563]
+                    - text: demo.mp4
+                - paragraph
+                - generic [ref=e567]:
+                  - heading "📰 News" [level=2] [ref=e568]
+                  - 'link "Permalink: 📰 News" [ref=e569] [cursor=pointer]':
+                    - /url: "#-news"
+                    - img [ref=e570]
+                - list [ref=e572]:
+                  - listitem [ref=e573]:
+                    - strong [ref=e574]: "[2026/4/15]"
+                    - text: 🙌 We sincerely thank
+                    - link "Fireworks AI" [ref=e575] [cursor=pointer]:
+                      - /url: https://fireworks.ai
+                    - text: for its generous support of this project, which has enabled more experiments and faster iteration.
+                  - listitem [ref=e576]:
+                    - strong [ref=e577]: "[2026/4/11]"
+                    - text: ✨ Qwen3.5-4B/9B/27B is supported now, both text and multi-modal!
+                  - listitem [ref=e578]:
+                    - strong [ref=e579]: "[2026/4/4]"
+                    - text: 👨‍👦‍👦 We support optimizing a single model based on feedback from a group of people.
+                  - listitem [ref=e580]:
+                    - strong [ref=e581]: "[2026/3/25]"
+                    - text: 🙌 We sincerely thank
+                    - link "Tinker" [ref=e582] [cursor=pointer]:
+                      - /url: https://thinkingmachines.ai/tinker/
+                    - text: for its generous support of this project, which has enabled more experiments and faster iteration.
+                  - listitem [ref=e583]:
+                    - strong [ref=e584]: "[2026/3/20]"
+                    - text: 💻 You can use your own openclaw now, simply install
+                    - link "this extension" [ref=e585] [cursor=pointer]:
+                      - /url: https://github.com/Gen-Verse/OpenClaw-RL/tree/main/extensions/rl-training-headers
+                    - text: .
+                  - listitem [ref=e586]:
+                    - strong [ref=e587]: "[2026/3/13]"
+                    - text: ☁️ OpenClaw-RL now supports both local GPU and cloud (
+                    - link "Tinker" [ref=e588] [cursor=pointer]:
+                      - /url: https://thinkingmachines.ai/tinker/
+                    - text: ) deployment. Launch with
+                    - link "one line of code" [ref=e589] [cursor=pointer]:
+                      - /url: "#combinemethod"
+                      - strong [ref=e590]: one line of code
+                    - text: — Hybrid RL, OPD, and Binary RL all supported!
+                  - listitem [ref=e591]:
+                    - strong [ref=e592]: "[2026/3/12]"
+                    - text: ⚡ We support LoRA training now!
+                  - listitem [ref=e593]:
+                    - strong [ref=e594]: "[2026/3/10]"
+                    - text: 📃 We have released our
+                    - link "Technical Report" [ref=e595] [cursor=pointer]:
+                      - /url: https://arxiv.org/abs/2603.10165
+                      - strong [ref=e596]: Technical Report
+                    - text: "! 🏆 Ranked"
+                    - strong [ref=e597]: "#1"
+                    - text: "on"
+                    - link "HuggingFace Daily Papers" [ref=e598] [cursor=pointer]:
+                      - /url: https://huggingface.co/papers/2603.10165
+                    - text: "!"
+                  - listitem [ref=e599]:
+                    - strong [ref=e600]: "[2026/3/10]"
+                    - text: 🔥 Huge updates today! We released a
+                    - link "new combination method" [ref=e601] [cursor=pointer]:
+                      - /url: /Gen-Verse/OpenClaw-RL/blob/main/openclaw-combine
+                    - text: ", along with an"
+                    - link "interesting evaluation" [ref=e602] [cursor=pointer]:
+                      - /url: /Gen-Verse/OpenClaw-RL/blob/main/openclaw-test
+                    - text: of these OpenClaw-RL methods. Track 2 is released too, featuring scalable RL implementations for general agent settings across
+                    - link "terminal" [ref=e603] [cursor=pointer]:
+                      - /url: /Gen-Verse/OpenClaw-RL/blob/main/terminal-rl
+                    - text: ","
+                    - link "GUI" [ref=e604] [cursor=pointer]:
+                      - /url: /Gen-Verse/OpenClaw-RL/blob/main/gui-rl
+                    - text: ","
+                    - link "SWE" [ref=e605] [cursor=pointer]:
+                      - /url: /Gen-Verse/OpenClaw-RL/blob/main/swe-rl
+                    - text: ", and"
+                    - link "tool-call" [ref=e606] [cursor=pointer]:
+                      - /url: /Gen-Verse/OpenClaw-RL/blob/main/toolcall-rl
+                    - text: scenarios. We only focus on real-world settings!
+                  - listitem [ref=e607]:
+                    - strong [ref=e608]: "[2026/3/3]"
+                    - text: 🙌 Working with the authors of
+                    - link "SDFT" [ref=e609] [cursor=pointer]:
+                      - /url: https://arxiv.org/abs/2601.19897
+                    - text: and
+                    - link "SDPO" [ref=e610] [cursor=pointer]:
+                      - /url: https://arxiv.org/abs/2601.20802
+                    - text: ", we have integrated their methods into"
+                    - link "openclaw-opd" [ref=e611] [cursor=pointer]:
+                      - /url: /Gen-Verse/OpenClaw-RL/blob/main/openclaw-opd
+                    - text: . We welcome the integration of novel and effective methods!
+                  - listitem [ref=e612]:
+                    - strong [ref=e613]: "[2026/3/3]"
+                    - text: "📺 Check out these community tutorial videos on OpenClaw-RL:"
+                    - link "Video 1" [ref=e614] [cursor=pointer]:
+                      - /url: https://www.youtube.com/watch?v=5xnm1vB7G64
+                    - text: "|"
+                    - link "Video 2" [ref=e615] [cursor=pointer]:
+                      - /url: https://www.youtube.com/watch?v=ZtN6Gg_bdJE
+                  - listitem [ref=e616]:
+                    - strong [ref=e617]: "[2026/2/26]"
+                    - text: 🔥 We release
+                    - strong [ref=e618]: OpenClaw-RL v1
+                    - text: — a fully asynchronous RL framework for training personalized AI agents from natural conversation feedback.
+                - separator [ref=e619]
+                - generic [ref=e620]:
+                  - heading "💡 TL;DR" [level=2] [ref=e621]
+                  - 'link "Permalink: 💡 TL;DR" [ref=e622] [cursor=pointer]':
+                    - /url: "#-tldr"
+                    - img [ref=e623]
+                - blockquote [ref=e625]:
+                  - paragraph [ref=e626]:
+                    - strong [ref=e627]: OpenClaw-RL
+                    - text: is a fully asynchronous reinforcement learning framework that turns everyday conversations into training signals for personalized AI agents, and supports training general agents with large-scale environment parallelization.
+                - paragraph [ref=e628]:
+                  - text: Most RL-for-LLM systems assume centralized, batch-mode training with pre-collected datasets.
+                  - strong [ref=e629]: OpenClaw-RL
+                  - text: "takes a fundamentally different approach: it wraps your self-hosted model in"
+                  - link "OpenClaw" [ref=e630] [cursor=pointer]:
+                    - /url: https://openclaw.ai
+                  - text: as an OpenAI-compatible API, intercepts live multi-turn conversations, and continuously optimizes the policy in the background — all without interrupting your usage.
+                - paragraph [ref=e631]:
+                  - link "Overview" [ref=e632] [cursor=pointer]:
+                    - /url: /Gen-Verse/OpenClaw-RL/blob/main/assets/framework.png
+                    - img "Overview" [ref=e633]
+                - blockquote [ref=e634]:
+                  - paragraph [ref=e635]:
+                    - strong [ref=e636]: "Highlights:"
+                    - text: Fully async 4-component loop · Self-hosted & private · Zero manual labeling · Three learning paradigms (Binary RL / OPD / Combine) · Personal + General agent support
+                - group [ref=e637]:
+                  - generic "🌈 Features" [ref=e638] [cursor=pointer]
+                - separator [ref=e639]
+                - generic [ref=e640]:
+                  - heading "🎯 Roadmap" [level=2] [ref=e641]
+                  - 'link "Permalink: 🎯 Roadmap" [ref=e642] [cursor=pointer]':
+                    - /url: "#-roadmap"
+                    - img [ref=e643]
+                - paragraph [ref=e645]:
+                  - text: Our long-term goal is to
+                  - strong [ref=e646]: advance personalized, practically useful agents with reinforcement learning
+                  - text: ". The roadmap has two tracks:"
+                - generic [ref=e647]:
+                  - heading "Track 1 — Personal Agent Optimization (Small-Scale but Personal)" [level=4] [ref=e648]:
+                    - text: Track 1 —
+                    - link "Personal Agent Optimization" [ref=e649] [cursor=pointer]:
+                      - /url: "#personalagent"
+                    - text: (Small-Scale but Personal)
+                  - 'link "Permalink: Track 1 — Personal Agent Optimization (Small-Scale but Personal)" [ref=e650] [cursor=pointer]':
+                    - /url: "#track-1--personal-agent-optimization-small-scale-but-personal"
+                    - img [ref=e651]
+                - paragraph [ref=e653]:
+                  - text: ✅
+                  - strong [ref=e654]: "Release Track 1:"
+                  - text: Fully async OpenClaw-RL framework with Binary RL + OPD
+                  - text: ✅ Best recipe discovery via demonstration experiments
+                  - text: ✅ Support LoRA Training
+                  - text: ✅ Deploy training on
+                  - link "Tinker" [ref=e655] [cursor=pointer]:
+                    - /url: https://thinkingmachines.ai/tinker/
+                  - text: ✅ Deploy training on
+                  - link "Fireworks AI" [ref=e656] [cursor=pointer]:
+                    - /url: https://fireworks.ai
+                - generic [ref=e657]:
+                  - heading "Track 2 — General Agents Optimization (Scalable Infra)" [level=4] [ref=e658]:
+                    - text: Track 2 —
+                    - link "General Agents Optimization" [ref=e659] [cursor=pointer]:
+                      - /url: "#generalagent"
+                    - text: (Scalable Infra)
+                  - 'link "Permalink: Track 2 — General Agents Optimization (Scalable Infra)" [ref=e660] [cursor=pointer]':
+                    - /url: "#track-2--general-agents-optimization-scalable-infra"
+                    - img [ref=e661]
+                - paragraph [ref=e663]:
+                  - text: ✅
+                  - strong [ref=e664]: "Release Track 2:"
+                  - text: Scalable agentic RL infra for general agents
+                  - text: ✅ Support Qwen3.5
+                  - text: ⬜ Support more cloud services
+                - generic [ref=e665]:
+                  - heading "📝 Contents" [level=2] [ref=e666]
+                  - 'link "Permalink: 📝 Contents" [ref=e667] [cursor=pointer]':
+                    - /url: "#-contents"
+                    - img [ref=e668]
+                - list [ref=e670]:
+                  - listitem [ref=e671]:
+                    - link "Personal OpenClaw Optimization" [ref=e672] [cursor=pointer]:
+                      - /url: "#personalagent"
+                    - list [ref=e673]:
+                      - listitem [ref=e674]:
+                        - link "Bybrid RL" [ref=e675] [cursor=pointer]:
+                          - /url: "#combinemethod"
+                      - listitem [ref=e676]:
+                        - link "Method Evaluation" [ref=e677] [cursor=pointer]:
+                          - /url: "#evalmethod"
+                  - listitem [ref=e678]:
+                    - link "Agentic RL in Real World Settings" [ref=e679] [cursor=pointer]:
+                      - /url: "#agentrl"
+                    - list [ref=e680]:
+                      - listitem [ref=e681]:
+                        - link "Terminal Agent" [ref=e682] [cursor=pointer]:
+                          - /url: "#terminal"
+                      - listitem [ref=e683]:
+                        - link "GUI Agent" [ref=e684] [cursor=pointer]:
+                          - /url: "#gui"
+                      - listitem [ref=e685]:
+                        - link "SWE Agent" [ref=e686] [cursor=pointer]:
+                          - /url: "#swe"
+                      - listitem [ref=e687]:
+                        - link "Tool-call Agent" [ref=e688] [cursor=pointer]:
+                          - /url: "#toolcall"
+                - separator [ref=e689]
+                - paragraph
+                - generic [ref=e690]:
+                  - heading "🔧 Personal Agent Optimization Quick Start" [level=2] [ref=e691]
+                  - 'link "Permalink: 🔧 Personal Agent Optimization Quick Start" [ref=e692] [cursor=pointer]':
+                    - /url: "#-personal-agent-optimization-quick-start"
+                    - img [ref=e693]
+                - generic [ref=e695]:
+                  - heading "1. Deployment Requirements" [level=3] [ref=e696]
+                  - 'link "Permalink: 1. Deployment Requirements" [ref=e697] [cursor=pointer]':
+                    - /url: "#1-deployment-requirements"
+                    - img [ref=e698]
+                - list [ref=e700]:
+                  - listitem [ref=e701]:
+                    - strong [ref=e702]: "Hardware:"
+                    - text: 8× GPUs (default; configurable via
+                    - code [ref=e703]: NUM_GPUS
+                    - text: ","
+                    - code [ref=e704]: ACTOR_GPUS
+                    - text: ","
+                    - code [ref=e705]: ROLLOUT_GPUS
+                    - text: ","
+                    - code [ref=e706]: PRM_GPUS
+                    - text: )
+                  - listitem [ref=e707]:
+                    - strong [ref=e708]: "Software:"
+                    - text: CUDA 12.9, Python 3.12
+                  - listitem [ref=e709]:
+                    - strong [ref=e710]: "Framework:"
+                    - link "Slime" [ref=e711] [cursor=pointer]:
+                      - /url: https://github.com/THUDM/slime
+                    - text: (our base RL framework)
+                - paragraph [ref=e712]:
+                  - text: For detailed environment setup, see
+                  - link "Slime" [ref=e713] [cursor=pointer]:
+                    - /url: https://github.com/THUDM/slime
+                  - text: or
+                  - link "./instructions/README.md" [ref=e714] [cursor=pointer]:
+                    - /url: /Gen-Verse/OpenClaw-RL/blob/main/instructions/README.md
+                    - code [ref=e715]: ./instructions/README.md
+                  - text: .
+                - generic [ref=e716]:
+                  - heading "2. Start the RL Server" [level=3] [ref=e717]
+                  - 'link "Permalink: 2. Start the RL Server" [ref=e718] [cursor=pointer]':
+                    - /url: "#2-start-the-rl-server"
+                    - img [ref=e719]
+                - paragraph
+                - generic [ref=e721]:
+                  - generic [ref=e722]: cd slime bash ../openclaw-combine/run_qwen3_4b_openclaw_topk_select.sh
+                  - button "Copy" [ref=e724] [cursor=pointer]:
+                    - img [ref=e725]
+                - paragraph [ref=e728]: This method combines binary RL and OPD to achieve the best optimization.
+                - paragraph [ref=e729]:
+                  - text: See
+                  - link "./openclaw-combine/README.md" [ref=e730] [cursor=pointer]:
+                    - /url: /Gen-Verse/OpenClaw-RL/blob/main/openclaw-combine/README.md
+                    - code [ref=e731]: ./openclaw-combine/README.md
+                  - text: for algorithm details.
+                - paragraph [ref=e732]: "Once running, the model is served as an OpenAI-compatible API at:"
+                - generic [ref=e733]:
+                  - code [ref=e735]: http://<HOST_IP>:30000/v1
+                  - button "Copy" [ref=e737] [cursor=pointer]:
+                    - img [ref=e738]
+                - paragraph [ref=e741]:
+                  - text: where
+                  - code [ref=e742]: <HOST_IP>
+                  - text: is the
+                  - strong [ref=e743]: IP address
+                  - text: of the machine running the RL server (e.g.
+                  - code [ref=e744]: 115.190.98.251
+                  - text: ). The port
+                  - code [ref=e745]: "30000"
+                  - text: is the default and can be changed via the
+                  - code [ref=e746]: PORT
+                  - text: environment variable.
+                - paragraph [ref=e747]:
+                  - strong [ref=e748]: Take note of this endpoint
+                  - text: — you will need it when configuring OpenClaw in the next step.
+                - paragraph [ref=e749]: We also provide an interesting case for evaluation. A student who uses OpenClaw to do homework, does not want to be found using AI. A teacher who also uses OpenClaw to grade student's homework, wants the comments to be specific and friendly.
+                - paragraph
+                - group [ref=e750]:
+                  - generic "Evaluation Setting — Both student, TA and teacher use AI!" [ref=e751] [cursor=pointer]
+                - generic [ref=e752]:
+                  - heading "3. OpenClaw Setup" [level=3] [ref=e753]
+                  - 'link "Permalink: 3. OpenClaw Setup" [ref=e754] [cursor=pointer]':
+                    - /url: "#3-openclaw-setup"
+                    - img [ref=e755]
+                - paragraph [ref=e757]:
+                  - text: You can use your own openclaw, just install
+                  - link "this extension" [ref=e758] [cursor=pointer]:
+                    - /url: https://github.com/Gen-Verse/OpenClaw-RL/tree/main/extensions/rl-training-headers
+                  - text: .
+                - group [ref=e759]:
+                  - generic "Then configure OpenClaw to route requests to your RL server." [ref=e760] [cursor=pointer]
+                - separator [ref=e761]
+                - paragraph
+                - generic [ref=e762]:
+                  - heading "🔧 Agentic RL in Real-world Settings" [level=2] [ref=e763]
+                  - 'link "Permalink: 🔧 Agentic RL in Real-world Settings" [ref=e764] [cursor=pointer]':
+                    - /url: "#-agentic-rl-in-real-world-settings"
+                    - img [ref=e765]
+                - paragraph [ref=e767]: The same asynchronous RL backbone that powers our personal-agent setting can also support large-scale optimization for these broader real-world environments.
+                - table [ref=e769]:
+                  - rowgroup [ref=e770]:
+                    - row "Setting Environment Next-state signal Horizon" [ref=e771]:
+                      - columnheader "Setting" [ref=e772]
+                      - columnheader "Environment" [ref=e773]
+                      - columnheader "Next-state signal" [ref=e774]
+                      - columnheader "Horizon" [ref=e775]
+                  - rowgroup [ref=e776]:
+                    - row "Terminal Shell execution sandbox stdout/stderr, exit code Long" [ref=e777]:
+                      - cell "Terminal" [ref=e778]
+                      - cell "Shell execution sandbox" [ref=e779]
+                      - cell "stdout/stderr, exit code" [ref=e780]
+                      - cell "Long" [ref=e781]
+                    - row "GUI Screen state + accessibility tree Visual state diff, task progress Long" [ref=e782]:
+                      - cell "GUI" [ref=e783]
+                      - cell "Screen state + accessibility tree" [ref=e784]
+                      - cell "Visual state diff, task progress" [ref=e785]
+                      - cell "Long" [ref=e786]
+                    - row "SWE Code repository + test suite Test verdicts, diff, lint output Long" [ref=e787]:
+                      - cell "SWE" [ref=e788]
+                      - cell "Code repository + test suite" [ref=e789]
+                      - cell "Test verdicts, diff, lint output" [ref=e790]
+                      - cell "Long" [ref=e791]
+                    - row "Tool-call API/function execution Return values, error traces Medium" [ref=e792]:
+                      - cell "Tool-call" [ref=e793]
+                      - cell "API/function execution" [ref=e794]
+                      - cell "Return values, error traces" [ref=e795]
+                      - cell "Medium" [ref=e796]
+                - paragraph
+                - generic [ref=e797]:
+                  - heading "🖥️ Terminal Agent — the most widely used computer-use agent" [level=3] [ref=e798]
+                  - 'link "Permalink: 🖥️ Terminal Agent — the most widely used computer-use agent" [ref=e799] [cursor=pointer]':
+                    - /url: "#️-terminal-agent--the-most-widely-used-computer-use-agent"
+                    - img [ref=e800]
+                - generic [ref=e802]:
+                  - generic [ref=e803]: cd slime bash ../terminal-rl/terminal_qwen3_8b_rl.sh
+                  - button "Copy" [ref=e805] [cursor=pointer]:
+                    - img [ref=e806]
+                - paragraph [ref=e809]:
+                  - text: See
+                  - link "./terminal-rl/README.md" [ref=e810] [cursor=pointer]:
+                    - /url: /Gen-Verse/OpenClaw-RL/blob/main/terminal-rl/README.md
+                    - code [ref=e811]: ./terminal-rl/README.md
+                  - text: for setup details.
+                - paragraph
+                - generic [ref=e812]:
+                  - heading "📟 GUI Agent — the most general computer-use agent" [level=3] [ref=e813]
+                  - 'link "Permalink: 📟 GUI Agent — the most general computer-use agent" [ref=e814] [cursor=pointer]':
+                    - /url: "#-gui-agent--the-most-general-computer-use-agent"
+                    - img [ref=e815]
+                - generic [ref=e817]:
+                  - generic [ref=e818]: cd slime bash ../gui-rl/gui_qwen3vl_8b_rl.sh
+                  - button "Copy" [ref=e820] [cursor=pointer]:
+                    - img [ref=e821]
+                - paragraph [ref=e824]:
+                  - text: See
+                  - link "./gui-rl/README.md" [ref=e825] [cursor=pointer]:
+                    - /url: /Gen-Verse/OpenClaw-RL/blob/main/gui-rl/README.md
+                    - code [ref=e826]: ./gui-rl/README.md
+                  - text: for setup details.
+                - paragraph
+                - generic [ref=e827]:
+                  - heading "👨‍💻 SWE Agent — software engineering agent" [level=3] [ref=e828]
+                  - 'link "Permalink: 👨‍💻 SWE Agent — software engineering agent" [ref=e829] [cursor=pointer]':
+                    - /url: "#‍-swe-agent--software-engineering-agent"
+                    - img [ref=e830]
+                - generic [ref=e832]:
+                  - generic [ref=e833]: cd slime bash ../swe-rl/run_swe_rl_32b_remote_8nodes.sh
+                  - button "Copy" [ref=e835] [cursor=pointer]:
+                    - img [ref=e836]
+                - paragraph [ref=e839]:
+                  - text: See
+                  - link "./swe-rl/README.md" [ref=e840] [cursor=pointer]:
+                    - /url: /Gen-Verse/OpenClaw-RL/blob/main/swe-rl/README.md
+                    - code [ref=e841]: ./swe-rl/README.md
+                  - text: for setup details.
+                - paragraph
+                - generic [ref=e842]:
+                  - heading "🛠️ Tool-call Agent — the most practical agent" [level=3] [ref=e843]
+                  - 'link "Permalink: 🛠️ Tool-call Agent — the most practical agent" [ref=e844] [cursor=pointer]':
+                    - /url: "#️-tool-call-agent--the-most-practical-agent"
+                    - img [ref=e845]
+                - generic [ref=e847]:
+                  - generic [ref=e848]: cd slime bash ../toolcall-rl/retool_qwen3_4b_rl.sh
+                  - button "Copy" [ref=e850] [cursor=pointer]:
+                    - img [ref=e851]
+                - paragraph [ref=e854]:
+                  - text: See
+                  - link "./toolcall-rl/README.md" [ref=e855] [cursor=pointer]:
+                    - /url: /Gen-Verse/OpenClaw-RL/blob/main/toolcall-rl/README.md
+                    - code [ref=e856]: ./toolcall-rl/README.md
+                  - text: for setup details.
+                - generic [ref=e857]:
+                  - heading "📖 Citation" [level=2] [ref=e858]
+                  - 'link "Permalink: 📖 Citation" [ref=e859] [cursor=pointer]':
+                    - /url: "#-citation"
+                    - img [ref=e860]
+                - generic [ref=e862]:
+                  - code [ref=e864]: "@article{wang2026openclawrl, title={OpenClaw-RL: Train Any Agent Simply by Talking}, author={Wang, Yinjie and Chen, Xuyang and Jin, Xiaolong and Wang, Mengdi and Yang, Ling}, journal={arXiv preprint arXiv:2603.10165}, year={2026} } @article{wang2026rlanything, title={RLAnything: Forge Environment, Policy, and Reward Model in Completely Dynamic RL System}, author={Wang, Yinjie and Xie, Tianbao and Shen, Ke and Wang, Mengdi and Yang, Ling}, journal={arXiv preprint arXiv:2602.02488}, year={2026} }"
+                  - button "Copy" [ref=e866] [cursor=pointer]:
+                    - img [ref=e867]
+                - generic [ref=e870]:
+                  - heading "🙏 Acknowledgements" [level=2] [ref=e871]
+                  - 'link "Permalink: 🙏 Acknowledgements" [ref=e872] [cursor=pointer]':
+                    - /url: "#-acknowledgements"
+                    - img [ref=e873]
+                - paragraph [ref=e875]:
+                  - text: This work aims to explore more effective paradigms for Agentic RL. Our implementation builds upon the excellent codebases of
+                  - link "slime" [ref=e876] [cursor=pointer]:
+                    - /url: https://github.com/THUDM/slime
+                  - text: ","
+                  - link "OpenClaw" [ref=e877] [cursor=pointer]:
+                    - /url: https://github.com/openclaw/openclaw
+                  - text: ","
+                  - link "Tinker" [ref=e878] [cursor=pointer]:
+                    - /url: https://thinkingmachines.ai/tinker/
+                  - text: and
+                  - link "Open-AgentRL" [ref=e879] [cursor=pointer]:
+                    - /url: https://github.com/Gen-Verse/Open-AgentRL
+                  - text: .
+                - paragraph [ref=e880]:
+                  - text: We also build terminal RL using
+                  - link "SETA" [ref=e881] [cursor=pointer]:
+                    - /url: https://github.com/camel-ai/seta
+                  - text: "'s dataset and agent framework, GUI RL using"
+                  - link "OSWorld" [ref=e882] [cursor=pointer]:
+                    - /url: https://github.com/xlang-ai/OSWorld
+                  - text: "'s evaluation scripts, SWE RL using"
+                  - link "mini-swe-agent" [ref=e883] [cursor=pointer]:
+                    - /url: https://github.com/SWE-agent/mini-swe-agent
+                  - text: "'s evaluation scripts, and tool-call RL based on the work of"
+                  - link "Retool" [ref=e884] [cursor=pointer]:
+                    - /url: https://github.com/ReTool-RL/ReTool
+                  - text: .
+                - paragraph [ref=e885]: We sincerely thank these projects for their valuable insights and high-quality implementations, which have greatly facilitated our research.
+                - generic [ref=e886]:
+                  - heading "⚠️ Reminder" [level=2] [ref=e887]:
+                    - generic [ref=e888]: ⚠️
+                    - text: Reminder
+                  - 'link "Permalink: ⚠️ Reminder" [ref=e889] [cursor=pointer]':
+                    - /url: "#️-reminder"
+                    - img [ref=e890]
+                - paragraph [ref=e892]: When using OpenClaw-RL, please do not provide sensitive personal information during conversations with the model. Also, make sure to keep your API keys secure and never expose them in prompts, logs, or shared files.
+                - separator [ref=e893]
+        - generic [ref=e897]:
+          - generic [ref=e900]:
+            - heading "About" [level=2] [ref=e901]
+            - paragraph [ref=e902]: "OpenClaw-RL: Train any agent simply by talking"
+            - generic [ref=e903]:
+              - img [ref=e904]
+              - link "arxiv.org/abs/2603.10165" [ref=e907] [cursor=pointer]:
+                - /url: https://arxiv.org/abs/2603.10165
+            - heading "Topics" [level=3] [ref=e908]
+            - generic [ref=e910]:
+              - link "async" [ref=e911] [cursor=pointer]:
+                - /url: /topics/async
+              - link "gui-application" [ref=e912] [cursor=pointer]:
+                - /url: /topics/gui-application
+              - link "coding" [ref=e913] [cursor=pointer]:
+                - /url: /topics/coding
+              - link "slime" [ref=e914] [cursor=pointer]:
+                - /url: /topics/slime
+              - link "tinker" [ref=e915] [cursor=pointer]:
+                - /url: /topics/tinker
+              - link "memory-systems" [ref=e916] [cursor=pointer]:
+                - /url: /topics/memory-systems
+              - link "skill-learning" [ref=e917] [cursor=pointer]:
+                - /url: /topics/skill-learning
+              - link "rlhf" [ref=e918] [cursor=pointer]:
+                - /url: /topics/rlhf
+              - link "sglang" [ref=e919] [cursor=pointer]:
+                - /url: /topics/sglang
+              - link "grpo" [ref=e920] [cursor=pointer]:
+                - /url: /topics/grpo
+              - link "on-policy-distillation" [ref=e921] [cursor=pointer]:
+                - /url: /topics/on-policy-distillation
+              - link "openclaw-skills" [ref=e922] [cursor=pointer]:
+                - /url: /topics/openclaw-skills
+              - link "open-claw" [ref=e923] [cursor=pointer]:
+                - /url: /topics/open-claw
+            - heading "Resources" [level=3] [ref=e924]
+            - link "Readme" [ref=e926] [cursor=pointer]:
+              - /url: "#readme-ov-file"
+              - img [ref=e927]
+              - text: Readme
+            - heading "License" [level=3] [ref=e929]
+            - link "Apache-2.0 license" [ref=e931] [cursor=pointer]:
+              - /url: "#Apache-2.0-1-ov-file"
+              - img [ref=e932]
+              - text: Apache-2.0 license
+            - link "Activity" [ref=e935] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/activity
+              - img [ref=e936]
+              - text: Activity
+            - link "Custom properties" [ref=e939] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/custom-properties
+              - img [ref=e940]
+              - text: Custom properties
+            - heading "Stars" [level=3] [ref=e942]
+            - link "5.3k stars" [ref=e944] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/stargazers
+              - img [ref=e945]
+              - strong [ref=e947]: 5.3k
+              - text: stars
+            - heading "Watchers" [level=3] [ref=e948]
+            - link "40 watching" [ref=e950] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/watchers
+              - img [ref=e951]
+              - strong [ref=e953]: "40"
+              - text: watching
+            - heading "Forks" [level=3] [ref=e954]
+            - link "571 forks" [ref=e956] [cursor=pointer]:
+              - /url: /Gen-Verse/OpenClaw-RL/forks
+              - img [ref=e957]
+              - strong [ref=e959]: "571"
+              - text: forks
+            - link "Report repository" [ref=e961] [cursor=pointer]:
+              - /url: /contact/report-content?content_url=https%3A%2F%2Fgithub.com%2FGen-Verse%2FOpenClaw-RL&report=Gen-Verse+%28user%29
+          - generic [ref=e963]:
+            - heading "Releases" [level=2] [ref=e964]:
+              - link "Releases" [ref=e965] [cursor=pointer]:
+                - /url: /Gen-Verse/OpenClaw-RL/releases
+            - generic [ref=e966]: No releases published
+          - generic [ref=e968]:
+            - heading "Packages" [level=2] [ref=e969]:
+              - link "Packages" [ref=e970] [cursor=pointer]:
+                - /url: /orgs/Gen-Verse/packages?repo_name=OpenClaw-RL
+            - generic [ref=e971]: No packages published
+          - generic [ref=e973]:
+            - heading "Contributors 11" [level=2] [ref=e974]:
+              - link "Contributors 11" [ref=e975] [cursor=pointer]:
+                - /url: /Gen-Verse/OpenClaw-RL/graphs/contributors
+                - text: Contributors
+                - generic "11" [ref=e976]
+            - list [ref=e977]:
+              - listitem [ref=e978]:
+                - link "@yinjjiew" [ref=e979] [cursor=pointer]:
+                  - /url: https://github.com/yinjjiew
+                  - img "@yinjjiew" [ref=e980]
+              - listitem [ref=e981]:
+                - link "@xuyangc03" [ref=e982] [cursor=pointer]:
+                  - /url: https://github.com/xuyangc03
+                  - img "@xuyangc03" [ref=e983]
+              - listitem [ref=e984]:
+                - link "@YangLing0818" [ref=e985] [cursor=pointer]:
+                  - /url: https://github.com/YangLing0818
+                  - img "@YangLing0818" [ref=e986]
+              - listitem [ref=e987]:
+                - link "@yzoaim" [ref=e988] [cursor=pointer]:
+                  - /url: https://github.com/yzoaim
+                  - img "@yzoaim" [ref=e989]
+              - listitem [ref=e990]:
+                - link "@Jinxiaolong1129" [ref=e991] [cursor=pointer]:
+                  - /url: https://github.com/Jinxiaolong1129
+                  - img "@Jinxiaolong1129" [ref=e992]
+              - listitem [ref=e993]:
+                - link "@yisu201506" [ref=e994] [cursor=pointer]:
+                  - /url: https://github.com/yisu201506
+                  - img "@yisu201506" [ref=e995]
+              - listitem [ref=e996]:
+                - link "@claude" [ref=e997] [cursor=pointer]:
+                  - /url: https://github.com/claude
+                  - img "@claude" [ref=e998]
+              - listitem [ref=e999]:
+                - link "@zjysteven" [ref=e1000] [cursor=pointer]:
+                  - /url: https://github.com/zjysteven
+                  - img "@zjysteven" [ref=e1001]
+              - listitem [ref=e1002]:
+                - link "@zhuchichi56" [ref=e1003] [cursor=pointer]:
+                  - /url: https://github.com/zhuchichi56
+                  - img "@zhuchichi56" [ref=e1004]
+              - listitem [ref=e1005]:
+                - link "@Niujunbo2002" [ref=e1006] [cursor=pointer]:
+                  - /url: https://github.com/Niujunbo2002
+                  - img "@Niujunbo2002" [ref=e1007]
+              - listitem [ref=e1008]:
+                - link "@cursoragent" [ref=e1009] [cursor=pointer]:
+                  - /url: https://github.com/cursoragent
+                  - img "@cursoragent" [ref=e1010]
+          - generic [ref=e1012]:
+            - heading "Languages" [level=2] [ref=e1013]
+            - list [ref=e1021]:
+              - listitem [ref=e1022]:
+                - link "Python 94.6%" [ref=e1023] [cursor=pointer]:
+                  - /url: /Gen-Verse/OpenClaw-RL/search?l=python
+                  - img [ref=e1024]
+                  - generic [ref=e1026]: Python
+                  - generic [ref=e1027]: 94.6%
+              - listitem [ref=e1028]:
+                - link "Shell 5.0%" [ref=e1029] [cursor=pointer]:
+                  - /url: /Gen-Verse/OpenClaw-RL/search?l=shell
+                  - img [ref=e1030]
+                  - generic [ref=e1032]: Shell
+                  - generic [ref=e1033]: 5.0%
+              - listitem [ref=e1034]:
+                - link "C++ 0.2%" [ref=e1035] [cursor=pointer]:
+                  - /url: /Gen-Verse/OpenClaw-RL/search?l=c%2B%2B
+                  - img [ref=e1036]
+                  - generic [ref=e1038]: C++
+                  - generic [ref=e1039]: 0.2%
+              - listitem [ref=e1040]:
+                - link "Cuda 0.1%" [ref=e1041] [cursor=pointer]:
+                  - /url: /Gen-Verse/OpenClaw-RL/search?l=cuda
+                  - img [ref=e1042]
+                  - generic [ref=e1044]: Cuda
+                  - generic [ref=e1045]: 0.1%
+              - listitem [ref=e1046]:
+                - link "Dockerfile 0.1%" [ref=e1047] [cursor=pointer]:
+                  - /url: /Gen-Verse/OpenClaw-RL/search?l=dockerfile
+                  - img [ref=e1048]
+                  - generic [ref=e1050]: Dockerfile
+                  - generic [ref=e1051]: 0.1%
+              - listitem [ref=e1052]:
+                - link "CSS 0.0%" [ref=e1053] [cursor=pointer]:
+                  - /url: /Gen-Verse/OpenClaw-RL/search?l=css
+                  - img [ref=e1054]
+                  - generic [ref=e1056]: CSS
+                  - generic [ref=e1057]: 0.0%
+  - contentinfo [ref=e1059]:
+    - heading "Footer" [level=2] [ref=e1060]
+    - generic [ref=e1061]:
+      - generic [ref=e1062]:
+        - link "GitHub Homepage" [ref=e1063] [cursor=pointer]:
+          - /url: https://github.com
+          - img [ref=e1064]
+        - generic [ref=e1066]: © 2026 GitHub, Inc.
+      - navigation "Footer" [ref=e1067]:
+        - heading "Footer navigation" [level=3] [ref=e1068]
+        - list "Footer navigation" [ref=e1069]:
+          - listitem [ref=e1070]:
+            - link "Terms" [ref=e1071] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+          - listitem [ref=e1072]:
+            - link "Privacy" [ref=e1073] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+          - listitem [ref=e1074]:
+            - link "Security" [ref=e1075] [cursor=pointer]:
+              - /url: https://github.com/security
+          - listitem [ref=e1076]:
+            - link "Status" [ref=e1077] [cursor=pointer]:
+              - /url: https://www.githubstatus.com/
+          - listitem [ref=e1078]:
+            - link "Community" [ref=e1079] [cursor=pointer]:
+              - /url: https://github.community/
+          - listitem [ref=e1080]:
+            - link "Docs" [ref=e1081] [cursor=pointer]:
+              - /url: https://docs.github.com/
+          - listitem [ref=e1082]:
+            - link "Contact" [ref=e1083] [cursor=pointer]:
+              - /url: https://support.github.com?tags=dotcom-footer
+          - listitem [ref=e1084]:
+            - button "Manage cookies" [ref=e1086] [cursor=pointer]
+          - listitem [ref=e1087]:
+            - button "Do not share my personal information" [ref=e1089] [cursor=pointer]

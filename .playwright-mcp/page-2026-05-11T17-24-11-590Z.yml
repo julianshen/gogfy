@@ -1,0 +1,761 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - link "Skip to content" [ref=e4] [cursor=pointer]:
+        - /url: "#start-of-content"
+      - banner [ref=e6]:
+        - heading "Navigation Menu" [level=2] [ref=e7]
+        - generic [ref=e8]:
+          - link "Homepage" [ref=e10] [cursor=pointer]:
+            - /url: /
+            - img [ref=e11]
+          - generic [ref=e13]:
+            - navigation "Global" [ref=e16]:
+              - list [ref=e17]:
+                - listitem [ref=e18]:
+                  - button "Platform" [ref=e20] [cursor=pointer]:
+                    - text: Platform
+                    - img [ref=e21]
+                - listitem [ref=e23]:
+                  - button "Solutions" [ref=e25] [cursor=pointer]:
+                    - text: Solutions
+                    - img [ref=e26]
+                - listitem [ref=e28]:
+                  - button "Resources" [ref=e30] [cursor=pointer]:
+                    - text: Resources
+                    - img [ref=e31]
+                - listitem [ref=e33]:
+                  - button "Open Source" [ref=e35] [cursor=pointer]:
+                    - text: Open Source
+                    - img [ref=e36]
+                - listitem [ref=e38]:
+                  - button "Enterprise" [ref=e40] [cursor=pointer]:
+                    - text: Enterprise
+                    - img [ref=e41]
+                - listitem [ref=e43]:
+                  - link "Pricing" [ref=e44] [cursor=pointer]:
+                    - /url: https://github.com/pricing
+                    - generic [ref=e45]: Pricing
+            - generic [ref=e46]:
+              - button "Search or jump to…" [ref=e49] [cursor=pointer]:
+                - img [ref=e51]
+              - link "Sign in" [ref=e54] [cursor=pointer]:
+                - /url: /login?return_to=https%3A%2F%2Fgithub.com%2Fsafishamsi%2Fgraphify%2Ftree%2Fv7%2Fgraphify
+              - link "Sign up" [ref=e55] [cursor=pointer]:
+                - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E%2Ffiles%2Fdisambiguate&source=header-repo&source_repo=safishamsi%2Fgraphify
+              - button "Appearance settings" [ref=e58] [cursor=pointer]:
+                - img
+    - main [ref=e62]:
+      - generic [ref=e63]:
+        - generic [ref=e64]:
+          - generic [ref=e66]:
+            - img [ref=e67]
+            - link "safishamsi" [ref=e70] [cursor=pointer]:
+              - /url: /safishamsi
+            - generic [ref=e71]: /
+            - strong [ref=e72]:
+              - link "graphify" [ref=e73] [cursor=pointer]:
+                - /url: /safishamsi/graphify
+            - generic [ref=e74]: Public
+          - generic [ref=e75]:
+            - list:
+              - listitem [ref=e76]:
+                - link "Sponsor @safishamsi" [ref=e77] [cursor=pointer]:
+                  - /url: /sponsors/safishamsi
+                  - generic [ref=e79]:
+                    - img [ref=e80]
+                    - text: Sponsor
+              - listitem [ref=e82]:
+                - link "You must be signed in to change notification settings" [ref=e83] [cursor=pointer]:
+                  - /url: /login?return_to=%2Fsafishamsi%2Fgraphify
+                  - img [ref=e84]
+                  - text: Notifications
+              - listitem [ref=e86]:
+                - link "Fork 5.1k" [ref=e87] [cursor=pointer]:
+                  - /url: /login?return_to=%2Fsafishamsi%2Fgraphify
+                  - img [ref=e88]
+                  - text: Fork
+                  - generic "5,053" [ref=e90]: 5.1k
+              - listitem [ref=e91]:
+                - link "You must be signed in to star a repository" [ref=e93] [cursor=pointer]:
+                  - /url: /login?return_to=%2Fsafishamsi%2Fgraphify
+                  - img [ref=e94]
+                  - text: Star
+                  - generic "46575 users starred this repository" [ref=e96]: 46.6k
+        - navigation "Repository" [ref=e97]:
+          - list [ref=e98]:
+            - listitem [ref=e99]:
+              - link "Code" [ref=e100] [cursor=pointer]:
+                - /url: /safishamsi/graphify
+                - img [ref=e101]
+                - generic [ref=e103]: Code
+            - listitem [ref=e104]:
+              - link "Issues 92" [ref=e105] [cursor=pointer]:
+                - /url: /safishamsi/graphify/issues
+                - img [ref=e106]
+                - generic [ref=e109]: Issues
+                - generic "92" [ref=e110]
+            - listitem [ref=e111]:
+              - link "Pull requests 154" [ref=e112] [cursor=pointer]:
+                - /url: /safishamsi/graphify/pulls
+                - img [ref=e113]
+                - generic [ref=e115]: Pull requests
+                - generic "154" [ref=e116]
+            - listitem [ref=e117]:
+              - link "Discussions" [ref=e118] [cursor=pointer]:
+                - /url: /safishamsi/graphify/discussions
+                - img [ref=e119]
+                - generic [ref=e121]: Discussions
+            - listitem [ref=e122]:
+              - link "Actions" [ref=e123] [cursor=pointer]:
+                - /url: /safishamsi/graphify/actions
+                - img [ref=e124]
+                - generic [ref=e126]: Actions
+            - listitem [ref=e127]:
+              - link "Projects" [ref=e128] [cursor=pointer]:
+                - /url: /safishamsi/graphify/projects
+                - img [ref=e129]
+                - generic [ref=e131]: Projects
+            - listitem [ref=e132]:
+              - link "Security and quality" [ref=e133] [cursor=pointer]:
+                - /url: /safishamsi/graphify/security
+                - img [ref=e134]
+                - generic [ref=e136]: Security and quality
+            - listitem [ref=e137]:
+              - link "Insights" [ref=e138] [cursor=pointer]:
+                - /url: /safishamsi/graphify/pulse
+                - img [ref=e139]
+                - generic [ref=e141]: Insights
+      - generic [ref=e149]:
+        - generic [ref=e151]:
+          - generic [ref=e154]:
+            - generic [ref=e155]:
+              - generic [ref=e156]:
+                - heading "Collapse file tree" [level=2] [ref=e157]:
+                  - button "Collapse file tree" [expanded] [ref=e158] [cursor=pointer]:
+                    - img [ref=e159]
+                - heading "Files" [level=2] [ref=e162]
+              - generic [ref=e163]:
+                - button "v7 branch" [ref=e165] [cursor=pointer]:
+                  - generic [ref=e166]:
+                    - generic [ref=e168]:
+                      - img [ref=e170]
+                      - generic [ref=e173]: v7
+                    - generic:
+                      - img
+                - button "Search this repository (forward slash)" [ref=e175] [cursor=pointer]:
+                  - img [ref=e176]
+            - generic [ref=e179]:
+              - img [ref=e181]
+              - combobox "Go to file" [ref=e183]
+            - navigation "File Tree Navigation" [ref=e189]:
+              - tree "Files" [ref=e191]:
+                - treeitem ".github" [level=1] [ref=e192]:
+                  - generic [ref=e193] [cursor=pointer]:
+                    - img [ref=e195]
+                    - generic [ref=e197]:
+                      - img [ref=e201]
+                      - generic [ref=e203]: .github
+                - treeitem "docs" [level=1] [ref=e204]:
+                  - generic [ref=e205] [cursor=pointer]:
+                    - img [ref=e207]
+                    - generic [ref=e209]:
+                      - img [ref=e213]
+                      - generic [ref=e215]: docs
+                - treeitem "graphify" [expanded] [level=1] [ref=e216]:
+                  - generic [ref=e217] [cursor=pointer]:
+                    - img [ref=e219]
+                    - generic [ref=e221]:
+                      - img [ref=e225]
+                      - generic [ref=e227]: graphify
+                  - group "graphify" [ref=e228]:
+                    - treeitem "__init__.py" [level=2] [ref=e229]:
+                      - generic [ref=e234] [cursor=pointer]:
+                        - img [ref=e237]
+                        - generic [ref=e239]: __init__.py
+                    - treeitem "__main__.py" [level=2] [ref=e240]:
+                      - generic [ref=e245] [cursor=pointer]:
+                        - img [ref=e248]
+                        - generic [ref=e250]: __main__.py
+                    - treeitem "analyze.py" [level=2] [ref=e251]:
+                      - generic [ref=e256] [cursor=pointer]:
+                        - img [ref=e259]
+                        - generic [ref=e261]: analyze.py
+                    - treeitem "benchmark.py" [level=2] [ref=e262]:
+                      - generic [ref=e267] [cursor=pointer]:
+                        - img [ref=e270]
+                        - generic [ref=e272]: benchmark.py
+                    - treeitem "build.py" [level=2] [ref=e273]:
+                      - generic [ref=e278] [cursor=pointer]:
+                        - img [ref=e281]
+                        - generic [ref=e283]: build.py
+                    - treeitem "cache.py" [level=2] [ref=e284]:
+                      - generic [ref=e289] [cursor=pointer]:
+                        - img [ref=e292]
+                        - generic [ref=e294]: cache.py
+                    - treeitem "callflow_html.py" [level=2] [ref=e295]:
+                      - generic [ref=e300] [cursor=pointer]:
+                        - img [ref=e303]
+                        - generic [ref=e305]: callflow_html.py
+                    - treeitem "cluster.py" [level=2] [ref=e306]:
+                      - generic [ref=e311] [cursor=pointer]:
+                        - img [ref=e314]
+                        - generic [ref=e316]: cluster.py
+                    - treeitem "dedup.py" [level=2] [ref=e317]:
+                      - generic [ref=e322] [cursor=pointer]:
+                        - img [ref=e325]
+                        - generic [ref=e327]: dedup.py
+                    - treeitem "detect.py" [level=2] [ref=e328]:
+                      - generic [ref=e333] [cursor=pointer]:
+                        - img [ref=e336]
+                        - generic [ref=e338]: detect.py
+                    - treeitem "export.py" [level=2] [ref=e339]:
+                      - generic [ref=e344] [cursor=pointer]:
+                        - img [ref=e347]
+                        - generic [ref=e349]: export.py
+                    - treeitem "extract.py" [level=2] [ref=e350]:
+                      - generic [ref=e355] [cursor=pointer]:
+                        - img [ref=e358]
+                        - generic [ref=e360]: extract.py
+                    - treeitem "global_graph.py" [level=2] [ref=e361]:
+                      - generic [ref=e366] [cursor=pointer]:
+                        - img [ref=e369]
+                        - generic [ref=e371]: global_graph.py
+                    - treeitem "google_workspace.py" [level=2] [ref=e372]:
+                      - generic [ref=e377] [cursor=pointer]:
+                        - img [ref=e380]
+                        - generic [ref=e382]: google_workspace.py
+                    - treeitem "hooks.py" [level=2] [ref=e383]:
+                      - generic [ref=e388] [cursor=pointer]:
+                        - img [ref=e391]
+                        - generic [ref=e393]: hooks.py
+                    - treeitem "ingest.py" [level=2] [ref=e394]:
+                      - generic [ref=e399] [cursor=pointer]:
+                        - img [ref=e402]
+                        - generic [ref=e404]: ingest.py
+                    - treeitem "llm.py" [level=2] [ref=e405]:
+                      - generic [ref=e410] [cursor=pointer]:
+                        - img [ref=e413]
+                        - generic [ref=e415]: llm.py
+                    - treeitem "manifest.py" [level=2] [ref=e416]:
+                      - generic [ref=e421] [cursor=pointer]:
+                        - img [ref=e424]
+                        - generic [ref=e426]: manifest.py
+                    - treeitem "report.py" [level=2] [ref=e427]:
+                      - generic [ref=e432] [cursor=pointer]:
+                        - img [ref=e435]
+                        - generic [ref=e437]: report.py
+                    - treeitem "security.py" [level=2] [ref=e438]:
+                      - generic [ref=e443] [cursor=pointer]:
+                        - img [ref=e446]
+                        - generic [ref=e448]: security.py
+                    - treeitem "serve.py" [level=2] [ref=e449]:
+                      - generic [ref=e454] [cursor=pointer]:
+                        - img [ref=e457]
+                        - generic [ref=e459]: serve.py
+                    - treeitem "skill-aider.md" [level=2] [ref=e460]:
+                      - generic [ref=e465] [cursor=pointer]:
+                        - img [ref=e468]
+                        - generic [ref=e470]: skill-aider.md
+                    - treeitem "skill-claw.md" [level=2] [ref=e471]:
+                      - generic [ref=e476] [cursor=pointer]:
+                        - img [ref=e479]
+                        - generic [ref=e481]: skill-claw.md
+                    - treeitem "skill-codex.md" [level=2] [ref=e482]:
+                      - generic [ref=e487] [cursor=pointer]:
+                        - img [ref=e490]
+                        - generic [ref=e492]: skill-codex.md
+                    - treeitem "skill-copilot.md" [level=2] [ref=e493]:
+                      - generic [ref=e498] [cursor=pointer]:
+                        - img [ref=e501]
+                        - generic [ref=e503]: skill-copilot.md
+                    - treeitem "skill-droid.md" [level=2] [ref=e504]:
+                      - generic [ref=e509] [cursor=pointer]:
+                        - img [ref=e512]
+                        - generic [ref=e514]: skill-droid.md
+                    - treeitem "skill-kiro.md" [level=2] [ref=e515]:
+                      - generic [ref=e520] [cursor=pointer]:
+                        - img [ref=e523]
+                        - generic [ref=e525]: skill-kiro.md
+                    - treeitem "skill-opencode.md" [level=2] [ref=e526]:
+                      - generic [ref=e531] [cursor=pointer]:
+                        - img [ref=e534]
+                        - generic [ref=e536]: skill-opencode.md
+                    - treeitem "skill-pi.md" [level=2] [ref=e537]:
+                      - generic [ref=e542] [cursor=pointer]:
+                        - img [ref=e545]
+                        - generic [ref=e547]: skill-pi.md
+                    - treeitem "skill-trae.md" [level=2] [ref=e548]:
+                      - generic [ref=e553] [cursor=pointer]:
+                        - img [ref=e556]
+                        - generic [ref=e558]: skill-trae.md
+                    - treeitem "skill-vscode.md" [level=2] [ref=e559]:
+                      - generic [ref=e564] [cursor=pointer]:
+                        - img [ref=e567]
+                        - generic [ref=e569]: skill-vscode.md
+                    - treeitem "skill-windows.md" [level=2] [ref=e570]:
+                      - generic [ref=e575] [cursor=pointer]:
+                        - img [ref=e578]
+                        - generic [ref=e580]: skill-windows.md
+                    - treeitem "skill.md" [level=2] [ref=e581]:
+                      - generic [ref=e586] [cursor=pointer]:
+                        - img [ref=e589]
+                        - generic [ref=e591]: skill.md
+                    - treeitem "transcribe.py" [level=2] [ref=e592]:
+                      - generic [ref=e597] [cursor=pointer]:
+                        - img [ref=e600]
+                        - generic [ref=e602]: transcribe.py
+                    - treeitem "tree_html.py" [level=2] [ref=e603]:
+                      - generic [ref=e608] [cursor=pointer]:
+                        - img [ref=e611]
+                        - generic [ref=e613]: tree_html.py
+                    - treeitem "validate.py" [level=2] [ref=e614]:
+                      - generic [ref=e619] [cursor=pointer]:
+                        - img [ref=e622]
+                        - generic [ref=e624]: validate.py
+                    - treeitem "watch.py" [level=2] [ref=e625]:
+                      - generic [ref=e630] [cursor=pointer]:
+                        - img [ref=e633]
+                        - generic [ref=e635]: watch.py
+                    - treeitem "wiki.py" [level=2] [ref=e636]:
+                      - generic [ref=e641] [cursor=pointer]:
+                        - img [ref=e644]
+                        - generic [ref=e646]: wiki.py
+                - treeitem "tests" [level=1] [ref=e647]:
+                  - generic [ref=e648] [cursor=pointer]:
+                    - img [ref=e650]
+                    - generic [ref=e652]:
+                      - img [ref=e656]
+                      - generic [ref=e658]: tests
+                - treeitem "worked" [level=1] [ref=e659]:
+                  - generic [ref=e660] [cursor=pointer]:
+                    - img [ref=e662]
+                    - generic [ref=e664]:
+                      - img [ref=e668]
+                      - generic [ref=e670]: worked
+                - treeitem ".gitignore" [level=1] [ref=e671]:
+                  - generic [ref=e673] [cursor=pointer]:
+                    - img [ref=e676]
+                    - generic [ref=e678]: .gitignore
+                - treeitem "AGENTS.md" [level=1] [ref=e679]:
+                  - generic [ref=e681] [cursor=pointer]:
+                    - img [ref=e684]
+                    - generic [ref=e686]: AGENTS.md
+                - treeitem "ARCHITECTURE.md" [level=1] [ref=e687]:
+                  - generic [ref=e689] [cursor=pointer]:
+                    - img [ref=e692]
+                    - generic [ref=e694]: ARCHITECTURE.md
+                - treeitem "CHANGELOG.md" [level=1] [ref=e695]:
+                  - generic [ref=e697] [cursor=pointer]:
+                    - img [ref=e700]
+                    - generic [ref=e702]: CHANGELOG.md
+                - treeitem "LICENSE" [level=1] [ref=e703]:
+                  - generic [ref=e705] [cursor=pointer]:
+                    - img [ref=e708]
+                    - generic [ref=e710]: LICENSE
+                - treeitem "README.md" [level=1] [ref=e711]:
+                  - generic [ref=e713] [cursor=pointer]:
+                    - img [ref=e716]
+                    - generic [ref=e718]: README.md
+                - treeitem "SECURITY.md" [level=1] [ref=e719]:
+                  - generic [ref=e721] [cursor=pointer]:
+                    - img [ref=e724]
+                    - generic [ref=e726]: SECURITY.md
+                - treeitem "pyproject.toml" [level=1] [ref=e727]:
+                  - generic [ref=e729] [cursor=pointer]:
+                    - img [ref=e732]
+                    - generic [ref=e734]: pyproject.toml
+          - slider "Draggable pane splitter" [ref=e736]
+        - generic [ref=e739]:
+          - generic [ref=e743]:
+            - generic [ref=e745]:
+              - navigation "Breadcrumbs" [ref=e746]:
+                - heading "Breadcrumbs" [level=2] [ref=e747]
+                - list [ref=e748]:
+                  - listitem [ref=e749]:
+                    - link "graphify" [ref=e750] [cursor=pointer]:
+                      - /url: /safishamsi/graphify/tree/v7
+              - generic [ref=e751]:
+                - text: /
+                - heading "graphify" [level=1] [ref=e752]
+                - text: /
+              - button "Copy path" [ref=e753] [cursor=pointer]:
+                - img [ref=e754]
+            - generic [ref=e759]:
+              - heading "Directory actions" [level=2] [ref=e760]
+              - heading "More options" [level=2] [ref=e761]
+              - button "More options" [ref=e762] [cursor=pointer]:
+                - img [ref=e763]
+          - generic [ref=e765]:
+            - generic [ref=e767]:
+              - heading "Latest commit" [level=2] [ref=e768]
+              - generic [ref=e771]:
+                - heading "History" [level=2] [ref=e772]
+                - link "History" [ref=e773] [cursor=pointer]:
+                  - /url: /safishamsi/graphify/commits/v7/graphify
+                  - generic [ref=e774]:
+                    - generic:
+                      - img
+                    - generic [ref=e775]: History
+            - generic [ref=e777]:
+              - heading "Folders and files" [level=2] [ref=e778]
+              - table "Folders and files" [ref=e779]:
+                - rowgroup [ref=e780]:
+                  - row "Name Last commit message Last commit date" [ref=e781]:
+                    - columnheader "Name" [ref=e782]
+                    - columnheader "Last commit message" [ref=e783]:
+                      - generic "Last commit message" [ref=e784]
+                    - columnheader "Last commit date" [ref=e785]:
+                      - generic "Last commit date" [ref=e786]
+                - rowgroup [ref=e787]:
+                  - row "parent directory Parent directory" [ref=e788]:
+                    - cell "parent directory Parent directory" [ref=e789]:
+                      - heading "parent directory" [level=3] [ref=e790]
+                      - link "Parent directory" [ref=e791] [cursor=pointer]:
+                        - /url: /safishamsi/graphify/tree/v7
+                        - generic [ref=e792]:
+                          - img [ref=e793]
+                          - text: ..
+                  - row "__init__.py, (File)" [ref=e795]:
+                    - cell "__init__.py, (File)" [ref=e796]:
+                      - generic [ref=e797]:
+                        - img [ref=e798]
+                        - link "__init__.py, (File)" [ref=e803] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/__init__.py
+                          - text: __init__.py
+                    - cell [ref=e804]
+                    - cell [ref=e806]
+                  - row "__main__.py, (File)" [ref=e809]:
+                    - cell "__main__.py, (File)" [ref=e810]:
+                      - generic [ref=e811]:
+                        - img [ref=e812]
+                        - link "__main__.py, (File)" [ref=e817] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/__main__.py
+                          - text: __main__.py
+                    - cell [ref=e818]
+                    - cell [ref=e820]
+                  - row "analyze.py, (File)" [ref=e823]:
+                    - cell "analyze.py, (File)" [ref=e824]:
+                      - generic [ref=e825]:
+                        - img [ref=e826]
+                        - link "analyze.py, (File)" [ref=e831] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/analyze.py
+                          - text: analyze.py
+                    - cell [ref=e832]
+                    - cell [ref=e834]
+                  - row "benchmark.py, (File)" [ref=e837]:
+                    - cell "benchmark.py, (File)" [ref=e838]:
+                      - generic [ref=e839]:
+                        - img [ref=e840]
+                        - link "benchmark.py, (File)" [ref=e845] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/benchmark.py
+                          - text: benchmark.py
+                    - cell [ref=e846]
+                    - cell [ref=e848]
+                  - row "build.py, (File)" [ref=e851]:
+                    - cell "build.py, (File)" [ref=e852]:
+                      - generic [ref=e853]:
+                        - img [ref=e854]
+                        - link "build.py, (File)" [ref=e859] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/build.py
+                          - text: build.py
+                    - cell [ref=e860]
+                    - cell [ref=e862]
+                  - row "cache.py, (File)" [ref=e865]:
+                    - cell "cache.py, (File)" [ref=e866]:
+                      - generic [ref=e867]:
+                        - img [ref=e868]
+                        - link "cache.py, (File)" [ref=e873] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/cache.py
+                          - text: cache.py
+                    - cell [ref=e874]
+                    - cell [ref=e876]
+                  - row "callflow_html.py, (File)" [ref=e879]:
+                    - cell "callflow_html.py, (File)" [ref=e880]:
+                      - generic [ref=e881]:
+                        - img [ref=e882]
+                        - link "callflow_html.py, (File)" [ref=e887] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/callflow_html.py
+                          - text: callflow_html.py
+                    - cell [ref=e888]
+                    - cell [ref=e890]
+                  - row "cluster.py, (File)" [ref=e893]:
+                    - cell "cluster.py, (File)" [ref=e894]:
+                      - generic [ref=e895]:
+                        - img [ref=e896]
+                        - link "cluster.py, (File)" [ref=e901] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/cluster.py
+                          - text: cluster.py
+                    - cell [ref=e902]
+                    - cell [ref=e904]
+                  - row "dedup.py, (File)" [ref=e907]:
+                    - cell "dedup.py, (File)" [ref=e908]:
+                      - generic [ref=e909]:
+                        - img [ref=e910]
+                        - link "dedup.py, (File)" [ref=e915] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/dedup.py
+                          - text: dedup.py
+                    - cell [ref=e916]
+                    - cell [ref=e918]
+                  - row "detect.py, (File)" [ref=e921]:
+                    - cell "detect.py, (File)" [ref=e922]:
+                      - generic [ref=e923]:
+                        - img [ref=e924]
+                        - link "detect.py, (File)" [ref=e929] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/detect.py
+                          - text: detect.py
+                    - cell [ref=e930]
+                    - cell [ref=e932]
+                  - row "export.py, (File)" [ref=e935]:
+                    - cell "export.py, (File)" [ref=e936]:
+                      - generic [ref=e937]:
+                        - img [ref=e938]
+                        - link "export.py, (File)" [ref=e943] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/export.py
+                          - text: export.py
+                    - cell [ref=e944]
+                    - cell [ref=e946]
+                  - row "extract.py, (File)" [ref=e949]:
+                    - cell "extract.py, (File)" [ref=e950]:
+                      - generic [ref=e951]:
+                        - img [ref=e952]
+                        - link "extract.py, (File)" [ref=e957] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/extract.py
+                          - text: extract.py
+                    - cell [ref=e958]
+                    - cell [ref=e960]
+                  - row "global_graph.py, (File)" [ref=e963]:
+                    - cell "global_graph.py, (File)" [ref=e964]:
+                      - generic [ref=e965]:
+                        - img [ref=e966]
+                        - link "global_graph.py, (File)" [ref=e971] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/global_graph.py
+                          - text: global_graph.py
+                    - cell [ref=e972]
+                    - cell [ref=e974]
+                  - row "google_workspace.py, (File)" [ref=e977]:
+                    - cell "google_workspace.py, (File)" [ref=e978]:
+                      - generic [ref=e979]:
+                        - img [ref=e980]
+                        - link "google_workspace.py, (File)" [ref=e985] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/google_workspace.py
+                          - text: google_workspace.py
+                    - cell [ref=e986]
+                    - cell [ref=e988]
+                  - row "hooks.py, (File)" [ref=e991]:
+                    - cell "hooks.py, (File)" [ref=e992]:
+                      - generic [ref=e993]:
+                        - img [ref=e994]
+                        - link "hooks.py, (File)" [ref=e999] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/hooks.py
+                          - text: hooks.py
+                    - cell [ref=e1000]
+                    - cell [ref=e1002]
+                  - row "ingest.py, (File)" [ref=e1005]:
+                    - cell "ingest.py, (File)" [ref=e1006]:
+                      - generic [ref=e1007]:
+                        - img [ref=e1008]
+                        - link "ingest.py, (File)" [ref=e1013] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/ingest.py
+                          - text: ingest.py
+                    - cell [ref=e1014]
+                    - cell [ref=e1016]
+                  - row "llm.py, (File)" [ref=e1019]:
+                    - cell "llm.py, (File)" [ref=e1020]:
+                      - generic [ref=e1021]:
+                        - img [ref=e1022]
+                        - link "llm.py, (File)" [ref=e1027] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/llm.py
+                          - text: llm.py
+                    - cell [ref=e1028]
+                    - cell [ref=e1030]
+                  - row "manifest.py, (File)" [ref=e1033]:
+                    - cell "manifest.py, (File)" [ref=e1034]:
+                      - generic [ref=e1035]:
+                        - img [ref=e1036]
+                        - link "manifest.py, (File)" [ref=e1041] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/manifest.py
+                          - text: manifest.py
+                    - cell [ref=e1042]
+                    - cell [ref=e1044]
+                  - row "report.py, (File)" [ref=e1047]:
+                    - cell "report.py, (File)" [ref=e1048]:
+                      - generic [ref=e1049]:
+                        - img [ref=e1050]
+                        - link "report.py, (File)" [ref=e1055] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/report.py
+                          - text: report.py
+                    - cell [ref=e1056]
+                    - cell [ref=e1058]
+                  - row "security.py, (File)" [ref=e1061]:
+                    - cell "security.py, (File)" [ref=e1062]:
+                      - generic [ref=e1063]:
+                        - img [ref=e1064]
+                        - link "security.py, (File)" [ref=e1069] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/security.py
+                          - text: security.py
+                    - cell [ref=e1070]
+                    - cell [ref=e1072]
+                  - row "serve.py, (File)" [ref=e1075]:
+                    - cell "serve.py, (File)" [ref=e1076]:
+                      - generic [ref=e1077]:
+                        - img [ref=e1078]
+                        - link "serve.py, (File)" [ref=e1083] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/serve.py
+                          - text: serve.py
+                    - cell [ref=e1084]
+                    - cell [ref=e1086]
+                  - row "skill-aider.md, (File)" [ref=e1089]:
+                    - cell "skill-aider.md, (File)" [ref=e1090]:
+                      - generic [ref=e1091]:
+                        - img [ref=e1092]
+                        - link "skill-aider.md, (File)" [ref=e1097] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-aider.md
+                          - text: skill-aider.md
+                    - cell [ref=e1098]
+                    - cell [ref=e1100]
+                  - row "skill-claw.md, (File)" [ref=e1103]:
+                    - cell "skill-claw.md, (File)" [ref=e1104]:
+                      - generic [ref=e1105]:
+                        - img [ref=e1106]
+                        - link "skill-claw.md, (File)" [ref=e1111] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-claw.md
+                          - text: skill-claw.md
+                    - cell [ref=e1112]
+                    - cell [ref=e1114]
+                  - row "skill-codex.md, (File)" [ref=e1117]:
+                    - cell "skill-codex.md, (File)" [ref=e1118]:
+                      - generic [ref=e1119]:
+                        - img [ref=e1120]
+                        - link "skill-codex.md, (File)" [ref=e1125] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-codex.md
+                          - text: skill-codex.md
+                    - cell [ref=e1126]
+                    - cell [ref=e1128]
+                  - row "skill-copilot.md, (File)" [ref=e1131]:
+                    - cell "skill-copilot.md, (File)" [ref=e1132]:
+                      - generic [ref=e1133]:
+                        - img [ref=e1134]
+                        - link "skill-copilot.md, (File)" [ref=e1139] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-copilot.md
+                          - text: skill-copilot.md
+                    - cell [ref=e1140]
+                    - cell [ref=e1142]
+                  - row "skill-droid.md, (File)" [ref=e1145]:
+                    - cell "skill-droid.md, (File)" [ref=e1146]:
+                      - generic [ref=e1147]:
+                        - img [ref=e1148]
+                        - link "skill-droid.md, (File)" [ref=e1153] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-droid.md
+                          - text: skill-droid.md
+                    - cell [ref=e1154]
+                    - cell [ref=e1156]
+                  - row "skill-kiro.md, (File)" [ref=e1159]:
+                    - cell "skill-kiro.md, (File)" [ref=e1160]:
+                      - generic [ref=e1161]:
+                        - img [ref=e1162]
+                        - link "skill-kiro.md, (File)" [ref=e1167] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-kiro.md
+                          - text: skill-kiro.md
+                    - cell [ref=e1168]
+                    - cell [ref=e1170]
+                  - row "skill-opencode.md, (File)" [ref=e1173]:
+                    - cell "skill-opencode.md, (File)" [ref=e1174]:
+                      - generic [ref=e1175]:
+                        - img [ref=e1176]
+                        - link "skill-opencode.md, (File)" [ref=e1181] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-opencode.md
+                          - text: skill-opencode.md
+                    - cell [ref=e1182]
+                    - cell [ref=e1184]
+                  - row "skill-pi.md, (File)" [ref=e1187]:
+                    - cell "skill-pi.md, (File)" [ref=e1188]:
+                      - generic [ref=e1189]:
+                        - img [ref=e1190]
+                        - link "skill-pi.md, (File)" [ref=e1195] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-pi.md
+                          - text: skill-pi.md
+                    - cell [ref=e1196]
+                    - cell [ref=e1198]
+                  - row "skill-trae.md, (File)" [ref=e1201]:
+                    - cell "skill-trae.md, (File)" [ref=e1202]:
+                      - generic [ref=e1203]:
+                        - img [ref=e1204]
+                        - link "skill-trae.md, (File)" [ref=e1209] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-trae.md
+                          - text: skill-trae.md
+                    - cell [ref=e1210]
+                    - cell [ref=e1212]
+                  - row "skill-vscode.md, (File)" [ref=e1215]:
+                    - cell "skill-vscode.md, (File)" [ref=e1216]:
+                      - generic [ref=e1217]:
+                        - img [ref=e1218]
+                        - link "skill-vscode.md, (File)" [ref=e1223] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-vscode.md
+                          - text: skill-vscode.md
+                    - cell [ref=e1224]
+                    - cell [ref=e1226]
+                  - row "skill-windows.md, (File)" [ref=e1229]:
+                    - cell "skill-windows.md, (File)" [ref=e1230]:
+                      - generic [ref=e1231]:
+                        - img [ref=e1232]
+                        - link "skill-windows.md, (File)" [ref=e1237] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill-windows.md
+                          - text: skill-windows.md
+                    - cell [ref=e1238]
+                    - cell [ref=e1240]
+                  - row "skill.md, (File)" [ref=e1243]:
+                    - cell "skill.md, (File)" [ref=e1244]:
+                      - generic [ref=e1245]:
+                        - img [ref=e1246]
+                        - link "skill.md, (File)" [ref=e1251] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/skill.md
+                          - text: skill.md
+                    - cell [ref=e1252]
+                    - cell [ref=e1254]
+                  - row "transcribe.py, (File)" [ref=e1257]:
+                    - cell "transcribe.py, (File)" [ref=e1258]:
+                      - generic [ref=e1259]:
+                        - img [ref=e1260]
+                        - link "transcribe.py, (File)" [ref=e1265] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/transcribe.py
+                          - text: transcribe.py
+                    - cell [ref=e1266]
+                    - cell [ref=e1268]
+                  - row "tree_html.py, (File)" [ref=e1271]:
+                    - cell "tree_html.py, (File)" [ref=e1272]:
+                      - generic [ref=e1273]:
+                        - img [ref=e1274]
+                        - link "tree_html.py, (File)" [ref=e1279] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/tree_html.py
+                          - text: tree_html.py
+                    - cell [ref=e1280]
+                    - cell [ref=e1282]
+                  - row "validate.py, (File)" [ref=e1285]:
+                    - cell "validate.py, (File)" [ref=e1286]:
+                      - generic [ref=e1287]:
+                        - img [ref=e1288]
+                        - link "validate.py, (File)" [ref=e1293] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/validate.py
+                          - text: validate.py
+                    - cell [ref=e1294]
+                    - cell [ref=e1296]
+                  - row "watch.py, (File)" [ref=e1299]:
+                    - cell "watch.py, (File)" [ref=e1300]:
+                      - generic [ref=e1301]:
+                        - img [ref=e1302]
+                        - link "watch.py, (File)" [ref=e1307] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/watch.py
+                          - text: watch.py
+                    - cell [ref=e1308]
+                    - cell [ref=e1310]
+                  - row "wiki.py, (File)" [ref=e1313]:
+                    - cell "wiki.py, (File)" [ref=e1314]:
+                      - generic [ref=e1315]:
+                        - img [ref=e1316]
+                        - link "wiki.py, (File)" [ref=e1321] [cursor=pointer]:
+                          - /url: /safishamsi/graphify/blob/v7/graphify/wiki.py
+                          - text: wiki.py
+                    - cell [ref=e1322]
+                    - cell [ref=e1324]
+  - alert [ref=e1330]
