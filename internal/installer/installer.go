@@ -205,16 +205,25 @@ func ensureServersMap(cfg map[string]any, key string) (map[string]any, error) {
 	return nil, fmt.Errorf("install: %s already exists but is not a JSON object (%T) — refusing to clobber unknown data", key, raw)
 }
 
-// gogfyServerEntry is the canonical gogfy server value shape: command + args
-// wired to the *workspace-relative* graph artifacts. Relative paths survive
-// workspace moves and git checkouts on different machines; every MCP-capable
-// agent we support launches the server with the workspace as cwd.
-func gogfyServerEntry(opts Options) map[string]any {
+// gogfyServeArgs returns the canonical argv tail for the gogfy serve
+// command, pointing at workspace-relative graph artifacts. Relative paths
+// survive workspace moves and git checkouts on different machines; every
+// MCP-capable agent we support launches the server with the workspace as
+// cwd. Centralized so a future flag addition can't drift between the
+// standard {command, args} shape and OpenCode's flattened [command, ...]
+// shape.
+func gogfyServeArgs(opts Options) []string {
 	graph := filepath.Join(opts.outDir(), "graph.json")
 	report := filepath.Join(opts.outDir(), "GRAPH_REPORT.md")
+	return []string{"serve", "--graph", graph, "--report", report}
+}
+
+// gogfyServerEntry is the canonical {command, args[]} shape that
+// mcpServers-style configs expect (Claude/Cursor/Gemini/etc.).
+func gogfyServerEntry(opts Options) map[string]any {
 	return map[string]any{
 		"command": opts.bin(),
-		"args":    []string{"serve", "--graph", graph, "--report", report},
+		"args":    gogfyServeArgs(opts),
 	}
 }
 
@@ -234,14 +243,14 @@ func writeJSON(path string, cfg map[string]any) error {
 // "servers" rather than "mcpServers" — match each platform's actual
 // expected schema rather than a single conventional shape.
 var registry = map[string]Installer{
-	"claude":   jsonInstaller{relativePath: ".mcp.json", serversKey: "mcpServers"},
-	"cursor":   jsonInstaller{relativePath: filepath.Join(".cursor", "mcp.json"), serversKey: "mcpServers"},
-	"vscode":   jsonInstaller{relativePath: filepath.Join(".vscode", "mcp.json"), serversKey: "servers"},
-	"gemini":   jsonInstaller{relativePath: filepath.Join(".gemini", "settings.json"), serversKey: "mcpServers"},
-	"codex":    codexInstaller{relativePath: filepath.Join(".codex", "config.toml")},
-	"opencode": jsonInstaller{relativePath: "opencode.json", serversKey: "mcp", entry: opencodeServerEntry},
-	"kilocode": jsonInstaller{relativePath: filepath.Join(".kilocode", "mcp.json"), serversKey: "mcpServers"},
-	"qwen":     jsonInstaller{relativePath: filepath.Join(".qwen", "settings.json"), serversKey: "mcpServers"},
+	"claude":      jsonInstaller{relativePath: ".mcp.json", serversKey: "mcpServers"},
+	"cursor":      jsonInstaller{relativePath: filepath.Join(".cursor", "mcp.json"), serversKey: "mcpServers"},
+	"vscode":      jsonInstaller{relativePath: filepath.Join(".vscode", "mcp.json"), serversKey: "servers"},
+	"gemini":      jsonInstaller{relativePath: filepath.Join(".gemini", "settings.json"), serversKey: "mcpServers"},
+	"codex":       codexInstaller{relativePath: filepath.Join(".codex", "config.toml")},
+	"opencode":    jsonInstaller{relativePath: "opencode.json", serversKey: "mcp", entry: opencodeServerEntry},
+	"kilocode":    jsonInstaller{relativePath: filepath.Join(".kilocode", "mcp.json"), serversKey: "mcpServers"},
+	"qwen":        jsonInstaller{relativePath: filepath.Join(".qwen", "settings.json"), serversKey: "mcpServers"},
 	"kimi":        jsonInstaller{relativePath: filepath.Join(".kimi", "settings.json"), serversKey: "mcpServers"},
 	"aider":       jsonInstaller{relativePath: filepath.Join(".aider", "mcp.json"), serversKey: "mcpServers"},
 	"claw":        jsonInstaller{relativePath: filepath.Join(".openclaw", "mcp.json"), serversKey: "mcpServers"},
@@ -261,10 +270,8 @@ var registry = map[string]Installer{
 //
 // See: https://opencode.ai/docs/mcp-servers/ for the schema.
 func opencodeServerEntry(opts Options) map[string]any {
-	graph := filepath.Join(opts.outDir(), "graph.json")
-	report := filepath.Join(opts.outDir(), "GRAPH_REPORT.md")
 	return map[string]any{
 		"type":    "local",
-		"command": []string{opts.bin(), "serve", "--graph", graph, "--report", report},
+		"command": append([]string{opts.bin()}, gogfyServeArgs(opts)...),
 	}
 }

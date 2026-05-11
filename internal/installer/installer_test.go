@@ -493,23 +493,7 @@ func TestOpenCodeInstallUsesMcpKeyAndFlattenedCommand(t *testing.T) {
 	}
 }
 
-func TestKiloCodeAndQwenAndKimiUseStandardMcpServersShape(t *testing.T) {
-	// kilocode, qwen, and kimi all share the standard {mcpServers:
-	// {<name>: {command, args[]}}} shape (the same Claude/Gemini use).
-	// Pin that they don't accidentally diverge to OpenCode's flattened
-	// form during future installer refactors.
-	for _, p := range []string{"kilocode", "qwen", "kimi"} {
-		t.Run(p, func(t *testing.T) {
-			ws := t.TempDir()
-			inst, err := For(p)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := inst.Install(ws, Options{Bin: "gogfy", OutDir: "graphify-out"}); err != nil {
-				t.Fatal(err)
-			}
-			m := readJSON(t, inst.ConfigPath(ws))
-			assertGogfyServerEntry(t, m, p)
-		})
-	}
-}
+// Standard-shape platform coverage (kilocode/qwen/kimi/aider/etc.) is
+// already exercised by TestInstallEachPlatformWritesValidConfig and
+// TestPlatformConfigPaths above. Only OpenCode's unique flattened shape
+// needs a dedicated test (TestOpenCodeInstallUsesMcpKeyAndFlattenedCommand).
