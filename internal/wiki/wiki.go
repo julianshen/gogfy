@@ -1,0 +1,460 @@
+// Package wiki turns a clustered+analyzed graph into a Wikipedia-style
+// markdown directory: index.md catalogs everything, one article per
+// community surfaces its key concepts and cross-community connections,
+// one article per god node surfaces its neighbors grouped by relation.
+//
+// The wiki is meant for AI assistants to crawl instead of grepping raw
+// source files. The agent skill prompts in safishamsi/graphify v7 tell
+// the agent to navigate `graphify-out/wiki/index.md` first when present,
+// then drill into community articles for context before reading source.
+//
+// graphify's analogous module is graphify/wiki.py (255 lines); shapes
+// and headings are kept compatible so cross-tool consumers don't need
+// two parsers.
+package wiki
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/julianshen/gogfy/internal/fsutil"
+	"github.com/julianshen/gogfy/internal/schema"
+)
+
+// Options tunes article generation. Zero-value is graphify-parity.
+type Options struct {
+	// CommunityLabels overrides the default "Community <N>" name per
+	// community ID. graphify uses LLM-generated labels; gogfy has no
+	// LLM step today, but the hook is here for future use.
+	CommunityLabels map[string]string
+	// GodNodes lists nodes to emit dedicated articles for. The wiki
+	// will produce one article per entry; nodes not in the graph are
+	// silently skipped (consistent with graphify's behavior).
+	GodNodes []schema.Node
+}
+
+// Generate writes the wiki to outDir. Existing .md files in outDir are
+// removed first — community labels can change between runs and orphan
+// articles would otherwise accumulate. Returns the number of articles
+// written (excluding index.md).
+//
+// Error contract:
+//   - returns an error if outDir can't be created or written
+//   - returns an error if there are no communities (refuses to clear an
+//     existing wiki directory based on empty input — matches graphify)
+func Generate(nodes []schema.Node, edges []schema.Edge, outDir string, opts Options) (int, error) {
+	communities := groupByCommunity(nodes)
+	if len(communities) == 0 {
+		return 0, fmt.Errorf("wiki: no communities in graph — run cluster first")
+	}
+
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return 0, fmt.Errorf("wiki: create %s: %w", outDir, err)
+	}
+	if err := clearStaleArticles(outDir); err != nil {
+		return 0, err
+	}
+
+	labels := opts.CommunityLabels
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	for cid := range communities {
+		if _, ok := labels[cid]; !ok {
+			labels[cid] = "Community " + cid
+		}
+	}
+
+	nodeMap := indexNodes(nodes)
+	adj := buildAdjacency(nodes, edges)
+	degree := buildDegree(edges)
+
+	count := 0
+	used := map[string]bool{}
+
+	// Community articles, sorted by community ID for determinism.
+	cids := sortedKeys(communities)
+	for _, cid := range cids {
+		article := communityArticle(cid, communities[cid], labels, nodeMap, adj, edges, degree)
+		slug := uniqueSlug(used, safeFilename(labels[cid]))
+		if err := writeArticle(filepath.Join(outDir, slug+".md"), article); err != nil {
+			return count, err
+		}
+		count++
+	}
+
+	// God node articles.
+	for _, g := range opts.GodNodes {
+		if _, ok := nodeMap[g.ID]; !ok {
+			continue
+		}
+		article := godNodeArticle(g, nodeMap, adj, labels, degree)
+		slug := uniqueSlug(used, safeFilename(g.Label))
+		if err := writeArticle(filepath.Join(outDir, slug+".md"), article); err != nil {
+			return count, err
+		}
+		count++
+	}
+
+	idx := indexArticle(communities, labels, opts.GodNodes, len(nodes), len(edges))
+	if err := writeArticle(filepath.Join(outDir, "index.md"), idx); err != nil {
+		return count, err
+	}
+	return count, nil
+}
+
+// groupByCommunity buckets nodes by their Community field. Nodes whose
+// Community is empty are skipped — they predate clustering or were
+// excluded; either way they have nothing meaningful to summarize.
+func groupByCommunity(nodes []schema.Node) map[string][]schema.Node {
+	out := map[string][]schema.Node{}
+	for _, n := range nodes {
+		if n.Community == "" {
+			continue
+		}
+		out[n.Community] = append(out[n.Community], n)
+	}
+	return out
+}
+
+func indexNodes(nodes []schema.Node) map[string]schema.Node {
+	out := make(map[string]schema.Node, len(nodes))
+	for _, n := range nodes {
+		out[n.ID] = n
+	}
+	return out
+}
+
+// buildAdjacency yields undirected neighbor lists keyed by node ID.
+// Treats edges as undirected (mirrors graphify's nx.Graph), since the
+// graph queries the wiki supports — "what's related to X" — don't care
+// about direction.
+func buildAdjacency(nodes []schema.Node, edges []schema.Edge) map[string][]string {
+	adj := make(map[string][]string, len(nodes))
+	for _, e := range edges {
+		adj[e.Source] = append(adj[e.Source], e.Target)
+		adj[e.Target] = append(adj[e.Target], e.Source)
+	}
+	return adj
+}
+
+func buildDegree(edges []schema.Edge) map[string]int {
+	d := map[string]int{}
+	for _, e := range edges {
+		d[e.Source]++
+		d[e.Target]++
+	}
+	return d
+}
+
+// communityArticle renders the per-community article: key concepts (top
+// 25 by degree), cross-community relationships, source files, and an
+// audit-trail breakdown by edge confidence.
+func communityArticle(cid string, members []schema.Node, labels map[string]string, nodeMap map[string]schema.Node, adj map[string][]string, edges []schema.Edge, degree map[string]int) string {
+	label := labels[cid]
+	memberIDs := map[string]bool{}
+	for _, m := range members {
+		memberIDs[m.ID] = true
+	}
+
+	// Top 25 by degree.
+	sort.Slice(members, func(i, j int) bool {
+		return degree[members[i].ID] > degree[members[j].ID]
+	})
+	topN := 25
+	if len(members) < topN {
+		topN = len(members)
+	}
+	top := members[:topN]
+	remaining := len(members) - topN
+
+	// Cross-community neighbor counts.
+	crossCounts := map[string]int{}
+	for _, m := range members {
+		for _, neighborID := range adj[m.ID] {
+			n, ok := nodeMap[neighborID]
+			if !ok {
+				continue
+			}
+			if n.Community != "" && n.Community != cid {
+				other := labels[n.Community]
+				if other == "" {
+					other = "Community " + n.Community
+				}
+				crossCounts[other]++
+			}
+		}
+	}
+	type crossEntry struct {
+		label string
+		count int
+	}
+	crosses := make([]crossEntry, 0, len(crossCounts))
+	for k, v := range crossCounts {
+		crosses = append(crosses, crossEntry{k, v})
+	}
+	sort.Slice(crosses, func(i, j int) bool {
+		if crosses[i].count != crosses[j].count {
+			return crosses[i].count > crosses[j].count
+		}
+		return crosses[i].label < crosses[j].label
+	})
+
+	// Source files.
+	srcSet := map[string]bool{}
+	for _, m := range members {
+		if m.SourceFile != "" {
+			srcSet[m.SourceFile] = true
+		}
+	}
+	sources := make([]string, 0, len(srcSet))
+	for s := range srcSet {
+		sources = append(sources, s)
+	}
+	sort.Strings(sources)
+
+	// Audit trail (confidence breakdown for edges touching this community).
+	confCounts := map[schema.Confidence]int{}
+	var totalEdges int
+	for _, e := range edges {
+		if memberIDs[e.Source] || memberIDs[e.Target] {
+			confCounts[e.Confidence]++
+			totalEdges++
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", label)
+	fmt.Fprintf(&b, "> %d nodes\n\n", len(members))
+
+	b.WriteString("## Key Concepts\n\n")
+	for _, n := range top {
+		src := ""
+		if n.SourceFile != "" {
+			src = fmt.Sprintf(" — `%s`", n.SourceFile)
+		}
+		fmt.Fprintf(&b, "- **%s** (%d connections)%s\n", n.Label, degree[n.ID], src)
+	}
+	if remaining > 0 {
+		fmt.Fprintf(&b, "- *... and %d more nodes in this community*\n", remaining)
+	}
+	b.WriteString("\n")
+
+	b.WriteString("## Relationships\n\n")
+	if len(crosses) == 0 {
+		b.WriteString("- No strong cross-community connections detected\n")
+	} else {
+		max := 12
+		if len(crosses) < max {
+			max = len(crosses)
+		}
+		for _, c := range crosses[:max] {
+			fmt.Fprintf(&b, "- [[%s]] (%d shared connections)\n", c.label, c.count)
+		}
+	}
+	b.WriteString("\n")
+
+	if len(sources) > 0 {
+		b.WriteString("## Source Files\n\n")
+		max := 20
+		if len(sources) < max {
+			max = len(sources)
+		}
+		for _, s := range sources[:max] {
+			fmt.Fprintf(&b, "- `%s`\n", s)
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("## Audit Trail\n\n")
+	for _, c := range []schema.Confidence{schema.Extracted, schema.Inferred, schema.Ambiguous} {
+		n := confCounts[c]
+		pct := 0
+		if totalEdges > 0 {
+			pct = (n * 100) / totalEdges
+		}
+		fmt.Fprintf(&b, "- %s: %d (%d%%)\n", c.String(), n, pct)
+	}
+	b.WriteString("\n")
+
+	b.WriteString("---\n\n*Part of the gogfy knowledge wiki. See [[index]] to navigate.*\n")
+	return b.String()
+}
+
+func godNodeArticle(g schema.Node, nodeMap map[string]schema.Node, adj map[string][]string, labels map[string]string, degree map[string]int) string {
+	var b strings.Builder
+	src := ""
+	if g.SourceFile != "" {
+		src = fmt.Sprintf(" · `%s`", g.SourceFile)
+	}
+	fmt.Fprintf(&b, "# %s\n\n", g.Label)
+	fmt.Fprintf(&b, "> God node · %d connections%s\n\n", degree[g.ID], src)
+
+	if g.Community != "" {
+		cname := labels[g.Community]
+		if cname == "" {
+			cname = "Community " + g.Community
+		}
+		fmt.Fprintf(&b, "**Community:** [[%s]]\n\n", cname)
+	}
+
+	// Group neighbors by relation. We don't have direct access to edges
+	// from here, but we can reconstruct relation labels by walking the
+	// adjacency map — except adj loses the relation. For graphify-parity
+	// we need a relation breakdown, so the article passes through a
+	// best-effort "related" bucket for now; richer relation-aware god
+	// articles need an edge-by-source map (future enhancement).
+	neighbors := adj[g.ID]
+	// Dedup + sort by neighbor degree desc for stable, useful ordering.
+	seen := map[string]bool{}
+	uniq := make([]string, 0, len(neighbors))
+	for _, n := range neighbors {
+		if !seen[n] {
+			seen[n] = true
+			uniq = append(uniq, n)
+		}
+	}
+	sort.Slice(uniq, func(i, j int) bool {
+		return degree[uniq[i]] > degree[uniq[j]]
+	})
+
+	b.WriteString("## Connections\n\n")
+	maxN := 30
+	if len(uniq) < maxN {
+		maxN = len(uniq)
+	}
+	for _, nid := range uniq[:maxN] {
+		n, ok := nodeMap[nid]
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(&b, "- [[%s]]\n", n.Label)
+	}
+	if len(uniq) > maxN {
+		fmt.Fprintf(&b, "- *... and %d more*\n", len(uniq)-maxN)
+	}
+	b.WriteString("\n")
+
+	b.WriteString("---\n\n*Part of the gogfy knowledge wiki. See [[index]] to navigate.*\n")
+	return b.String()
+}
+
+func indexArticle(communities map[string][]schema.Node, labels map[string]string, godNodes []schema.Node, totalNodes, totalEdges int) string {
+	var b strings.Builder
+	b.WriteString("# Knowledge Graph Index\n\n")
+	b.WriteString("> Auto-generated by gogfy. Start here — read community articles for context, then drill into god nodes for detail.\n\n")
+	fmt.Fprintf(&b, "**%d nodes · %d edges · %d communities**\n\n", totalNodes, totalEdges, len(communities))
+	b.WriteString("---\n\n")
+
+	b.WriteString("## Communities\n")
+	b.WriteString("(sorted by size, largest first)\n\n")
+
+	// Sort by member count desc, then by label asc for ties.
+	type entry struct {
+		cid   string
+		label string
+		size  int
+	}
+	entries := make([]entry, 0, len(communities))
+	for cid, members := range communities {
+		entries = append(entries, entry{cid, labels[cid], len(members)})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].size != entries[j].size {
+			return entries[i].size > entries[j].size
+		}
+		return entries[i].label < entries[j].label
+	})
+	for _, e := range entries {
+		fmt.Fprintf(&b, "- [[%s]] — %d nodes\n", e.label, e.size)
+	}
+	b.WriteString("\n")
+
+	if len(godNodes) > 0 {
+		b.WriteString("## God Nodes\n")
+		b.WriteString("(most connected concepts — the load-bearing abstractions)\n\n")
+		for _, g := range godNodes {
+			fmt.Fprintf(&b, "- [[%s]]\n", g.Label)
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("---\n\n")
+	b.WriteString("*Generated by [gogfy](https://github.com/julianshen/gogfy)*\n")
+	return b.String()
+}
+
+// safeFilenameRE matches characters that Windows reserves in filenames.
+// We also collapse `/`, ` `, and `:` to dashes/underscores up-front for
+// readability on every OS.
+var safeFilenameRE = regexp.MustCompile(`[<>:"/\\|?*]`)
+
+func safeFilename(name string) string {
+	s := strings.ReplaceAll(name, "/", "-")
+	s = strings.ReplaceAll(s, " ", "_")
+	s = strings.ReplaceAll(s, ":", "-")
+	s = safeFilenameRE.ReplaceAllString(s, "_")
+	s = strings.Trim(s, ". ")
+	if len(s) > 200 {
+		s = s[:200]
+	}
+	if s == "" {
+		return "unnamed"
+	}
+	return s
+}
+
+// uniqueSlug returns base if it hasn't been used, otherwise base_2, _3, …
+func uniqueSlug(used map[string]bool, base string) string {
+	if !used[base] {
+		used[base] = true
+		return base
+	}
+	for i := 2; ; i++ {
+		s := fmt.Sprintf("%s_%d", base, i)
+		if !used[s] {
+			used[s] = true
+			return s
+		}
+	}
+}
+
+func sortedKeys(m map[string][]schema.Node) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// clearStaleArticles removes any *.md files in dir. Community labels can
+// change between runs (especially once LLM-naming is added) and stale
+// orphan articles would otherwise accumulate. The wiki dir is owned
+// entirely by Generate, so removing all *.md is safe.
+func clearStaleArticles(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeArticle(path string, content string) error {
+	return fsutil.WriteFileAtomic(path, []byte(content), 0644)
+}

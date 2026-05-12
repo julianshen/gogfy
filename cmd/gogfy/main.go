@@ -29,6 +29,7 @@ import (
 	"github.com/julianshen/gogfy/internal/resolve"
 	"github.com/julianshen/gogfy/internal/serve"
 	"github.com/julianshen/gogfy/internal/watch"
+	"github.com/julianshen/gogfy/internal/wiki"
 )
 
 func main() {
@@ -62,6 +63,7 @@ func dispatch(args []string, stderr io.Writer) error {
 		cypher := fs.Bool("cypher", false, "also emit graph.cypher (Neo4j MERGE script)")
 		clusterOnly := fs.Bool("cluster-only", false, "skip extraction; re-cluster the existing graph.json under --out")
 		noViz := fs.Bool("no-viz", false, "skip graph.html (faster runs, smaller artifact set)")
+		emitWiki := fs.Bool("wiki", false, "also emit <out>/wiki/ (index + per-community + per-god-node markdown)")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
@@ -78,6 +80,7 @@ func dispatch(args []string, stderr io.Writer) error {
 			Cypher:      *cypher,
 			ClusterOnly: *clusterOnly,
 			NoViz:       *noViz,
+			Wiki:        *emitWiki,
 		})
 	case "validate":
 		if len(rest) < 1 {
@@ -107,6 +110,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return pathCommand(rest, os.Stdout, stderr)
 	case "merge-graphs":
 		return mergeGraphsCommand(rest, os.Stdout, stderr)
+	case "wiki":
+		return wikiCommand(rest, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -244,8 +249,8 @@ func comboCommand(platform, verb string, args []string, stderr io.Writer) error 
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed] [--graphml] [--cypher] [--no-viz]")
-	fmt.Fprintln(w, "       gogfy run --cluster-only [--out dir] [--directed] [--no-viz]")
+	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed] [--graphml] [--cypher] [--no-viz] [--wiki]")
+	fmt.Fprintln(w, "       gogfy run --cluster-only [--out dir] [--directed] [--no-viz] [--wiki]")
 	fmt.Fprintln(w, "       gogfy watch <root> [--out dir] [--directed]")
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
@@ -261,6 +266,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy hook uninstall-merge-driver [--repo <dir>]")
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
+	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> install   # combo: mcp + snippet + hook in one shot")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> uninstall # remove all three")
 }
@@ -732,6 +738,11 @@ type runOptions struct {
 	// NoViz skips the graph.html artifact. Pure JSON/report runs are
 	// faster and produce smaller artifact sets — useful in CI.
 	NoViz bool
+	// Wiki emits a Wikipedia-style markdown directory under <out>/wiki/
+	// (index.md + one article per community + one per god node). Agent
+	// skill prompts can direct the assistant to navigate the wiki
+	// instead of grepping raw files.
+	Wiki bool
 }
 
 // runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
@@ -797,6 +808,13 @@ func runClusterOnly(out string, directed bool, opts runOptions) error {
 	for _, a := range artifacts {
 		if err := atomicWrite(filepath.Join(out, a.name), a.data); err != nil {
 			return fmt.Errorf("cluster-only: write %s: %w", a.name, err)
+		}
+	}
+	if opts.Wiki {
+		if _, err := wiki.Generate(clustered, g.Edges, filepath.Join(out, "wiki"), wiki.Options{
+			GodNodes: reportData.GodNodes,
+		}); err != nil {
+			return fmt.Errorf("cluster-only: wiki: %w", err)
 		}
 	}
 	return nil
@@ -930,6 +948,14 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		}
 	}
 
+	if opts.Wiki {
+		if _, err := wiki.Generate(clusteredNodes, edges, filepath.Join(out, "wiki"), wiki.Options{
+			GodNodes: reportData.GodNodes,
+		}); err != nil {
+			return fmt.Errorf("wiki: %w", err)
+		}
+	}
+
 	if update {
 		if err := c.Save(files); err != nil {
 			return fmt.Errorf("cache save: %w", err)
@@ -978,6 +1004,37 @@ func reportCommand(path string, w io.Writer) error {
 	}
 	_, err = w.Write(out)
 	return err
+}
+
+// wikiCommand turns an existing graph.json into a wiki directory.
+// Usage: gogfy wiki <graph.json> [--out <dir>]
+// Default output is <graph-dir>/wiki/.
+func wikiCommand(args []string, stderr io.Writer) error {
+	fs := flag.NewFlagSet("wiki", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outDir := fs.String("out", "", "wiki output directory (defaults to <graph-dir>/wiki/)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		return fmt.Errorf("wiki: missing <graph.json>")
+	}
+	graphPath := fs.Arg(0)
+	g, err := loadGraph(graphPath)
+	if err != nil {
+		return err
+	}
+	dir := *outDir
+	if dir == "" {
+		dir = filepath.Join(filepath.Dir(graphPath), "wiki")
+	}
+	r := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
+	count, err := wiki.Generate(g.Nodes, g.Edges, dir, wiki.Options{GodNodes: r.GodNodes})
+	if err != nil {
+		return fmt.Errorf("wiki: %w", err)
+	}
+	fmt.Fprintf(stderr, "wiki: wrote %d articles + index.md to %s\n", count, dir)
+	return nil
 }
 
 // groupRunFlags reorders args for the `run` subcommand so all known flags
