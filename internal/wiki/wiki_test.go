@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/julianshen/gogfy/internal/schema"
 )
@@ -56,10 +57,10 @@ func TestGenerateCrossCommunityLinksCounted(t *testing.T) {
 	}
 	a := readFile(t, filepath.Join(dir, "Community_0.md"))
 	b := readFile(t, filepath.Join(dir, "Community_1.md"))
-	if !strings.Contains(a, "[[Community 1]]") {
+	if !strings.Contains(a, "[Community 1](Community_1.md)") {
 		t.Fatalf("community 0 article missing cross link to 1:\n%s", a)
 	}
-	if !strings.Contains(b, "[[Community 0]]") {
+	if !strings.Contains(b, "[Community 0](Community_0.md)") {
 		t.Fatalf("community 1 article missing cross link to 0:\n%s", b)
 	}
 }
@@ -85,10 +86,10 @@ func TestGenerateCustomLabelsAndGodNodes(t *testing.T) {
 		t.Fatalf("expected 1 community + 1 god-node article (count=2), got %d", count)
 	}
 	idx := readFile(t, filepath.Join(dir, "index.md"))
-	if !strings.Contains(idx, "[[Runtime Core]]") {
+	if !strings.Contains(idx, "[Runtime Core](Runtime_Core.md)") {
 		t.Fatalf("index missing custom label: %s", idx)
 	}
-	if !strings.Contains(idx, "## God Nodes") || !strings.Contains(idx, "[[Engine]]") {
+	if !strings.Contains(idx, "## God Nodes") || !strings.Contains(idx, "[Engine](Engine.md)") {
 		t.Fatalf("index missing god-nodes section: %s", idx)
 	}
 	// The community article should use the custom label, not "Community 0".
@@ -130,6 +131,61 @@ func TestGenerateErrorsOnEmptyCommunities(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := Generate(nodes, nil, dir, Options{}); err == nil {
 		t.Fatalf("expected error for empty communities, got nil")
+	}
+}
+
+func TestGenerateLinksResolveOnLabelCollision(t *testing.T) {
+	// Two communities with the same label MUST produce two distinct
+	// files AND cross-community links that resolve to the right file.
+	// Previously the `[[Label]]` syntax would silently point both at
+	// the first community.
+	nodes := []schema.Node{
+		{ID: "a1", Label: "A1", Community: "0"},
+		{ID: "a2", Label: "A2", Community: "0"},
+		{ID: "b1", Label: "B1", Community: "1"},
+		{ID: "b2", Label: "B2", Community: "1"},
+	}
+	edges := []schema.Edge{
+		{Source: "a1", Target: "a2", Relation: "calls", Confidence: schema.Extracted},
+		{Source: "a1", Target: "b1", Relation: "imports", Confidence: schema.Extracted}, // cross-community
+		{Source: "b1", Target: "b2", Relation: "calls", Confidence: schema.Extracted},
+	}
+	dir := t.TempDir()
+	opts := Options{
+		CommunityLabels: map[string]string{"0": "Examples", "1": "Examples"},
+	}
+	if _, err := Generate(nodes, edges, dir, opts); err != nil {
+		t.Fatal(err)
+	}
+	// Both files exist (uniqueSlug appended _2).
+	if _, err := os.Stat(filepath.Join(dir, "Examples.md")); err != nil {
+		t.Fatalf("Examples.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Examples_2.md")); err != nil {
+		t.Fatalf("Examples_2.md missing (uniqueSlug should have appended _2): %v", err)
+	}
+	// Cross-link from one community article points at the OTHER file,
+	// not back at itself. The first community (sorted by cid) gets the
+	// bare slug; the second gets _2. A link from the first to the
+	// second must therefore target Examples_2.md.
+	first := readFile(t, filepath.Join(dir, "Examples.md"))
+	if !strings.Contains(first, "[Examples](Examples_2.md)") {
+		t.Fatalf("first community must cross-link to Examples_2.md, got:\n%s", first)
+	}
+}
+
+func TestSafeFilenameUTF8Truncation(t *testing.T) {
+	// A label long enough to exceed the 200-char cap, using a
+	// multi-byte rune. Byte-slicing at 200 would split a 3-byte rune
+	// and produce invalid UTF-8; rune-aware truncation keeps the cut
+	// at a valid boundary.
+	long := strings.Repeat("界", 300) // 3 bytes each × 300 = 900 bytes
+	got := safeFilename(long)
+	if !utf8.ValidString(got) {
+		t.Fatalf("safeFilename produced invalid UTF-8: %q", got)
+	}
+	if len([]rune(got)) != 200 {
+		t.Fatalf("expected 200 runes after truncation, got %d", len([]rune(got)))
 	}
 }
 

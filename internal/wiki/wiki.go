@@ -76,32 +76,47 @@ func Generate(nodes []schema.Node, edges []schema.Edge, outDir string, opts Opti
 
 	count := 0
 	used := map[string]bool{}
-
-	// Community articles, sorted by community ID for determinism.
-	cids := sortedKeys(communities)
-	for _, cid := range cids {
-		article := communityArticle(cid, communities[cid], labels, nodeMap, adj, degree, auditByCommunity[cid])
-		slug := uniqueSlug(used, safeFilename(labels[cid]))
-		if err := writeArticle(filepath.Join(outDir, slug+".md"), article); err != nil {
-			return count, err
-		}
-		count++
+	// Assign slugs FIRST (community + god-node) so cross-document links
+	// can resolve to actual filenames rather than human labels. Label
+	// collisions (two communities both called "Examples", or a god node
+	// sharing a community's label) would otherwise produce ambiguous
+	// `[[Label]]` wiki links — pinned by Markdown's stricter
+	// `[Label](file.md)` form.
+	communitySlugs := map[string]string{}
+	for _, cid := range sortedKeys(communities) {
+		communitySlugs[cid] = uniqueSlug(used, safeFilename(labels[cid]))
 	}
-
-	// God node articles.
+	godSlugs := map[string]string{}
+	emittedGods := make([]schema.Node, 0, len(opts.GodNodes))
 	for _, g := range opts.GodNodes {
 		if _, ok := nodeMap[g.ID]; !ok {
 			continue
 		}
-		article := godNodeArticle(g, nodeMap, adj, labels, degree)
-		slug := uniqueSlug(used, safeFilename(g.Label))
-		if err := writeArticle(filepath.Join(outDir, slug+".md"), article); err != nil {
+		godSlugs[g.ID] = uniqueSlug(used, safeFilename(g.Label))
+		emittedGods = append(emittedGods, g)
+	}
+
+	// Community articles, sorted by community ID for determinism.
+	for _, cid := range sortedKeys(communities) {
+		article := communityArticle(cid, communities[cid], labels, nodeMap, adj, degree, auditByCommunity[cid], communitySlugs)
+		if err := writeArticle(filepath.Join(outDir, communitySlugs[cid]+".md"), article); err != nil {
 			return count, err
 		}
 		count++
 	}
 
-	idx := indexArticle(communities, labels, opts.GodNodes, len(nodes), len(edges))
+	// God node articles. Skipping any god nodes not present in the graph
+	// was already done above by emittedGods — we walk that list here so
+	// the article-emission loop matches what the index references.
+	for _, g := range emittedGods {
+		article := godNodeArticle(g, nodeMap, adj, labels, degree, communitySlugs)
+		if err := writeArticle(filepath.Join(outDir, godSlugs[g.ID]+".md"), article); err != nil {
+			return count, err
+		}
+		count++
+	}
+
+	idx := indexArticle(communities, labels, emittedGods, communitySlugs, godSlugs, len(nodes), len(edges))
 	if err := writeArticle(filepath.Join(outDir, "index.md"), idx); err != nil {
 		return count, err
 	}
@@ -196,17 +211,17 @@ func buildCommunityAudit(edges []schema.Edge, nodeMap map[string]schema.Node) ma
 // communityArticle renders the per-community article: key concepts (top
 // 25 by degree), cross-community relationships, source files, and an
 // audit-trail breakdown by edge confidence.
-func communityArticle(cid string, members []schema.Node, labels map[string]string, nodeMap map[string]schema.Node, adj map[string][]string, degree map[string]int, audit communityAudit) string {
+func communityArticle(cid string, members []schema.Node, labels map[string]string, nodeMap map[string]schema.Node, adj map[string][]string, degree map[string]int, audit communityAudit, communitySlugs map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", labels[cid])
 	fmt.Fprintf(&b, "> %d nodes\n\n", len(members))
 
 	renderKeyConcepts(&b, members, degree)
-	renderRelationships(&b, cid, members, adj, nodeMap, labels)
+	renderRelationships(&b, cid, members, adj, nodeMap, labels, communitySlugs)
 	renderSourceFiles(&b, members)
 	renderAuditTrail(&b, audit)
 
-	b.WriteString("---\n\n*Part of the gogfy knowledge wiki. See [[index]] to navigate.*\n")
+	b.WriteString("---\n\n*Part of the gogfy knowledge wiki. See [index](index.md) to navigate.*\n")
 	return b.String()
 }
 
@@ -229,7 +244,10 @@ func renderKeyConcepts(b *strings.Builder, members []schema.Node, degree map[str
 	b.WriteString("\n")
 }
 
-func renderRelationships(b *strings.Builder, cid string, members []schema.Node, adj map[string][]string, nodeMap map[string]schema.Node, labels map[string]string) {
+func renderRelationships(b *strings.Builder, cid string, members []schema.Node, adj map[string][]string, nodeMap map[string]schema.Node, labels map[string]string, communitySlugs map[string]string) {
+	// Cross-community counts keyed by OTHER community's cid (not label),
+	// since labels can collide but cid is stable. We render with the
+	// (label, slug) pair for that cid.
 	crossCounts := map[string]int{}
 	for _, m := range members {
 		for _, neighborID := range adj[m.ID] {
@@ -238,17 +256,18 @@ func renderRelationships(b *strings.Builder, cid string, members []schema.Node, 
 				continue
 			}
 			if n.Community != "" && n.Community != cid {
-				crossCounts[labels[n.Community]]++
+				crossCounts[n.Community]++
 			}
 		}
 	}
 	type crossEntry struct {
+		cid   string
 		label string
 		count int
 	}
 	crosses := make([]crossEntry, 0, len(crossCounts))
-	for k, v := range crossCounts {
-		crosses = append(crosses, crossEntry{k, v})
+	for othCid, v := range crossCounts {
+		crosses = append(crosses, crossEntry{othCid, labels[othCid], v})
 	}
 	sort.Slice(crosses, func(i, j int) bool {
 		if crosses[i].count != crosses[j].count {
@@ -263,7 +282,15 @@ func renderRelationships(b *strings.Builder, cid string, members []schema.Node, 
 		return
 	}
 	for _, c := range crosses[:min(12, len(crosses))] {
-		fmt.Fprintf(b, "- [[%s]] (%d shared connections)\n", c.label, c.count)
+		slug, ok := communitySlugs[c.cid]
+		if !ok {
+			// Community had no slug emitted (defensive — shouldn't
+			// happen given Generate's order, but a missing slug means
+			// we'd write a dead link). Render label-only.
+			fmt.Fprintf(b, "- %s (%d shared connections)\n", c.label, c.count)
+			continue
+		}
+		fmt.Fprintf(b, "- [%s](%s.md) (%d shared connections)\n", c.label, slug, c.count)
 	}
 	b.WriteString("\n")
 }
@@ -303,7 +330,7 @@ func renderAuditTrail(b *strings.Builder, audit communityAudit) {
 	b.WriteString("\n")
 }
 
-func godNodeArticle(g schema.Node, nodeMap map[string]schema.Node, adj map[string][]string, labels map[string]string, degree map[string]int) string {
+func godNodeArticle(g schema.Node, nodeMap map[string]schema.Node, adj map[string][]string, labels map[string]string, degree map[string]int, communitySlugs map[string]string) string {
 	var b strings.Builder
 	src := ""
 	if g.SourceFile != "" {
@@ -317,7 +344,11 @@ func godNodeArticle(g schema.Node, nodeMap map[string]schema.Node, adj map[strin
 		if cname == "" {
 			cname = "Community " + g.Community
 		}
-		fmt.Fprintf(&b, "**Community:** [[%s]]\n\n", cname)
+		if slug, ok := communitySlugs[g.Community]; ok {
+			fmt.Fprintf(&b, "**Community:** [%s](%s.md)\n\n", cname, slug)
+		} else {
+			fmt.Fprintf(&b, "**Community:** %s\n\n", cname)
+		}
 	}
 
 	// graphify groups neighbors by edge relation (### calls / ### imports).
@@ -343,18 +374,22 @@ func godNodeArticle(g schema.Node, nodeMap map[string]schema.Node, adj map[strin
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(&b, "- [[%s]]\n", n.Label)
+		// Neighbors aren't necessarily emitted as their own wiki
+		// articles — only communities and explicit god nodes are.
+		// Render bare-label here so the article reads naturally
+		// without producing dead links to non-existent files.
+		fmt.Fprintf(&b, "- %s\n", n.Label)
 	}
 	if len(uniq) > maxN {
 		fmt.Fprintf(&b, "- *... and %d more*\n", len(uniq)-maxN)
 	}
 	b.WriteString("\n")
 
-	b.WriteString("---\n\n*Part of the gogfy knowledge wiki. See [[index]] to navigate.*\n")
+	b.WriteString("---\n\n*Part of the gogfy knowledge wiki. See [index](index.md) to navigate.*\n")
 	return b.String()
 }
 
-func indexArticle(communities map[string][]schema.Node, labels map[string]string, godNodes []schema.Node, totalNodes, totalEdges int) string {
+func indexArticle(communities map[string][]schema.Node, labels map[string]string, godNodes []schema.Node, communitySlugs map[string]string, godSlugs map[string]string, totalNodes, totalEdges int) string {
 	var b strings.Builder
 	b.WriteString("# Knowledge Graph Index\n\n")
 	b.WriteString("> Auto-generated by gogfy. Start here — read community articles for context, then drill into god nodes for detail.\n\n")
@@ -381,7 +416,7 @@ func indexArticle(communities map[string][]schema.Node, labels map[string]string
 		return entries[i].label < entries[j].label
 	})
 	for _, e := range entries {
-		fmt.Fprintf(&b, "- [[%s]] — %d nodes\n", e.label, e.size)
+		fmt.Fprintf(&b, "- [%s](%s.md) — %d nodes\n", e.label, communitySlugs[e.cid], e.size)
 	}
 	b.WriteString("\n")
 
@@ -389,7 +424,7 @@ func indexArticle(communities map[string][]schema.Node, labels map[string]string
 		b.WriteString("## God Nodes\n")
 		b.WriteString("(most connected concepts — the load-bearing abstractions)\n\n")
 		for _, g := range godNodes {
-			fmt.Fprintf(&b, "- [[%s]]\n", g.Label)
+			fmt.Fprintf(&b, "- [%s](%s.md)\n", g.Label, godSlugs[g.ID])
 		}
 		b.WriteString("\n")
 	}
@@ -410,8 +445,13 @@ func safeFilename(name string) string {
 	s = strings.ReplaceAll(s, ":", "-")
 	s = safeFilenameRE.ReplaceAllString(s, "_")
 	s = strings.Trim(s, ". ")
-	if len(s) > 200 {
-		s = s[:200]
+	// Truncate at rune boundary, not byte boundary — labels are
+	// user-supplied and may contain multi-byte UTF-8 (non-ASCII names,
+	// emoji-prefixed community labels, CJK source-file paths). Slicing
+	// a string by byte index can produce invalid UTF-8 the filesystem
+	// then rejects.
+	if runes := []rune(s); len(runes) > 200 {
+		s = string(runes[:200])
 	}
 	if s == "" {
 		return "unnamed"

@@ -1010,10 +1010,18 @@ func reportCommand(path string, w io.Writer) error {
 // Usage: gogfy wiki <graph.json> [--out <dir>]
 // Default output is <graph-dir>/wiki/.
 func wikiCommand(args []string, stderr io.Writer) error {
+	// Reorder so the positional <graph.json> can appear before --out
+	// per the documented `gogfy wiki <graph.json> [--out <dir>]` form.
+	// Without this, flag.Parse stops at the first non-flag arg and
+	// silently ignores --out, writing to the default location.
+	ordered, err := groupWikiFlags(args)
+	if err != nil {
+		return err
+	}
 	fs := flag.NewFlagSet("wiki", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	outDir := fs.String("out", "", "wiki output directory (defaults to <graph-dir>/wiki/)")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(ordered); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1037,6 +1045,31 @@ func wikiCommand(args []string, stderr io.Writer) error {
 	return nil
 }
 
+// groupWikiFlags reorders `gogfy wiki <graph.json> [--out <dir>]` args
+// so the positional graph path can appear before --out without losing
+// the flag to Go's stop-at-first-positional parser.
+func groupWikiFlags(args []string) ([]string, error) {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--out", a == "-out":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("flag %s requires a value", a)
+			}
+			flags = append(flags, a, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--out="), strings.HasPrefix(a, "-out="):
+			flags = append(flags, a)
+		case strings.HasPrefix(a, "-"):
+			return nil, fmt.Errorf("unknown flag: %s", a)
+		default:
+			positional = append(positional, a)
+		}
+	}
+	return append(flags, positional...), nil
+}
+
 // groupRunFlags reorders args for the `run` subcommand so all known flags
 // come before positional args. Required because flag.Parse stops at the first
 // non-flag, but SPEC §8 documents `run <root> [--update] [--out dir]`.
@@ -1047,7 +1080,8 @@ func groupRunFlags(args []string) ([]string, error) {
 		switch {
 		case a == "--update", a == "-update", a == "--directed", a == "-directed",
 			a == "--graphml", a == "-graphml", a == "--cypher", a == "-cypher",
-			a == "--cluster-only", a == "-cluster-only", a == "--no-viz", a == "-no-viz":
+			a == "--cluster-only", a == "-cluster-only", a == "--no-viz", a == "-no-viz",
+			a == "--wiki", a == "-wiki":
 			flags = append(flags, a)
 		case a == "--out", a == "-out":
 			if i+1 >= len(args) {
@@ -1061,7 +1095,8 @@ func groupRunFlags(args []string) ([]string, error) {
 			strings.HasPrefix(a, "--graphml="), strings.HasPrefix(a, "-graphml="),
 			strings.HasPrefix(a, "--cypher="), strings.HasPrefix(a, "-cypher="),
 			strings.HasPrefix(a, "--cluster-only="), strings.HasPrefix(a, "-cluster-only="),
-			strings.HasPrefix(a, "--no-viz="), strings.HasPrefix(a, "-no-viz="):
+			strings.HasPrefix(a, "--no-viz="), strings.HasPrefix(a, "-no-viz="),
+			strings.HasPrefix(a, "--wiki="), strings.HasPrefix(a, "-wiki="):
 			flags = append(flags, a)
 		case strings.HasPrefix(a, "-"):
 			return nil, fmt.Errorf("unknown flag: %s", a)
