@@ -35,3 +35,6 @@ Thumbs.db
 # Project output
 graphify-out/
 .claude/
+
+# Playwright MCP snapshot/console dumps (created when scouting external docs)
+.playwright-mcp/

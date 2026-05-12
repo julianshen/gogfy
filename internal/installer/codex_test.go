@@ -9,21 +9,18 @@ import (
 )
 
 // TestCodexRegisteredAsPlatform — codex must show up alongside the JSON
-// platforms so `gogfy install --platform codex` works.
+// platforms so `gogfy install --platform codex` works. The full platform
+// list is checked in TestRegistryListsAllSupportedPlatforms.
 func TestCodexRegisteredAsPlatform(t *testing.T) {
 	if _, err := For("codex"); err != nil {
 		t.Fatalf("codex platform not registered: %v", err)
 	}
-	got := SupportedPlatforms()
-	want := []string{"claude", "codex", "cursor", "gemini", "vscode"}
-	if len(got) != len(want) {
-		t.Fatalf("expected %d platforms, got %d (%v)", len(want), len(got), got)
-	}
-	for i, name := range want {
-		if got[i] != name {
-			t.Fatalf("platform[%d]: expected %q, got %q", i, name, got[i])
+	for _, name := range SupportedPlatforms() {
+		if name == "codex" {
+			return
 		}
 	}
+	t.Fatalf("codex missing from SupportedPlatforms(): %v", SupportedPlatforms())
 }
 
 // TestCodexConfigPath — ~/.codex/config.toml is user-level on graphify, but
