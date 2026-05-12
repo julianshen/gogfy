@@ -100,12 +100,15 @@ func TestGenerateCustomLabelsAndGodNodes(t *testing.T) {
 }
 
 func TestGenerateClearStaleArticles(t *testing.T) {
-	// Pre-populate dir with a stale article from a previous run. Generate
-	// must remove it before writing the new set so orphan articles don't
-	// accumulate when community labels change run-to-run.
+	// Simulate a prior gogfy run: marker file + stale article. The new
+	// run should remove the stale article AND keep working (marker
+	// proves the dir is gogfy-owned).
 	dir := t.TempDir()
 	stalePath := filepath.Join(dir, "Old_Stale_Label.md")
 	if err := os.WriteFile(stalePath, []byte("# OldStale\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, wikiMarkerFile), []byte("# marker\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	nodes := []schema.Node{
@@ -120,6 +123,56 @@ func TestGenerateClearStaleArticles(t *testing.T) {
 	}
 	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
 		t.Fatalf("stale article should be removed, but Stat returned err=%v", err)
+	}
+	// Marker should still be present after regeneration.
+	if _, err := os.Stat(filepath.Join(dir, wikiMarkerFile)); err != nil {
+		t.Fatalf("marker file should survive regeneration, got err=%v", err)
+	}
+}
+
+func TestGenerateRefusesToClobberUnmarkedMarkdown(t *testing.T) {
+	// If the user passes --out to a directory that already contains
+	// markdown but no .gogfy_wiki marker (e.g., a project's docs/
+	// folder with README.md and CONTRIBUTING.md), Generate must NOT
+	// delete those files. Bot-flagged data-loss path.
+	dir := t.TempDir()
+	user := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(user, []byte("# Important user content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	nodes := []schema.Node{
+		{ID: "n1", Label: "X", Community: "0"},
+		{ID: "n2", Label: "Y", Community: "0"},
+	}
+	edges := []schema.Edge{
+		{Source: "n1", Target: "n2", Relation: "calls", Confidence: schema.Extracted},
+	}
+	_, err := Generate(nodes, edges, dir, Options{})
+	if err == nil {
+		t.Fatalf("expected error when outDir contains unmarked .md files")
+	}
+	// User's README must still exist.
+	if _, err := os.Stat(user); err != nil {
+		t.Fatalf("user's README.md was deleted: %v", err)
+	}
+}
+
+func TestGenerateFreshDirWritesMarker(t *testing.T) {
+	// First-run case: empty dir. Generate proceeds normally and writes
+	// the marker file so subsequent runs know the dir is gogfy-owned.
+	dir := t.TempDir()
+	nodes := []schema.Node{
+		{ID: "n1", Label: "X", Community: "0"},
+		{ID: "n2", Label: "Y", Community: "0"},
+	}
+	edges := []schema.Edge{
+		{Source: "n1", Target: "n2", Relation: "calls", Confidence: schema.Extracted},
+	}
+	if _, err := Generate(nodes, edges, dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, wikiMarkerFile)); err != nil {
+		t.Fatalf("marker file missing after Generate on fresh dir: %v", err)
 	}
 }
 

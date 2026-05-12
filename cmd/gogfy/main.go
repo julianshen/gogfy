@@ -842,6 +842,15 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		// must still produce the standard artifacts.
 		if len(changed) == 0 && artifactsExist(out, opts.NoViz) {
 			fmt.Println("No files changed, skipping extraction")
+			// --wiki must still produce a wiki even when extraction was
+			// skipped — turning on --wiki on a subsequent --update run
+			// would otherwise silently no-op until something changes.
+			// Generate from the existing graph.json.
+			if opts.Wiki {
+				if err := regenerateWikiFromDisk(out); err != nil {
+					return fmt.Errorf("wiki: %w", err)
+				}
+			}
 			return nil
 		}
 		files = changed
@@ -1006,6 +1015,19 @@ func reportCommand(path string, w io.Writer) error {
 	return err
 }
 
+// regenerateWikiFromDisk rebuilds <out>/wiki/ from <out>/graph.json
+// without re-extracting source. Used by the --update no-op path so a
+// freshly-added --wiki flag still produces output on unchanged repos.
+func regenerateWikiFromDisk(out string) error {
+	g, err := loadGraph(filepath.Join(out, "graph.json"))
+	if err != nil {
+		return err
+	}
+	r := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
+	_, err = wiki.Generate(g.Nodes, g.Edges, filepath.Join(out, "wiki"), wiki.Options{GodNodes: r.GodNodes})
+	return err
+}
+
 // wikiCommand turns an existing graph.json into a wiki directory.
 // Usage: gogfy wiki <graph.json> [--out <dir>]
 // Default output is <graph-dir>/wiki/.
@@ -1024,8 +1046,8 @@ func wikiCommand(args []string, stderr io.Writer) error {
 	if err := fs.Parse(ordered); err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
-		return fmt.Errorf("wiki: missing <graph.json>")
+	if fs.NArg() != 1 {
+		return fmt.Errorf("wiki: expected <graph.json>, got %d positional argument(s)", fs.NArg())
 	}
 	graphPath := fs.Arg(0)
 	g, err := loadGraph(graphPath)
