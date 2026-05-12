@@ -27,7 +27,9 @@ import (
 	"github.com/julianshen/gogfy/internal/merge"
 	"github.com/julianshen/gogfy/internal/report"
 	"github.com/julianshen/gogfy/internal/resolve"
+	"github.com/julianshen/gogfy/internal/schema"
 	"github.com/julianshen/gogfy/internal/serve"
+	"github.com/julianshen/gogfy/internal/tree"
 	"github.com/julianshen/gogfy/internal/watch"
 	"github.com/julianshen/gogfy/internal/wiki"
 )
@@ -64,6 +66,7 @@ func dispatch(args []string, stderr io.Writer) error {
 		clusterOnly := fs.Bool("cluster-only", false, "skip extraction; re-cluster the existing graph.json under --out")
 		noViz := fs.Bool("no-viz", false, "skip graph.html (faster runs, smaller artifact set)")
 		emitWiki := fs.Bool("wiki", false, "also emit <out>/wiki/ (index + per-community + per-god-node markdown)")
+		emitTree := fs.Bool("tree", false, "also emit <out>/tree.html (D3 collapsible filesystem-tree view)")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
@@ -81,6 +84,7 @@ func dispatch(args []string, stderr io.Writer) error {
 			ClusterOnly: *clusterOnly,
 			NoViz:       *noViz,
 			Wiki:        *emitWiki,
+			Tree:        *emitTree,
 		})
 	case "validate":
 		if len(rest) < 1 {
@@ -112,6 +116,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return mergeGraphsCommand(rest, os.Stdout, stderr)
 	case "wiki":
 		return wikiCommand(rest, stderr)
+	case "tree":
+		return treeCommand(rest, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -249,8 +255,8 @@ func comboCommand(platform, verb string, args []string, stderr io.Writer) error 
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed] [--graphml] [--cypher] [--no-viz] [--wiki]")
-	fmt.Fprintln(w, "       gogfy run --cluster-only [--out dir] [--directed] [--no-viz] [--wiki]")
+	fmt.Fprintln(w, "usage: gogfy run <root> [--update] [--out dir] [--directed] [--graphml] [--cypher] [--no-viz] [--wiki] [--tree]")
+	fmt.Fprintln(w, "       gogfy run --cluster-only [--out dir] [--directed] [--no-viz] [--wiki] [--tree]")
 	fmt.Fprintln(w, "       gogfy watch <root> [--out dir] [--directed]")
 	fmt.Fprintln(w, "       gogfy validate <graph.json>")
 	fmt.Fprintln(w, "       gogfy report <graph.json>")
@@ -267,6 +273,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
+	fmt.Fprintln(w, "       gogfy tree <graph.json> [--out <html-path>]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> install   # combo: mcp + snippet + hook in one shot")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> uninstall # remove all three")
 }
@@ -743,6 +750,9 @@ type runOptions struct {
 	// skill prompts can direct the assistant to navigate the wiki
 	// instead of grepping raw files.
 	Wiki bool
+	// Tree emits <out>/tree.html — a D3 collapsible filesystem-tree
+	// view of the graph (complement to the force-directed graph.html).
+	Tree bool
 }
 
 // runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
@@ -815,6 +825,11 @@ func runClusterOnly(out string, directed bool, opts runOptions) error {
 			GodNodes: reportData.GodNodes,
 		}); err != nil {
 			return fmt.Errorf("cluster-only: wiki: %w", err)
+		}
+	}
+	if opts.Tree {
+		if err := writeTreeHTML(clustered, out); err != nil {
+			return fmt.Errorf("cluster-only: tree: %w", err)
 		}
 	}
 	return nil
@@ -964,6 +979,11 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 			return fmt.Errorf("wiki: %w", err)
 		}
 	}
+	if opts.Tree {
+		if err := writeTreeHTML(clusteredNodes, out); err != nil {
+			return fmt.Errorf("tree: %w", err)
+		}
+	}
 
 	if update {
 		if err := c.Save(files); err != nil {
@@ -1015,6 +1035,16 @@ func reportCommand(path string, w io.Writer) error {
 	return err
 }
 
+// writeTreeHTML builds and atomically writes <out>/tree.html.
+func writeTreeHTML(nodes []schema.Node, outDir string) error {
+	root := tree.Build(nodes, tree.Options{})
+	html, err := tree.HTML(root, tree.HTMLOptions{})
+	if err != nil {
+		return err
+	}
+	return atomicWrite(filepath.Join(outDir, "tree.html"), []byte(html))
+}
+
 // regenerateWikiFromDisk rebuilds <out>/wiki/ from <out>/graph.json
 // without re-extracting source. Used by the --update no-op path so a
 // freshly-added --wiki flag still produces output on unchanged repos.
@@ -1026,6 +1056,43 @@ func regenerateWikiFromDisk(out string) error {
 	r := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
 	_, err = wiki.Generate(g.Nodes, g.Edges, filepath.Join(out, "wiki"), wiki.Options{GodNodes: r.GodNodes})
 	return err
+}
+
+// treeCommand renders a tree.html view from an existing graph.json.
+// Usage: gogfy tree <graph.json> [--out <path>]
+func treeCommand(args []string, stderr io.Writer) error {
+	ordered, err := groupWikiFlags(args) // same shape as wiki: one positional + --out
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("tree", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outPath := fs.String("out", "", "output HTML path (defaults to <graph-dir>/tree.html)")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("tree: expected <graph.json>, got %d positional argument(s)", fs.NArg())
+	}
+	graphPath := fs.Arg(0)
+	g, err := loadGraph(graphPath)
+	if err != nil {
+		return err
+	}
+	dst := *outPath
+	if dst == "" {
+		dst = filepath.Join(filepath.Dir(graphPath), "tree.html")
+	}
+	root := tree.Build(g.Nodes, tree.Options{})
+	html, err := tree.HTML(root, tree.HTMLOptions{})
+	if err != nil {
+		return fmt.Errorf("tree: %w", err)
+	}
+	if err := atomicWrite(dst, []byte(html)); err != nil {
+		return fmt.Errorf("tree: %w", err)
+	}
+	fmt.Fprintf(stderr, "tree: wrote %s\n", dst)
+	return nil
 }
 
 // wikiCommand turns an existing graph.json into a wiki directory.
@@ -1103,7 +1170,8 @@ func groupRunFlags(args []string) ([]string, error) {
 		case a == "--update", a == "-update", a == "--directed", a == "-directed",
 			a == "--graphml", a == "-graphml", a == "--cypher", a == "-cypher",
 			a == "--cluster-only", a == "-cluster-only", a == "--no-viz", a == "-no-viz",
-			a == "--wiki", a == "-wiki":
+			a == "--wiki", a == "-wiki",
+			a == "--tree", a == "-tree":
 			flags = append(flags, a)
 		case a == "--out", a == "-out":
 			if i+1 >= len(args) {
@@ -1118,7 +1186,8 @@ func groupRunFlags(args []string) ([]string, error) {
 			strings.HasPrefix(a, "--cypher="), strings.HasPrefix(a, "-cypher="),
 			strings.HasPrefix(a, "--cluster-only="), strings.HasPrefix(a, "-cluster-only="),
 			strings.HasPrefix(a, "--no-viz="), strings.HasPrefix(a, "-no-viz="),
-			strings.HasPrefix(a, "--wiki="), strings.HasPrefix(a, "-wiki="):
+			strings.HasPrefix(a, "--wiki="), strings.HasPrefix(a, "-wiki="),
+			strings.HasPrefix(a, "--tree="), strings.HasPrefix(a, "-tree="):
 			flags = append(flags, a)
 		case strings.HasPrefix(a, "-"):
 			return nil, fmt.Errorf("unknown flag: %s", a)
