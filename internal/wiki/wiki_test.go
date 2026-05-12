@@ -271,6 +271,33 @@ func TestUniqueSlugCollision(t *testing.T) {
 	}
 }
 
+func TestUniqueSlugCaseInsensitiveCollision(t *testing.T) {
+	// On case-insensitive filesystems (Windows default, macOS APFS
+	// default) "Foo.md" and "foo.md" resolve to the same path, so a
+	// case-sensitive collision check would silently let the second
+	// write clobber the first. uniqueSlug must treat differently-cased
+	// labels as colliding while preserving the original case in the
+	// returned slug (so case-sensitive filesystems still render
+	// readable filenames).
+	used := map[string]bool{}
+	if got := uniqueSlug(used, "Foo"); got != "Foo" {
+		t.Fatalf("first call: got %q want %q", got, "Foo")
+	}
+	if got := uniqueSlug(used, "foo"); got != "foo_2" {
+		t.Fatalf("lowercased re-call must collide and append _2: got %q want %q", got, "foo_2")
+	}
+	if got := uniqueSlug(used, "FOO"); got != "FOO_3" {
+		t.Fatalf("uppercased re-call must collide and append _3: got %q want %q", got, "FOO_3")
+	}
+	// Bonus pin: a fresh prefix that has the same uppercase but no
+	// collision should be returned unchanged. Guards against
+	// over-eager lowercasing that collapsed "BAR" → "bar" and then
+	// returned the lowercased form.
+	if got := uniqueSlug(used, "Bar"); got != "Bar" {
+		t.Fatalf("unrelated prefix should preserve case: got %q want %q", got, "Bar")
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
