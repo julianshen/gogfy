@@ -84,7 +84,14 @@ func Build(nodes []schema.Node, opts Options) *TreeNode {
 		return &TreeNode{Name: "(empty graph)"}
 	}
 
+	// Normalize opts.Root once so a trailing separator (Options{Root:
+	// "/repo/src/"}) doesn't desynchronize the dirIndex key from
+	// filepath.Dir results inside ensureDir, which would otherwise
+	// recreate the entire ancestor chain under the requested root.
 	root := opts.Root
+	if root != "" {
+		root = filepath.Clean(root)
+	}
 	if root == "" {
 		root = commonRoot(collectPaths(withFile))
 	}
@@ -112,13 +119,14 @@ func Build(nodes []schema.Node, opts Options) *TreeNode {
 	// would otherwise produce a sibling branch above the named root.
 	byFile := map[string][]schema.Node{}
 	for _, n := range withFile {
+		src := filepath.Clean(n.SourceFile)
 		if opts.Root != "" {
-			rel, err := filepath.Rel(opts.Root, n.SourceFile)
+			rel, err := filepath.Rel(root, src)
 			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				continue
 			}
 		}
-		byFile[n.SourceFile] = append(byFile[n.SourceFile], n)
+		byFile[src] = append(byFile[src], n)
 	}
 	if len(byFile) == 0 {
 		return &TreeNode{Name: "(empty graph)"}
@@ -329,6 +337,9 @@ type HTMLOptions struct {
 // The </script> sequence is escaped in the JSON payload so script-tag
 // breakouts via crafted node labels are impossible.
 func HTML(tree *TreeNode, opts HTMLOptions) (string, error) {
+	if tree == nil {
+		return "", fmt.Errorf("tree: nil tree")
+	}
 	if opts.Title == "" {
 		opts.Title = tree.Name + " — gogfy tree viewer"
 	}
@@ -349,15 +360,18 @@ func HTML(tree *TreeNode, opts HTMLOptions) (string, error) {
 	// "</script>" can't terminate the embedded data block. Matches
 	// graphify's defense and the standard advice for inline JSON.
 	safeJSON := strings.ReplaceAll(string(dataJSON), "</", `<\/`)
-	out := htmlTemplate
-	out = strings.ReplaceAll(out, "__TITLE__", html.EscapeString(opts.Title))
-	out = strings.ReplaceAll(out, "__HEADER__", html.EscapeString(opts.Header))
-	out = strings.ReplaceAll(out, "__SVG_WIDTH__", strconv.Itoa(opts.SVGWidth))
-	out = strings.ReplaceAll(out, "__SVG_HEIGHT__", strconv.Itoa(opts.SVGHeight))
-	// __D3_JS__ goes in BEFORE __DATA_JSON__ — D3's source is fixed
-	// and known-safe; the data JSON is user-derived and gets the
-	// </script>-escape treatment.
-	out = strings.ReplaceAll(out, "__D3_JS__", d3JS)
-	out = strings.ReplaceAll(out, "__DATA_JSON__", safeJSON)
+	// Single-pass replace prevents the case where a user-supplied
+	// Title/Header (which goes in HTML-escaped but may still contain
+	// substrings like `__D3_JS__` if someone is being clever) gets a
+	// subsequent placeholder expanded inside it. NewReplacer scans
+	// once with first-match semantics.
+	out := strings.NewReplacer(
+		"__TITLE__", html.EscapeString(opts.Title),
+		"__HEADER__", html.EscapeString(opts.Header),
+		"__SVG_WIDTH__", strconv.Itoa(opts.SVGWidth),
+		"__SVG_HEIGHT__", strconv.Itoa(opts.SVGHeight),
+		"__D3_JS__", d3JS,
+		"__DATA_JSON__", safeJSON,
+	).Replace(htmlTemplate)
 	return out, nil
 }

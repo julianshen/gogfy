@@ -111,6 +111,50 @@ func TestBuildHonorsOptionsRootFilter(t *testing.T) {
 	}
 }
 
+func TestBuildOptionsRootTrailingSlashNormalized(t *testing.T) {
+	// Options{Root: "/repo/src/"} (trailing separator) must produce
+	// the same tree as Options{Root: "/repo/src"}. Without normalize,
+	// the trailing slash desynchronizes the dirIndex key from
+	// filepath.Dir results and ensureDir reconstructs the entire
+	// ancestor chain under the requested root.
+	nodes := []schema.Node{
+		{ID: "n1", Label: "A", SourceFile: "/repo/src/pkg/a.go"},
+		{ID: "n2", Label: "B", SourceFile: "/repo/src/pkg/b.go"},
+	}
+	clean := Build(nodes, Options{Root: "/repo/src"})
+	withSlash := Build(nodes, Options{Root: "/repo/src/"})
+	a, _ := json.Marshal(clean)
+	b, _ := json.Marshal(withSlash)
+	if string(a) != string(b) {
+		t.Fatalf("trailing-slash root must produce same tree:\nclean=%s\nwith =%s", a, b)
+	}
+}
+
+func TestHTMLRejectsNilTree(t *testing.T) {
+	_, err := HTML(nil, HTMLOptions{})
+	if err == nil {
+		t.Fatalf("HTML(nil, ...) must return an error, not panic")
+	}
+}
+
+func TestHTMLDoesNotExpandPlaceholdersFromUserContent(t *testing.T) {
+	// If Title contains a substring that looks like another
+	// placeholder (e.g., "__D3_JS__"), chained sequential ReplaceAlls
+	// would expand it on the next pass. NewReplacer's single-pass
+	// scan prevents this. Use Title containing __DATA_JSON__ since
+	// HTML escape doesn't alter underscores.
+	root := Build([]schema.Node{
+		{ID: "n1", Label: "X", SourceFile: "/repo/a.go"},
+	}, Options{ProjectLabel: "p"})
+	out, err := HTML(root, HTMLOptions{Title: "title-with-__DATA_JSON__-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "title-with-__DATA_JSON__-token") {
+		t.Fatalf("user-supplied title containing placeholder-shaped token was rewritten:\n%s", out)
+	}
+}
+
 func TestBuildSingleFileCorpusDoesNotNestUnderItself(t *testing.T) {
 	// When there's only one source file, commonRoot's prefix
 	// computation would naively return the file path itself, causing
