@@ -246,7 +246,7 @@ var registry = map[string]Installer{
 	"kimi":        jsonInstaller{relativePath: filepath.Join(".kimi", "settings.json"), serversKey: "mcpServers"},
 	"aider":       jsonInstaller{relativePath: filepath.Join(".aider", "mcp.json"), serversKey: "mcpServers"},
 	"claw":        jsonInstaller{relativePath: filepath.Join(".openclaw", "mcp.json"), serversKey: "mcpServers"},
-	"copilot":     jsonInstaller{relativePath: filepath.Join(".copilot", "mcp.json"), serversKey: "mcpServers"},
+	"copilot":     jsonInstaller{relativePath: filepath.Join(".github", "mcp.json"), serversKey: "mcpServers"},
 	"droid":       jsonInstaller{relativePath: filepath.Join(".factory", "mcp.json"), serversKey: "mcpServers"},
 	"trae":        jsonInstaller{relativePath: filepath.Join(".trae", "mcp.json"), serversKey: "mcpServers"},
 	"trae-cn":     jsonInstaller{relativePath: filepath.Join(".trae-cn", "mcp.json"), serversKey: "mcpServers"},
@@ -260,7 +260,7 @@ var registry = map[string]Installer{
 // OpenCode flattens `command` and `args` into a single array under
 // `command`, and tags local commands with `type: "local"`.
 //
-// See: https://opencode.ai/docs/mcp-servers/ for the schema.
+// See: https://opencode-tutorial.com/en/docs/mcp-servers for the schema.
 func opencodeServerEntry(opts Options) map[string]any {
 	return map[string]any{
 		"type":    "local",

@@ -429,7 +429,7 @@ func TestPlatformConfigPaths(t *testing.T) {
 		"kimi":        ".kimi/settings.json",
 		"aider":       ".aider/mcp.json",
 		"claw":        ".openclaw/mcp.json",
-		"copilot":     ".copilot/mcp.json",
+		"copilot":     ".github/mcp.json",
 		"droid":       ".factory/mcp.json",
 		"trae":        ".trae/mcp.json",
 		"trae-cn":     ".trae-cn/mcp.json",

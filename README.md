@@ -151,7 +151,7 @@ gogfy serve --graph graphify-out/graph.json
 | `vscode` | `.vscode/mcp.json` (under `servers`) | `AGENTS.md` |
 | `gemini` | `.gemini/settings.json` | `GEMINI.md` |
 | `opencode` | `opencode.json` (under `mcp`, flattened `{type,command[]}`) | `AGENTS.md` |
-| `copilot` | `.copilot/mcp.json` | `AGENTS.md` |
+| `copilot` | `.github/mcp.json` | `AGENTS.md` |
 | `aider` | `.aider/mcp.json` | `AGENTS.md` |
 | `claw` | `.openclaw/mcp.json` | `AGENTS.md` |
 | `droid` | `.factory/mcp.json` | `AGENTS.md` |
