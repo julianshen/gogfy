@@ -32,6 +32,13 @@ const DefaultMaxChildren = 200
 //go:embed tree.html
 var htmlTemplate string
 
+// d3JS is the D3 v7 source embedded into every tree.html so the view
+// works offline. ~270 KB; expanded into the template via __D3_JS__.
+// Sourced from https://d3js.org/d3.v7.min.js (BSD-3-Clause).
+//
+//go:embed d3.v7.min.js
+var d3JS string
+
 // TreeNode is the hierarchy element D3 consumes: a name, a descendant
 // leaf count for the collapsed-summary display, and children.
 type TreeNode struct {
@@ -99,9 +106,22 @@ func Build(nodes []schema.Node, opts Options) *TreeNode {
 	dirIndex[root] = rootNode
 
 	// Group symbol nodes by file so each file becomes one TreeNode.
+	// When Options.Root is set, drop nodes whose SourceFile falls
+	// outside that subtree — the doc promises "truncates the tree to
+	// source files under this absolute path", and a leaked outsider
+	// would otherwise produce a sibling branch above the named root.
 	byFile := map[string][]schema.Node{}
 	for _, n := range withFile {
+		if opts.Root != "" {
+			rel, err := filepath.Rel(opts.Root, n.SourceFile)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue
+			}
+		}
 		byFile[n.SourceFile] = append(byFile[n.SourceFile], n)
+	}
+	if len(byFile) == 0 {
+		return &TreeNode{Name: "(empty graph)"}
 	}
 
 	files := make([]string, 0, len(byFile))
@@ -169,10 +189,21 @@ func commonRoot(paths []string) string {
 		leading = sep
 		body = common[1:]
 	}
-	if len(body) == 0 {
-		return leading
+	joined := leading
+	if len(body) > 0 {
+		joined += strings.Join(body, sep)
 	}
-	return leading + strings.Join(body, sep)
+	// If the common prefix coincides with one of the inputs, the
+	// "common root" IS a file path (single-file corpus, or every input
+	// being the same path). Treat its directory as the root so Build
+	// doesn't label the tree-root with a filename and then try to nest
+	// the same file under itself.
+	for _, p := range paths {
+		if filepath.Clean(p) == joined {
+			return filepath.Dir(joined)
+		}
+	}
+	return joined
 }
 
 // ensureDir walks from absPath up to root, creating TreeNodes for any
@@ -221,10 +252,10 @@ func buildFileNode(src string, syms []schema.Node, maxChildren int) *TreeNode {
 			TotalCount: 1,
 		})
 	}
-	sort.Slice(children, func(i, j int) bool {
-		// Underscore-prefixed names sort to the end (private symbols
-		// shouldn't dominate the top of a file's child list); then
-		// case-insensitive alphabetical.
+	// SliceStable preserves insertion order for elements that compare
+	// equal (e.g. two symbols whose lowercased names match exactly),
+	// which makes the rendered tree byte-identical across runs.
+	sort.SliceStable(children, func(i, j int) bool {
 		ip := strings.HasPrefix(children[i].Name, "_")
 		jp := strings.HasPrefix(children[j].Name, "_")
 		if ip != jp {
@@ -323,6 +354,10 @@ func HTML(tree *TreeNode, opts HTMLOptions) (string, error) {
 	out = strings.ReplaceAll(out, "__HEADER__", html.EscapeString(opts.Header))
 	out = strings.ReplaceAll(out, "__SVG_WIDTH__", strconv.Itoa(opts.SVGWidth))
 	out = strings.ReplaceAll(out, "__SVG_HEIGHT__", strconv.Itoa(opts.SVGHeight))
+	// __D3_JS__ goes in BEFORE __DATA_JSON__ — D3's source is fixed
+	// and known-safe; the data JSON is user-derived and gets the
+	// </script>-escape treatment.
+	out = strings.ReplaceAll(out, "__D3_JS__", d3JS)
 	out = strings.ReplaceAll(out, "__DATA_JSON__", safeJSON)
 	return out, nil
 }

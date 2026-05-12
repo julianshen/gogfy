@@ -95,6 +95,48 @@ func TestBuildTotalCountRollup(t *testing.T) {
 	}
 }
 
+func TestBuildHonorsOptionsRootFilter(t *testing.T) {
+	// Options.Root is documented as "truncates the tree to source files
+	// under this absolute path". Files outside the root must NOT leak
+	// into the tree as parallel branches.
+	nodes := []schema.Node{
+		{ID: "in", Label: "Inside", SourceFile: "/repo/src/keep.go"},
+		{ID: "out", Label: "Outside", SourceFile: "/other/leak.go"},
+	}
+	root := Build(nodes, Options{Root: "/repo/src"})
+	for _, c := range walk(root) {
+		if c.Name == "Outside" || c.Name == "leak.go" || c.Name == "other" {
+			t.Fatalf("file outside Options.Root leaked into tree: %+v", root)
+		}
+	}
+}
+
+func TestBuildSingleFileCorpusDoesNotNestUnderItself(t *testing.T) {
+	// When there's only one source file, commonRoot's prefix
+	// computation would naively return the file path itself, causing
+	// Build to label the root with the filename and then nest the file
+	// under itself. The fix: the common-root code falls back to the
+	// directory when the prefix matches an input exactly.
+	nodes := []schema.Node{
+		{ID: "n1", Label: "Main", SourceFile: "/repo/main.go"},
+	}
+	root := Build(nodes, Options{})
+	// Root label must be the directory (or its basename), NOT main.go.
+	if root.Name == "main.go" {
+		t.Fatalf("tree root labeled with file name — single-file corpus nests file under itself")
+	}
+	// And main.go should appear EXACTLY once, as a child somewhere.
+	count := 0
+	for _, c := range walk(root) {
+		if c.Name == "main.go" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected main.go to appear once, got %d times", count)
+	}
+}
+
 func TestBuildSkipsRedundantFileNameSymbol(t *testing.T) {
 	// Some extractors emit a top-level module-decl whose label matches
 	// the file's basename. The tree already represents the file via
@@ -128,13 +170,23 @@ func TestHTMLEmbedsTreeJSON(t *testing.T) {
 	}
 	for _, want := range []string{
 		"<!DOCTYPE html>",
-		"d3.v7.min.js",
+		// D3 v7 minified source header — verifies the D3 library is
+		// embedded inline rather than loaded from a CDN. Lets tree.html
+		// open with no network access (consistent with internal/export's
+		// graph.html which carries no external deps).
+		"d3js.org v7",
 		`"name":`,
 		"Greet",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("HTML missing %q", want)
 		}
+	}
+	// Negative: the legacy CDN reference must NOT appear; if a future
+	// edit drops the inline embed in favor of <script src=…>, this
+	// catches the offline regression.
+	if strings.Contains(out, `src="https://d3js.org/`) {
+		t.Fatalf("HTML still has CDN <script src=…> reference — offline support broken")
 	}
 }
 

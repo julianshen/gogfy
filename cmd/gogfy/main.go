@@ -857,13 +857,19 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		// must still produce the standard artifacts.
 		if len(changed) == 0 && artifactsExist(out, opts.NoViz) {
 			fmt.Println("No files changed, skipping extraction")
-			// --wiki must still produce a wiki even when extraction was
-			// skipped — turning on --wiki on a subsequent --update run
-			// would otherwise silently no-op until something changes.
-			// Generate from the existing graph.json.
+			// --wiki / --tree must still produce their artifacts even
+			// when extraction was skipped — turning either on for a
+			// subsequent --update run would otherwise silently no-op
+			// until something changes. Both regenerate from the
+			// existing graph.json.
 			if opts.Wiki {
 				if err := regenerateWikiFromDisk(out); err != nil {
 					return fmt.Errorf("wiki: %w", err)
+				}
+			}
+			if opts.Tree {
+				if err := regenerateTreeFromDisk(out); err != nil {
+					return fmt.Errorf("tree: %w", err)
 				}
 			}
 			return nil
@@ -1043,6 +1049,17 @@ func writeTreeHTML(nodes []schema.Node, outDir string) error {
 		return err
 	}
 	return atomicWrite(filepath.Join(outDir, "tree.html"), []byte(html))
+}
+
+// regenerateTreeFromDisk rebuilds <out>/tree.html from <out>/graph.json
+// without re-extracting source. Used by the --update no-op path so a
+// freshly-added --tree flag still produces output on unchanged repos.
+func regenerateTreeFromDisk(out string) error {
+	g, err := loadGraph(filepath.Join(out, "graph.json"))
+	if err != nil {
+		return err
+	}
+	return writeTreeHTML(g.Nodes, out)
 }
 
 // regenerateWikiFromDisk rebuilds <out>/wiki/ from <out>/graph.json
