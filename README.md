@@ -16,7 +16,7 @@ Then point your agent at it:
 gogfy claude install     # MCP server + CLAUDE.md snippet + post-commit auto-rebuild
 ```
 
-That's it. Claude Code (and Cursor, VS Code Copilot Chat, Codex, Gemini CLI, OpenCode, plus anything that reads `AGENTS.md`) now reads the graph before answering questions about your repo.
+That's it. 19 supported agent platforms — Claude Code, Cursor, VS Code Copilot Chat, Codex, Gemini CLI, OpenCode, GitHub Copilot CLI, Aider, OpenClaw, Factory Droid, Trae (incl. Trae CN), Hermes, Kiro, Pi, Google Antigravity, Kimi CLI, Qwen Code, Kilo Code, plus anything that reads `AGENTS.md` — now read the graph before answering questions about your repo.
 
 ---
 
@@ -46,12 +46,25 @@ Requires Go 1.24+ to build from source. Code extraction is local-only via tree-s
 # 1. Build a graph
 gogfy run .
 
-# 2. Wire it up for your agent (one of)
-gogfy claude install
-gogfy codex install
-gogfy cursor install
-gogfy vscode install
-gogfy gemini install
+# 2. Wire it up for your agent (any of)
+gogfy claude install          # Claude Code
+gogfy codex install           # OpenAI Codex CLI
+gogfy cursor install          # Cursor
+gogfy vscode install          # VS Code Copilot Chat
+gogfy gemini install          # Gemini CLI
+gogfy opencode install        # OpenCode
+gogfy copilot install         # GitHub Copilot CLI
+gogfy aider install           # Aider
+gogfy claw install            # OpenClaw
+gogfy droid install           # Factory Droid
+gogfy trae install            # Trae  (or `gogfy trae-cn install` for Trae CN)
+gogfy hermes install          # Hermes
+gogfy kiro install            # Kiro
+gogfy pi install              # Pi coding agent
+gogfy antigravity install     # Google Antigravity
+gogfy kimi install            # Moonshot Kimi CLI
+gogfy qwen install            # Qwen Code
+gogfy kilocode install        # Kilo Code
 
 # 3. (Optional) auto-rebuild on every commit
 # Already done by the combo install above; otherwise:
@@ -114,8 +127,8 @@ gogfy merge-graphs a.json b.json --out merged.json    # union per-repo graphs
 
 ```bash
 # Combo install (MCP config + docs snippet + post-commit hook):
-gogfy <claude|codex|cursor|vscode|gemini> install
-gogfy <claude|codex|cursor|vscode|gemini> uninstall
+gogfy <claude|codex|cursor|vscode|gemini|opencode|copilot|aider|claw|droid|trae|trae-cn|hermes|kiro|pi|antigravity|kimi|qwen|kilocode> install
+gogfy <claude|codex|cursor|vscode|gemini|opencode|copilot|aider|claw|droid|trae|trae-cn|hermes|kiro|pi|antigravity|kimi|qwen|kilocode> uninstall
 
 # Or step-by-step:
 gogfy install --platform <platform>       # just the MCP config
@@ -137,6 +150,22 @@ gogfy serve --graph graphify-out/graph.json
 | `cursor` | `.cursor/mcp.json` | `.cursorrules` |
 | `vscode` | `.vscode/mcp.json` (under `servers`) | `AGENTS.md` |
 | `gemini` | `.gemini/settings.json` | `GEMINI.md` |
+| `opencode` | `opencode.json` (under `mcp`, flattened `{type,command[]}`) | `AGENTS.md` |
+| `copilot` | `.copilot/mcp.json` | `AGENTS.md` |
+| `aider` | `.aider/mcp.json` | `AGENTS.md` |
+| `claw` | `.openclaw/mcp.json` | `AGENTS.md` |
+| `droid` | `.factory/mcp.json` | `AGENTS.md` |
+| `trae` | `.trae/mcp.json` | `AGENTS.md` |
+| `trae-cn` | `.trae-cn/mcp.json` | `AGENTS.md` |
+| `hermes` | `.hermes/mcp.json` | `AGENTS.md` |
+| `kiro` | `.kiro/mcp.json` | `AGENTS.md` |
+| `pi` | `.pi/mcp.json` | `AGENTS.md` |
+| `antigravity` | `.antigravity/mcp.json` | `AGENTS.md` |
+| `kimi` | `.kimi/settings.json` | `AGENTS.md` |
+| `qwen` | `.qwen/settings.json` | `QWEN.md` |
+| `kilocode` | `.kilocode/mcp.json` | `AGENTS.md` |
+
+> **Best-effort note**: some platforms in the registry don't yet have officially documented workspace-relative MCP server config support (e.g., Aider primarily uses `.aider.conf.yml`; Copilot CLI's MCP config historically lives at user level). gogfy writes the conventional `.<platform>/` location each tool's config-dir suggests — verify against your platform's current docs. Platform names and config paths track [safishamsi/graphify](https://github.com/safishamsi/graphify)'s per-platform install paths.
 
 ---
 
