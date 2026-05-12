@@ -72,6 +72,7 @@ func Generate(nodes []schema.Node, edges []schema.Edge, outDir string, opts Opti
 	nodeMap := indexNodes(nodes)
 	adj := buildAdjacency(nodes, edges)
 	degree := buildDegree(edges)
+	auditByCommunity := buildCommunityAudit(edges, nodeMap)
 
 	count := 0
 	used := map[string]bool{}
@@ -79,7 +80,7 @@ func Generate(nodes []schema.Node, edges []schema.Edge, outDir string, opts Opti
 	// Community articles, sorted by community ID for determinism.
 	cids := sortedKeys(communities)
 	for _, cid := range cids {
-		article := communityArticle(cid, communities[cid], labels, nodeMap, adj, edges, degree)
+		article := communityArticle(cid, communities[cid], labels, nodeMap, adj, degree, auditByCommunity[cid])
 		slug := uniqueSlug(used, safeFilename(labels[cid]))
 		if err := writeArticle(filepath.Join(outDir, slug+".md"), article); err != nil {
 			return count, err
@@ -151,28 +152,84 @@ func buildDegree(edges []schema.Edge) map[string]int {
 	return d
 }
 
+// communityAudit tracks the per-confidence edge count + total for one
+// community's audit-trail section.
+type communityAudit struct {
+	counts map[schema.Confidence]int
+	total  int
+}
+
+// buildCommunityAudit walks edges ONCE producing per-community confidence
+// counts. Without this, communityArticle's audit section would re-walk
+// every edge for every community — O(C × E) where the precomputed form
+// is O(E). For a graph with 50 communities and 10k edges, this is the
+// difference between 500k and 10k iterations on the wiki cold path.
+func buildCommunityAudit(edges []schema.Edge, nodeMap map[string]schema.Node) map[string]communityAudit {
+	out := map[string]communityAudit{}
+	bump := func(cid string, c schema.Confidence) {
+		entry, ok := out[cid]
+		if !ok {
+			entry = communityAudit{counts: map[schema.Confidence]int{}}
+		}
+		entry.counts[c]++
+		entry.total++
+		out[cid] = entry
+	}
+	for _, e := range edges {
+		srcC := nodeMap[e.Source].Community
+		dstC := nodeMap[e.Target].Community
+		// An edge touches a community if either endpoint is a member.
+		// When both endpoints are in the same community, count it once
+		// for that community; when they're in different communities,
+		// count it for both (it's a cross-community edge that shows up
+		// in both audit trails).
+		if srcC != "" {
+			bump(srcC, e.Confidence)
+		}
+		if dstC != "" && dstC != srcC {
+			bump(dstC, e.Confidence)
+		}
+	}
+	return out
+}
+
 // communityArticle renders the per-community article: key concepts (top
 // 25 by degree), cross-community relationships, source files, and an
 // audit-trail breakdown by edge confidence.
-func communityArticle(cid string, members []schema.Node, labels map[string]string, nodeMap map[string]schema.Node, adj map[string][]string, edges []schema.Edge, degree map[string]int) string {
-	label := labels[cid]
-	memberIDs := map[string]bool{}
-	for _, m := range members {
-		memberIDs[m.ID] = true
-	}
+func communityArticle(cid string, members []schema.Node, labels map[string]string, nodeMap map[string]schema.Node, adj map[string][]string, degree map[string]int, audit communityAudit) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", labels[cid])
+	fmt.Fprintf(&b, "> %d nodes\n\n", len(members))
 
-	// Top 25 by degree.
+	renderKeyConcepts(&b, members, degree)
+	renderRelationships(&b, cid, members, adj, nodeMap, labels)
+	renderSourceFiles(&b, members)
+	renderAuditTrail(&b, audit)
+
+	b.WriteString("---\n\n*Part of the gogfy knowledge wiki. See [[index]] to navigate.*\n")
+	return b.String()
+}
+
+func renderKeyConcepts(b *strings.Builder, members []schema.Node, degree map[string]int) {
 	sort.Slice(members, func(i, j int) bool {
 		return degree[members[i].ID] > degree[members[j].ID]
 	})
-	topN := 25
-	if len(members) < topN {
-		topN = len(members)
+	topN := min(25, len(members))
+	b.WriteString("## Key Concepts\n\n")
+	for _, n := range members[:topN] {
+		src := ""
+		if n.SourceFile != "" {
+			src = fmt.Sprintf(" — `%s`", n.SourceFile)
+		}
+		fmt.Fprintf(b, "- **%s** (%d connections)%s\n", n.Label, degree[n.ID], src)
 	}
-	top := members[:topN]
-	remaining := len(members) - topN
+	if remaining := len(members) - topN; remaining > 0 {
+		fmt.Fprintf(b, "- *... and %d more nodes in this community*\n", remaining)
+	}
+	b.WriteString("\n")
+}
 
-	// Cross-community neighbor counts.
+func renderRelationships(b *strings.Builder, cid string, members []schema.Node, adj map[string][]string, nodeMap map[string]schema.Node, labels map[string]string) {
 	crossCounts := map[string]int{}
 	for _, m := range members {
 		for _, neighborID := range adj[m.ID] {
@@ -181,11 +238,7 @@ func communityArticle(cid string, members []schema.Node, labels map[string]strin
 				continue
 			}
 			if n.Community != "" && n.Community != cid {
-				other := labels[n.Community]
-				if other == "" {
-					other = "Community " + n.Community
-				}
-				crossCounts[other]++
+				crossCounts[labels[n.Community]]++
 			}
 		}
 	}
@@ -204,85 +257,50 @@ func communityArticle(cid string, members []schema.Node, labels map[string]strin
 		return crosses[i].label < crosses[j].label
 	})
 
-	// Source files.
+	b.WriteString("## Relationships\n\n")
+	if len(crosses) == 0 {
+		b.WriteString("- No strong cross-community connections detected\n\n")
+		return
+	}
+	for _, c := range crosses[:min(12, len(crosses))] {
+		fmt.Fprintf(b, "- [[%s]] (%d shared connections)\n", c.label, c.count)
+	}
+	b.WriteString("\n")
+}
+
+func renderSourceFiles(b *strings.Builder, members []schema.Node) {
 	srcSet := map[string]bool{}
 	for _, m := range members {
 		if m.SourceFile != "" {
 			srcSet[m.SourceFile] = true
 		}
 	}
+	if len(srcSet) == 0 {
+		return
+	}
 	sources := make([]string, 0, len(srcSet))
 	for s := range srcSet {
 		sources = append(sources, s)
 	}
 	sort.Strings(sources)
-
-	// Audit trail (confidence breakdown for edges touching this community).
-	confCounts := map[schema.Confidence]int{}
-	var totalEdges int
-	for _, e := range edges {
-		if memberIDs[e.Source] || memberIDs[e.Target] {
-			confCounts[e.Confidence]++
-			totalEdges++
-		}
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n\n", label)
-	fmt.Fprintf(&b, "> %d nodes\n\n", len(members))
-
-	b.WriteString("## Key Concepts\n\n")
-	for _, n := range top {
-		src := ""
-		if n.SourceFile != "" {
-			src = fmt.Sprintf(" — `%s`", n.SourceFile)
-		}
-		fmt.Fprintf(&b, "- **%s** (%d connections)%s\n", n.Label, degree[n.ID], src)
-	}
-	if remaining > 0 {
-		fmt.Fprintf(&b, "- *... and %d more nodes in this community*\n", remaining)
+	b.WriteString("## Source Files\n\n")
+	for _, s := range sources[:min(20, len(sources))] {
+		fmt.Fprintf(b, "- `%s`\n", s)
 	}
 	b.WriteString("\n")
+}
 
-	b.WriteString("## Relationships\n\n")
-	if len(crosses) == 0 {
-		b.WriteString("- No strong cross-community connections detected\n")
-	} else {
-		max := 12
-		if len(crosses) < max {
-			max = len(crosses)
-		}
-		for _, c := range crosses[:max] {
-			fmt.Fprintf(&b, "- [[%s]] (%d shared connections)\n", c.label, c.count)
-		}
-	}
-	b.WriteString("\n")
-
-	if len(sources) > 0 {
-		b.WriteString("## Source Files\n\n")
-		max := 20
-		if len(sources) < max {
-			max = len(sources)
-		}
-		for _, s := range sources[:max] {
-			fmt.Fprintf(&b, "- `%s`\n", s)
-		}
-		b.WriteString("\n")
-	}
-
+func renderAuditTrail(b *strings.Builder, audit communityAudit) {
 	b.WriteString("## Audit Trail\n\n")
 	for _, c := range []schema.Confidence{schema.Extracted, schema.Inferred, schema.Ambiguous} {
-		n := confCounts[c]
+		n := audit.counts[c]
 		pct := 0
-		if totalEdges > 0 {
-			pct = (n * 100) / totalEdges
+		if audit.total > 0 {
+			pct = (n * 100) / audit.total
 		}
-		fmt.Fprintf(&b, "- %s: %d (%d%%)\n", c.String(), n, pct)
+		fmt.Fprintf(b, "- %s: %d (%d%%)\n", c.String(), n, pct)
 	}
 	b.WriteString("\n")
-
-	b.WriteString("---\n\n*Part of the gogfy knowledge wiki. See [[index]] to navigate.*\n")
-	return b.String()
 }
 
 func godNodeArticle(g schema.Node, nodeMap map[string]schema.Node, adj map[string][]string, labels map[string]string, degree map[string]int) string {
@@ -302,14 +320,10 @@ func godNodeArticle(g schema.Node, nodeMap map[string]schema.Node, adj map[strin
 		fmt.Fprintf(&b, "**Community:** [[%s]]\n\n", cname)
 	}
 
-	// Group neighbors by relation. We don't have direct access to edges
-	// from here, but we can reconstruct relation labels by walking the
-	// adjacency map — except adj loses the relation. For graphify-parity
-	// we need a relation breakdown, so the article passes through a
-	// best-effort "related" bucket for now; richer relation-aware god
-	// articles need an edge-by-source map (future enhancement).
+	// graphify groups neighbors by edge relation (### calls / ### imports).
+	// adj here is relation-less, so we list a flat degree-ordered set —
+	// a follow-up using an edge-indexed walker can add the grouping.
 	neighbors := adj[g.ID]
-	// Dedup + sort by neighbor degree desc for stable, useful ordering.
 	seen := map[string]bool{}
 	uniq := make([]string, 0, len(neighbors))
 	for _, n := range neighbors {
@@ -323,10 +337,7 @@ func godNodeArticle(g schema.Node, nodeMap map[string]schema.Node, adj map[strin
 	})
 
 	b.WriteString("## Connections\n\n")
-	maxN := 30
-	if len(uniq) < maxN {
-		maxN = len(uniq)
-	}
+	maxN := min(30, len(uniq))
 	for _, nid := range uniq[:maxN] {
 		n, ok := nodeMap[nid]
 		if !ok {
@@ -409,6 +420,8 @@ func safeFilename(name string) string {
 }
 
 // uniqueSlug returns base if it hasn't been used, otherwise base_2, _3, …
+// The unbounded loop terminates because `used` grows by at most one entry
+// per call: at most len(used)+1 iterations are ever needed.
 func uniqueSlug(used map[string]bool, base string) string {
 	if !used[base] {
 		used[base] = true
