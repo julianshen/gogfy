@@ -38,3 +38,4 @@ graphify-out/
 
 # Playwright MCP snapshot/console dumps (created when scouting external docs)
 .playwright-mcp/
+gogfy

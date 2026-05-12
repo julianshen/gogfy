@@ -33,6 +33,8 @@ require (
 
 require (
 	github.com/UserNobody14/tree-sitter-dart v0.0.0-20260508020638-507c5546dc73 // indirect
+	github.com/dgryski/go-minhash v0.0.0-20190315135803-ad340ca03076 // indirect
+	github.com/dgryski/go-spooky v0.0.0-20170606183049-ed3d087f40e2 // indirect
 	github.com/julianshen/tree-sitter-erlang v0.0.0-20260510145358-80fab4f46bdf // indirect
 	github.com/julianshen/tree-sitter-r v1.2.1-0.20260510134556-9a03ef5f3473 // indirect
 	github.com/julianshen/tree-sitter-swift v0.0.0-20260510074952-3d85c1637e38 // indirect
@@ -40,6 +42,7 @@ require (
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/stadelmanma/tree-sitter-fortran v0.6.0 // indirect
 	github.com/tree-sitter/tree-sitter-elixir v0.0.0-00010101000000-000000000000 // indirect
+	github.com/xrash/smetrics v0.0.0-20250705151800-55b8f293f342 // indirect
 	github.com/yuin/goldmark v1.8.2 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect

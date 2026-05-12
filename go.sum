@@ -3,6 +3,10 @@ github.com/UserNobody14/tree-sitter-dart v0.0.0-20260508020638-507c5546dc73/go.m
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/dgryski/go-minhash v0.0.0-20190315135803-ad340ca03076 h1:EB7M2v8Svo3kvIDy+P1YDE22XskDQP+TEYGzeDwPAN4=
+github.com/dgryski/go-minhash v0.0.0-20190315135803-ad340ca03076/go.mod h1:VBi0XHpFy0xiMySf6YpVbRqrupW4RprJ5QTyN+XvGSM=
+github.com/dgryski/go-spooky v0.0.0-20170606183049-ed3d087f40e2 h1:lx1ZQgST/imDhmLpYDma1O3Cx9L+4Ie4E8S2RjFPQ30=
+github.com/dgryski/go-spooky v0.0.0-20170606183049-ed3d087f40e2/go.mod h1:hgHYKsoIw7S/hlWtP7wD1wZ7SX1jPTtKko5X9jrOgPQ=
 github.com/elixir-lang/tree-sitter-elixir v0.3.4 h1:M0Wc3XXEJyGpVELOzxqhV069bBsRAQyGdehWw/G+nWk=
 github.com/elixir-lang/tree-sitter-elixir v0.3.4/go.mod h1:wNBVf64kzvhSbZ8ojVtBF1jRiqGY0lsuK5Kx/60s6Z0=
 github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=
@@ -83,6 +87,8 @@ github.com/tree-sitter/tree-sitter-typescript v0.23.2 h1:/Odvphn18PniVixb9e97X0D
 github.com/tree-sitter/tree-sitter-typescript v0.23.2/go.mod h1:zjzMXT/Ulffel2xfOcAkQQkiAkmgnbtPGlFQw/5X4xA=
 github.com/vsuryav/leiden-go v0.0.0-20251120005855-0f56599dc139 h1:B7eZGMTUwygvqrkmXnjk9hc8qd6Auq5yc8x71JICamc=
 github.com/vsuryav/leiden-go v0.0.0-20251120005855-0f56599dc139/go.mod h1:adNE0+GTqJpi/ET5gKkG4dozKaLe4gIRlkfpVTms/Ag=
+github.com/xrash/smetrics v0.0.0-20250705151800-55b8f293f342 h1:FnBeRrxr7OU4VvAzt5X7s6266i6cSVkkFPS0TuXWbIg=
+github.com/xrash/smetrics v0.0.0-20250705151800-55b8f293f342/go.mod h1:Ohn+xnUBiLI6FVj/9LpzZWtj1/D6lUovWYBkxHVV3aM=
 github.com/yuin/goldmark v1.8.2 h1:kEGpgqJXdgbkhcOgBxkC0X0PmoPG1ZyoZ117rDVp4zE=
 github.com/yuin/goldmark v1.8.2/go.mod h1:ip/1k0VRfGynBgxOz0yCqHrbZXhcjxyuS66Brc7iBKg=
 golang.org/x/net v0.54.0 h1:2zJIZAxAHV/OHCDTCOHAYehQzLfSXuf/5SoL/Dv6w/w=
