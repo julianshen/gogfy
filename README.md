@@ -121,6 +121,8 @@ gogfy validate <graph.json>               # schema check
 gogfy report <graph.json>                 # render GRAPH_REPORT.md to stdout
 gogfy path <source> <target>              # shortest connectivity path between two nodes
 gogfy merge-graphs a.json b.json --out merged.json    # union per-repo graphs
+gogfy run . --wiki                        # also emit graphify-out/wiki/ (agent-crawlable markdown)
+gogfy wiki graphify-out/graph.json        # generate wiki from an existing graph
 ```
 
 ### Agent platform integration
