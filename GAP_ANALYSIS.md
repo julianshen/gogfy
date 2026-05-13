@@ -113,8 +113,8 @@
 ### 2.4 Clustering
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
-| Community splitting | Missing | Upstream splits oversized communities (>25% of graph, min 10) and low-cohesion communities (<0.05, min 50) with second Leiden pass |
-| Cohesion scoring | Missing | Upstream computes cohesion_score per community (intra-community edges / max possible) |
+| Community splitting | **Done** | Oversized communities (>25% of graph, min 10) and low-cohesion communities (<0.05, min 50) split with second Leiden pass |
+| Cohesion scoring | **Done** | `cohesionScore()` computes intra-community edges / max possible |
 | Louvain fallback | Partial | gogfy has ConnectedComponents fallback; upstream tries graspologic Leiden then networkx Louvain |
 | Community labels | Missing | Upstream generates `.graphify_labels.json` with human-readable community names |
 
@@ -270,7 +270,7 @@
 | Aspect | Upstream | gogfy |
 |--------|----------|-------|
 | Algorithm | Leiden (graspologic) → Louvain fallback | Leiden (leiden-go) → ConnectedComponents fallback |
-| Community splitting | Yes (oversized + low-cohesion) | No |
+| Community splitting | Yes (oversized + low-cohesion) | Yes |
 | Isolate handling | Each isolate → own community | Each isolate → own community |
 | Re-indexing | By size descending | By first member sorted |
 | Determinism | Seed=42, stable ordering | Seed=42 + stable remapping by sorted members |
@@ -319,8 +319,8 @@
 ## 6. Recommended Priority Order for Closing Gaps
 
 ### P0 (Critical for parity)
-1. **Entity deduplication** — Implement MinHash/LSH + Jaro-Winkler pipeline (upstream `dedup.py`)
-2. **Community splitting** — Add oversized/low-cohesion community splitting (upstream `cluster.py`)
+1. ~~**Community splitting** — Add oversized/low-cohesion community splitting (upstream `cluster.py`)~~ ✅ Done
+2. **Entity deduplication** — Implement MinHash/LSH + Jaro-Winkler pipeline (upstream `dedup.py`)
 3. **Surprising connections scoring** — Implement composite score with all bonus factors
 4. **Report sections** — Add missing sections: Community Hubs, Hyperedges, Ambiguous Edges, Knowledge Gaps, Graph Freshness
 5. **God node filtering** — Exclude file nodes and method stubs from god node detection
