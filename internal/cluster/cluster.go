@@ -3,6 +3,7 @@ package cluster
 
 import (
 	"fmt"
+	"hash/fnv"
 	"sort"
 	"strconv"
 
@@ -84,11 +85,18 @@ func (c *ConnectedComponentsClusterer) Cluster(nodes []schema.Node, edges []sche
 
 // LeidenClusterer uses the Leiden algorithm for modularity-based community detection.
 // It produces higher-quality communities than connected components by optimizing modularity.
+// After the initial partition, oversized communities are split with a second Leiden pass
+// on the subgraph, and low-cohesion communities are re-split to break apart doc-hub
+// structures. Community IDs are assigned by size descending (0 = largest).
 type LeidenClusterer struct {
-	resolution        float64
-	maxIterations     int
-	minModularityGain float64
-	randomSeed        int64
+	resolution           float64
+	maxIterations        int
+	minModularityGain    float64
+	randomSeed           int64
+	maxCommunityFraction float64
+	minSplitSize         int
+	cohesionThreshold    float64
+	cohesionMinSize      int
 }
 
 // LeidenOption configures a LeidenClusterer.
@@ -114,13 +122,79 @@ func WithRandomSeed(s int64) LeidenOption {
 	return func(c *LeidenClusterer) { c.randomSeed = s }
 }
 
+// WithMaxCommunityFraction enables oversized-community splitting: any
+// community larger than f * |V| (and ≥ MinSplitSize) gets a second Leiden
+// pass on its subgraph. Zero or negative disables the feature; values
+// above 1.0 are clamped to 1.0 (which makes splitting impossible). The
+// raison d'être: Louvain/Leiden occasionally returns one community
+// holding 60%+ of nodes in graphs with strong hub structure, which
+// downstream collapses the GRAPH_REPORT's surprising-connections.
+func WithMaxCommunityFraction(f float64) LeidenOption {
+	return func(c *LeidenClusterer) {
+		if f < 0 {
+			f = 0
+		}
+		if f > 1.0 {
+			f = 1.0
+		}
+		c.maxCommunityFraction = f
+	}
+}
+
+// WithMinSplitSize sets the floor for oversized-community splitting:
+// communities below this size are left alone even if they exceed the
+// MaxCommunityFraction threshold. Negative values clamp to 0.
+func WithMinSplitSize(n int) LeidenOption {
+	return func(c *LeidenClusterer) {
+		if n < 0 {
+			n = 0
+		}
+		c.minSplitSize = n
+	}
+}
+
+// WithCohesionThreshold enables cohesion-based re-splitting: communities
+// at or above CohesionMinSize whose intra/possible-edges ratio is below
+// t get a second Leiden pass. Catches doc-hub structures the first pass
+// missed (the hub holds many low-cohesion neighbors together). Zero or
+// negative disables; values above 1.0 are clamped (cohesion is bounded
+// at 1.0, so values >1.0 would re-split every community).
+func WithCohesionThreshold(t float64) LeidenOption {
+	return func(c *LeidenClusterer) {
+		if t < 0 {
+			t = 0
+		}
+		if t > 1.0 {
+			t = 1.0
+		}
+		c.cohesionThreshold = t
+	}
+}
+
+// WithCohesionMinSize sets the minimum size for a community to be
+// considered for cohesion-based re-splitting. Negative values clamp to 0.
+func WithCohesionMinSize(n int) LeidenOption {
+	return func(c *LeidenClusterer) {
+		if n < 0 {
+			n = 0
+		}
+		c.cohesionMinSize = n
+	}
+}
+
 // NewLeidenClusterer creates a new LeidenClusterer with the given options.
 func NewLeidenClusterer(opts ...LeidenOption) *LeidenClusterer {
+	// Splitting (oversized + cohesion-based) is OPT-IN. Pre-existing
+	// callers of NewLeidenClusterer() must keep getting a pure Leiden
+	// partition — otherwise stable community IDs across releases break
+	// and downstream graph.json snapshots compare-fail.
 	c := &LeidenClusterer{
 		resolution:        1.0,
 		maxIterations:     100,
 		minModularityGain: 0.0001,
 		randomSeed:        42,
+		// maxCommunityFraction, minSplitSize, cohesionThreshold,
+		// cohesionMinSize all default to 0 — splitting disabled.
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -188,41 +262,109 @@ func (c *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 		return nil, fmt.Errorf("leiden clustering failed: %w", err)
 	}
 
-	// Build node -> community mapping.
-	// Leiden community IDs are non-deterministic even with a fixed seed,
-	// so we remap them to stable IDs derived from sorted member lists.
+	// Build initial communities from Leiden result.
 	communities := result.Partition.Communities()
-	type commEntry struct {
-		id      int
-		members []string
-	}
-	entries := make([]commEntry, 0, len(communities))
-	for commID, members := range communities {
+	var memberLists [][]string
+	assigned := make(map[string]bool)
+	for _, members := range communities {
 		m := make([]string, len(members))
 		copy(m, members)
-		sort.Strings(m)
-		entries = append(entries, commEntry{id: commID, members: m})
-	}
-	// Sort communities by their first member for stable ordering.
-	sort.Slice(entries, func(i, j int) bool {
-		if len(entries[i].members) == 0 {
-			return true
+		memberLists = append(memberLists, m)
+		for _, id := range members {
+			assigned[id] = true
 		}
-		if len(entries[j].members) == 0 {
-			return false
-		}
-		return entries[i].members[0] < entries[j].members[0]
-	})
-	stableCommID := make(map[int]string, len(entries))
-	for i, e := range entries {
-		stableCommID[e.id] = strconv.Itoa(i)
 	}
 
+	// Isolates (nodes with degree 0) are not assigned by Leiden.
+	for _, n := range nodes {
+		if !assigned[n.ID] {
+			memberLists = append(memberLists, []string{n.ID})
+		}
+	}
+
+	// Oversized-community splitting (opt-in: disabled when
+	// maxCommunityFraction <= 0). Iterate until either no community
+	// exceeds the threshold or the iteration cap is hit — the iteration
+	// cap guards against pathological subgraphs that Leiden refuses to
+	// split (always returns a single community), which would otherwise
+	// loop forever.
+	split := memberLists
+	if c.maxCommunityFraction > 0 {
+		const maxSplitPasses = 5
+		maxSize := max(c.minSplitSize, int(float64(len(nodes))*c.maxCommunityFraction))
+		for pass := 0; pass < maxSplitPasses; pass++ {
+			var next [][]string
+			changed := false
+			for _, members := range split {
+				if len(members) > maxSize {
+					subs, err := c.splitCommunity(members, adj)
+					if err != nil {
+						// Best-effort: log and keep the oversized
+						// community rather than aborting the whole
+						// cluster pass. Partial-progress preservation
+						// matters because Cluster() is called late in
+						// the pipeline.
+						fmt.Printf("cluster: oversized splitCommunity failed (size=%d): %v\n", len(members), err)
+						next = append(next, members)
+						continue
+					}
+					if len(subs) > 1 {
+						changed = true
+						next = append(next, subs...)
+					} else {
+						next = append(next, members)
+					}
+				} else {
+					next = append(next, members)
+				}
+			}
+			split = next
+			if !changed {
+				break
+			}
+		}
+	}
+
+	// Cohesion-based re-splitting (opt-in: disabled when
+	// cohesionThreshold <= 0). Single pass — re-splitting low-cohesion
+	// fragments recursively risks shattering a sparse but meaningful
+	// community into singletons.
+	secondPass := split
+	if c.cohesionThreshold > 0 {
+		secondPass = nil
+		for _, members := range split {
+			if len(members) >= c.cohesionMinSize && cohesionScore(members, adj) < c.cohesionThreshold {
+				subs, err := c.splitCommunity(members, adj)
+				if err != nil {
+					fmt.Printf("cluster: cohesion splitCommunity failed (size=%d): %v\n", len(members), err)
+					secondPass = append(secondPass, members)
+					continue
+				}
+				if len(subs) > 1 {
+					secondPass = append(secondPass, subs...)
+				} else {
+					secondPass = append(secondPass, members)
+				}
+			} else {
+				secondPass = append(secondPass, members)
+			}
+		}
+	}
+
+	// Re-index by size descending for deterministic ordering.
+	// Upstream convention: 0 = largest community after splitting.
+	sort.Slice(secondPass, func(i, j int) bool {
+		if li, lj := len(secondPass[i]), len(secondPass[j]); li != lj {
+			return li > lj
+		}
+		return secondPass[i][0] < secondPass[j][0]
+	})
+
 	nodeToComm := make(map[string]string, len(nodes))
-	for commID, members := range communities {
-		cid := stableCommID[commID]
-		for _, nodeID := range members {
-			nodeToComm[nodeID] = cid
+	for i, members := range secondPass {
+		cid := strconv.Itoa(i)
+		for _, id := range members {
+			nodeToComm[id] = cid
 		}
 	}
 
@@ -239,8 +381,7 @@ func (c *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 		if comm, ok := nodeToComm[n.ID]; ok {
 			clone.Community = comm
 		} else {
-			// Isolated nodes not in any community get their own stable ID.
-			clone.Community = strconv.Itoa(len(entries) + len(out))
+			clone.Community = strconv.Itoa(len(secondPass) + len(out))
 		}
 		out = append(out, clone)
 		delete(allNodeIDs, n.ID)
@@ -251,7 +392,7 @@ func (c *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 		if c, ok := nodeToComm[id]; ok {
 			comm = c
 		} else {
-			comm = strconv.Itoa(len(entries) + len(out))
+			comm = strconv.Itoa(len(secondPass) + len(out))
 		}
 		out = append(out, schema.Node{
 			ID:        id,
@@ -263,6 +404,138 @@ func (c *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].ID < out[j].ID
 	})
+
+	return out, nil
+}
+
+// deriveSeed computes a deterministic int64 seed from a slice of strings.
+// The members are sorted before hashing so the result is independent of
+// input order.
+func deriveSeed(members []string) int64 {
+	sorted := make([]string, len(members))
+	copy(sorted, members)
+	sort.Strings(sorted)
+	h := fnv.New64a()
+	for _, s := range sorted {
+		h.Write([]byte(s))
+		h.Write([]byte{0})
+	}
+	return int64(h.Sum64())
+}
+
+// cohesionScore = (intra-community edges) / (possible pairs). Self-loops
+// are skipped so the score stays bounded in [0, 1]. Uses adj instead of
+// scanning the full edge list — for the typical case of many small
+// communities the cost drops from O(|C|·|E|) to O(Σ degree within C).
+func cohesionScore(members []string, adj map[string]map[string]float64) float64 {
+	n := len(members)
+	if n == 0 {
+		return 0.0
+	}
+	if n == 1 {
+		return 1.0
+	}
+
+	memberSet := make(map[string]bool, n)
+	for _, id := range members {
+		memberSet[id] = true
+	}
+
+	// adj is symmetric; visit each undirected pair once by requiring src<dst.
+	actual := 0
+	for _, src := range members {
+		for dst := range adj[src] {
+			if src == dst {
+				continue
+			}
+			if src < dst && memberSet[dst] {
+				actual++
+			}
+		}
+	}
+
+	possible := float64(n) * float64(n-1) / 2
+	return float64(actual) / possible
+}
+
+// splitCommunity runs a second Leiden pass on the subgraph induced by members.
+// If the subgraph is edgeless, each member becomes its own singleton community.
+// If Leiden cannot split the subgraph (returns a single community), the original
+// members are returned unchanged.
+func (c *LeidenClusterer) splitCommunity(members []string, adj map[string]map[string]float64) ([][]string, error) {
+	memberSet := make(map[string]bool, len(members))
+	for _, id := range members {
+		memberSet[id] = true
+	}
+
+	subAdj := make(map[string]map[string]float64, len(members))
+	for _, id := range members {
+		subAdj[id] = make(map[string]float64)
+	}
+
+	hasEdges := false
+	for _, id := range members {
+		// Iterate over neighbors in sorted order for determinism.
+		neighbors := make([]string, 0, len(adj[id]))
+		for n := range adj[id] {
+			neighbors = append(neighbors, n)
+		}
+		sort.Strings(neighbors)
+		for _, neighbor := range neighbors {
+			if memberSet[neighbor] {
+				subAdj[id][neighbor] = adj[id][neighbor]
+				hasEdges = true
+			}
+		}
+	}
+
+	if !hasEdges {
+		result := make([][]string, len(members))
+		for i, id := range members {
+			result[i] = []string{id}
+		}
+		return result, nil
+	}
+
+	subgraph := leiden.NewGraph(subAdj)
+	// Derive a deterministic seed from the sorted member list so that
+	// splitCommunity is deterministic regardless of call order or any
+	// global RNG state inside leiden-go.
+	seed := deriveSeed(members)
+	config := &leiden.Config{
+		Resolution:        c.resolution,
+		MaxIterations:     c.maxIterations,
+		MinModularityGain: c.minModularityGain,
+		RandomSeed:        seed,
+	}
+
+	result, err := leiden.Leiden(subgraph, config)
+	if err != nil {
+		return nil, fmt.Errorf("leiden subgraph failed: %w", err)
+	}
+
+	communities := result.Partition.Communities()
+	if len(communities) <= 1 {
+		return [][]string{members}, nil
+	}
+
+	var out [][]string
+	assigned := make(map[string]bool)
+	for _, commMembers := range communities {
+		m := make([]string, len(commMembers))
+		copy(m, commMembers)
+		sort.Strings(m)
+		out = append(out, m)
+		for _, id := range m {
+			assigned[id] = true
+		}
+	}
+
+	for _, id := range members {
+		if !assigned[id] {
+			out = append(out, []string{id})
+		}
+	}
 
 	return out, nil
 }

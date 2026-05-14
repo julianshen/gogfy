@@ -17,6 +17,7 @@ import (
 	"github.com/julianshen/gogfy/internal/analyze"
 	"github.com/julianshen/gogfy/internal/cache"
 	"github.com/julianshen/gogfy/internal/cluster"
+	"github.com/julianshen/gogfy/internal/dedup"
 	"github.com/julianshen/gogfy/internal/detect"
 	"github.com/julianshen/gogfy/internal/export"
 	"github.com/julianshen/gogfy/internal/extract"
@@ -67,6 +68,7 @@ func dispatch(args []string, stderr io.Writer) error {
 		noViz := fs.Bool("no-viz", false, "skip graph.html (faster runs, smaller artifact set)")
 		emitWiki := fs.Bool("wiki", false, "also emit <out>/wiki/ (index + per-community + per-god-node markdown)")
 		emitTree := fs.Bool("tree", false, "also emit <out>/tree.html (D3 collapsible filesystem-tree view)")
+		noDedup := fs.Bool("no-dedup", false, "skip entity deduplication (faster, may produce duplicate nodes)")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
@@ -85,6 +87,7 @@ func dispatch(args []string, stderr io.Writer) error {
 			NoViz:       *noViz,
 			Wiki:        *emitWiki,
 			Tree:        *emitTree,
+			NoDedup:     *noDedup,
 		})
 	case "validate":
 		if len(rest) < 1 {
@@ -662,67 +665,67 @@ func watchCommand(root, out string, directed bool, stderr io.Writer) error {
 // handles them. Adding a new language means: (1) implement an Extractor in
 // internal/extract, (2) register its extension(s) here.
 var supportedExtensions = map[string]extract.Extractor{
-	".go":    extract.GoExtractor{},
-	".py":    extract.PythonExtractor{},
-	".js":    extract.JavaScriptExtractor{},
-	".jsx":   extract.JavaScriptExtractor{},
-	".mjs":   extract.JavaScriptExtractor{},
-	".cjs":   extract.JavaScriptExtractor{},
-	".ts":    extract.TypeScriptExtractor{},
-	".tsx":   extract.TypeScriptExtractor{TSX: true},
-	".java":  extract.JavaExtractor{},
-	".c":     extract.CExtractor{},
-	".h":     extract.CExtractor{},
-	".cpp":   extract.CppExtractor{},
-	".cc":    extract.CppExtractor{},
-	".cxx":   extract.CppExtractor{},
-	".hpp":   extract.CppExtractor{},
-	".hxx":   extract.CppExtractor{},
-	".hh":    extract.CppExtractor{},
-	".rs":    extract.RustExtractor{},
-	".rb":    extract.RubyExtractor{},
-	".yaml":  extract.YAMLExtractor{},
-	".yml":   extract.YAMLExtractor{},
-	".toml":  extract.TOMLExtractor{},
-	".kt":    extract.KotlinExtractor{},
-	".kts":   extract.KotlinExtractor{},
-	".scala": extract.ScalaExtractor{},
-	".sc":    extract.ScalaExtractor{},
-	".php":   extract.PHPExtractor{},
-	".lua":   extract.LuaExtractor{},
-	".zig":   extract.ZigExtractor{},
-	".jl":    extract.JuliaExtractor{},
-	".sh":    extract.BashExtractor{},
-	".bash":  extract.BashExtractor{},
-	".cs":     extract.CSharpExtractor{},
-	".hs":     extract.HaskellExtractor{},
-	".ml":     extract.OCamlExtractor{},
-	".mli":    extract.OCamlExtractor{},
-	".svelte": extract.SvelteExtractor{},
-	".f":      extract.FortranExtractor{},
-	".f90":    extract.FortranExtractor{},
-	".f95":    extract.FortranExtractor{},
-	".f03":    extract.FortranExtractor{},
-	".f08":    extract.FortranExtractor{},
-	".ex":     extract.ElixirExtractor{},
-	".exs":    extract.ElixirExtractor{},
-	".dart":   extract.DartExtractor{},
-	".swift":  extract.SwiftExtractor{},
-	".r":      extract.RExtractor{},
-	".R":      extract.RExtractor{},
-	".erl":    extract.ErlangExtractor{},
-	".hrl":    extract.ErlangExtractor{},
-	".md":     extract.MarkdownExtractor{},
-	".mdx":    extract.MarkdownExtractor{},
+	".go":       extract.GoExtractor{},
+	".py":       extract.PythonExtractor{},
+	".js":       extract.JavaScriptExtractor{},
+	".jsx":      extract.JavaScriptExtractor{},
+	".mjs":      extract.JavaScriptExtractor{},
+	".cjs":      extract.JavaScriptExtractor{},
+	".ts":       extract.TypeScriptExtractor{},
+	".tsx":      extract.TypeScriptExtractor{TSX: true},
+	".java":     extract.JavaExtractor{},
+	".c":        extract.CExtractor{},
+	".h":        extract.CExtractor{},
+	".cpp":      extract.CppExtractor{},
+	".cc":       extract.CppExtractor{},
+	".cxx":      extract.CppExtractor{},
+	".hpp":      extract.CppExtractor{},
+	".hxx":      extract.CppExtractor{},
+	".hh":       extract.CppExtractor{},
+	".rs":       extract.RustExtractor{},
+	".rb":       extract.RubyExtractor{},
+	".yaml":     extract.YAMLExtractor{},
+	".yml":      extract.YAMLExtractor{},
+	".toml":     extract.TOMLExtractor{},
+	".kt":       extract.KotlinExtractor{},
+	".kts":      extract.KotlinExtractor{},
+	".scala":    extract.ScalaExtractor{},
+	".sc":       extract.ScalaExtractor{},
+	".php":      extract.PHPExtractor{},
+	".lua":      extract.LuaExtractor{},
+	".zig":      extract.ZigExtractor{},
+	".jl":       extract.JuliaExtractor{},
+	".sh":       extract.BashExtractor{},
+	".bash":     extract.BashExtractor{},
+	".cs":       extract.CSharpExtractor{},
+	".hs":       extract.HaskellExtractor{},
+	".ml":       extract.OCamlExtractor{},
+	".mli":      extract.OCamlExtractor{},
+	".svelte":   extract.SvelteExtractor{},
+	".f":        extract.FortranExtractor{},
+	".f90":      extract.FortranExtractor{},
+	".f95":      extract.FortranExtractor{},
+	".f03":      extract.FortranExtractor{},
+	".f08":      extract.FortranExtractor{},
+	".ex":       extract.ElixirExtractor{},
+	".exs":      extract.ElixirExtractor{},
+	".dart":     extract.DartExtractor{},
+	".swift":    extract.SwiftExtractor{},
+	".r":        extract.RExtractor{},
+	".R":        extract.RExtractor{},
+	".erl":      extract.ErlangExtractor{},
+	".hrl":      extract.ErlangExtractor{},
+	".md":       extract.MarkdownExtractor{},
+	".mdx":      extract.MarkdownExtractor{},
 	".markdown": extract.MarkdownExtractor{},
-	".html":   extract.HTMLExtractor{},
-	".htm":    extract.HTMLExtractor{},
-	".txt":    extract.TextExtractor{},
-	".rst":    extract.RSTExtractor{},
-	".docx":   extract.DocxExtractor{},
-	".xlsx":   extract.XlsxExtractor{},
-	".pdf":    extract.PDFExtractor{},
-	".pptx":   extract.PPTXExtractor{},
+	".html":     extract.HTMLExtractor{},
+	".htm":      extract.HTMLExtractor{},
+	".txt":      extract.TextExtractor{},
+	".rst":      extract.RSTExtractor{},
+	".docx":     extract.DocxExtractor{},
+	".xlsx":     extract.XlsxExtractor{},
+	".pdf":      extract.PDFExtractor{},
+	".pptx":     extract.PPTXExtractor{},
 }
 
 func supportedExtensionsList() []string {
@@ -753,6 +756,9 @@ type runOptions struct {
 	// Tree emits <out>/tree.html — a D3 collapsible filesystem-tree
 	// view of the graph (complement to the force-directed graph.html).
 	Tree bool
+	// NoDedup skips entity deduplication. Faster but may produce
+	// duplicate nodes for the same real-world concept.
+	NoDedup bool
 }
 
 // runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
@@ -906,6 +912,20 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	// multiple candidates). Cross-file calls otherwise stay EXTRACTED with
 	// the synthetic target preserved.
 	nodes, edges := resolve.Calls(g.Nodes(), g.Edges())
+
+	// Entity deduplication (three-pass: exact → fuzzy → LLM tiebreaker)
+	if !opts.NoDedup {
+		deduper := dedup.NewDeduplicator()
+		// Build community map for pass 2 community boost
+		commMap := make(map[string]string, len(nodes))
+		for _, n := range nodes {
+			commMap[n.ID] = n.Community
+		}
+		nodes, edges, _, err = deduper.Deduplicate(nodes, edges, commMap)
+		if err != nil {
+			return fmt.Errorf("dedup: %w", err)
+		}
+	}
 
 	clusterer := cluster.NewLeidenClusterer()
 	clusteredNodes, err := clusterer.Cluster(nodes, edges)
