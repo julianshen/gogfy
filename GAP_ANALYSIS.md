@@ -146,7 +146,7 @@
 | Obsidian Canvas | Missing | Upstream generates .canvas file with community groups |
 | SVG static export | Missing | Upstream has matplotlib-based static SVG |
 | Neo4j direct push | Missing | Upstream can push directly to Neo4j via Python driver |
-| Callflow HTML | Missing | Upstream generates Mermaid-based architecture HTML |
+| Callflow HTML | **Done (v1)** | gogfy `callflow` subcommand: section-level overview + per-section Mermaid LR. v1 omits bilingual/labels-file/GRAPH_REPORT integration. |
 | Node limit / aggregation | Missing | Upstream auto-aggregates to community-level view when graph exceeds 5000 nodes |
 | Confidence score defaults | Missing | Upstream adds `confidence_score` field to edges in JSON |
 | Built-at commit metadata | Missing | Upstream embeds git HEAD in graph.json |
@@ -195,7 +195,7 @@
 | `graphify export obsidian` | `__main__.py` | Obsidian vault export |
 | `graphify export svg` | `__main__.py` | Static SVG export |
 | `graphify export neo4j` | `__main__.py` | Direct Neo4j push |
-| `graphify export callflow-html` | `__main__.py` | Mermaid architecture HTML |
+| `graphify export callflow-html` | `__main__.py` | Mermaid architecture HTML (gogfy: `gogfy callflow <graph.json>`) ✅ v1 |
 | `graphify hook-check` | `__main__.py` | Cross-platform no-op for hooks |
 
 ### 3.2 Core Pipeline Features
