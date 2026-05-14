@@ -188,7 +188,7 @@
 | `graphify explain "<node>"` | `__main__.py` | Plain-language node explanation |
 | `graphify save-result` | `__main__.py` | Save Q&A to memory/ for feedback loop |
 | `graphify check-update` | `__main__.py` | Cron-safe update check |
-| `graphify benchmark` | `__main__.py` | Token reduction measurement |
+| `graphify benchmark` | `__main__.py` | Token reduction measurement (gogfy: `gogfy benchmark <graph.json>`) ✅ |
 | `graphify clone <github-url>` | `__main__.py` | Clone repos to cache |
 | `graphify add <url>` | `__main__.py` | Fetch URL into corpus |
 | `graphify global add/remove/list/path` | `__main__.py` | Cross-repo global graph management |
@@ -337,7 +337,7 @@
 12. **Transcription** — Video/audio pipeline via whisper
 13. **URL ingestion** — Fetch and convert web content
 14. **Platform hooks** — PreToolUse/BeforeTool hooks for Claude/Gemini/Codex
-15. **Benchmark** — Token reduction measurement
+15. ~~**Benchmark** — Token reduction measurement~~ ✅ Done
 
 ---
 

@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/julianshen/gogfy/internal/analyze"
+	"github.com/julianshen/gogfy/internal/benchmark"
 	"github.com/julianshen/gogfy/internal/cache"
 	"github.com/julianshen/gogfy/internal/cluster"
 	"github.com/julianshen/gogfy/internal/dedup"
@@ -121,6 +122,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return wikiCommand(rest, stderr)
 	case "tree":
 		return treeCommand(rest, stderr)
+	case "benchmark":
+		return benchmarkCommand(rest, os.Stdout, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -277,6 +280,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy tree <graph.json> [--out <html-path>]")
+	fmt.Fprintln(w, "       gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> install   # combo: mcp + snippet + hook in one shot")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> uninstall # remove all three")
 }
@@ -1130,6 +1134,46 @@ func treeCommand(args []string, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stderr, "tree: wrote %s\n", dst)
 	return nil
+}
+
+// benchmarkCommand measures token-reduction against an existing graph.json.
+// Usage: gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]
+func benchmarkCommand(args []string, stdout, stderr io.Writer) error {
+	ordered, err := groupWikiFlags(args) // same positional+flags shape
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("benchmark", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	corpusWords := fs.Int("corpus-words", 0, "authoritative source-corpus word count (0 = estimate from node count)")
+	depth := fs.Int("depth", 0, "BFS depth from question seeds (0 = default 3)")
+	asJSON := fs.Bool("json", false, "emit the raw Result as JSON instead of the human-readable report")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("benchmark: expected <graph.json>, got %d positional argument(s)", fs.NArg())
+	}
+	g, err := loadGraph(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	res, err := benchmark.Run(g.Nodes, g.Edges, benchmark.Options{
+		CorpusWords: *corpusWords,
+		Depth:       *depth,
+	})
+	if err != nil {
+		return fmt.Errorf("benchmark: %w", err)
+	}
+	if *asJSON {
+		out, err := json.MarshalIndent(res, "", "  ")
+		if err != nil {
+			return fmt.Errorf("benchmark: marshal: %w", err)
+		}
+		_, err = fmt.Fprintln(stdout, string(out))
+		return err
+	}
+	return benchmark.Render(res, stdout)
 }
 
 // wikiCommand turns an existing graph.json into a wiki directory.
