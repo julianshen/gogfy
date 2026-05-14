@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,46 @@ func TestDispatchReportSubcommand(t *testing.T) {
 	}
 	if err := dispatch([]string{"report", filepath.Join(out, "graph.json")}, os.Stderr); err != nil {
 		t.Fatalf("dispatch report: %v", err)
+	}
+}
+
+func TestDispatchBenchmarkSubcommand(t *testing.T) {
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(out, "graph.json")
+	// The benchmark sample-question seeds won't match the mini-corpus
+	// labels, so we use a custom prompt that does. Tests the
+	// flag-reorderer's recognition of --corpus-words/--json/--depth
+	// when the positional appears before them.
+	if err := dispatch([]string{
+		"benchmark", graphPath,
+		"--corpus-words", "1000",
+		"--depth", "2",
+		"--json",
+	}, os.Stderr); err == nil {
+		// mini-corpus has labels "Hello" / "main" — "main" hits the
+		// default "what is the main entry point" question, so we
+		// expect success.
+		return
+	} else if !strings.Contains(err.Error(), "no matching nodes") {
+		t.Fatalf("dispatch benchmark: %v", err)
+	}
+}
+
+func TestDispatchBenchmarkRejectsUnknownFlag(t *testing.T) {
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(out, "graph.json")
+	err := dispatch([]string{"benchmark", graphPath, "--no-such-flag", "x"}, os.Stderr)
+	if err == nil {
+		t.Fatal("expected error for unknown flag")
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("expected 'unknown flag' error, got: %v", err)
 	}
 }
 

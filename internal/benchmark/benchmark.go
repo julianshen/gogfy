@@ -2,10 +2,10 @@
 // LLM needs to read to answer a question against the graph compared to
 // reading the whole corpus.
 //
-// Mirrors upstream graphify's benchmark.py: BFS from best-label-match
+// Mirrors upstream graphify's benchmark.py — BFS from best-label-match
 // nodes to depth N, format the subgraph as NODE/EDGE lines, then
 // compare estimated tokens against a corpus-tokens baseline derived
-// from word count.
+// from word count (words * 100 / 75 ≈ tokens).
 package benchmark
 
 import (
@@ -18,20 +18,16 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
-// defaultCharsPerToken is the standard approximation: ~4 ASCII chars per token.
-const defaultCharsPerToken = 4
+const (
+	defaultCharsPerToken = 4
+	defaultDepth         = 3
+	// wordsPerNodeEstimate: ~3 words of identifier + ~47 words of
+	// source context per node. Only used when CorpusWords is unset.
+	wordsPerNodeEstimate = 50
+)
 
-// defaultDepth controls how far BFS expands from the question's seed nodes.
-const defaultDepth = 3
-
-// wordsPerNodeEstimate is the upstream heuristic: each node is ~3 words
-// of identifier + ~47 words of source context. Used only when the
-// caller didn't supply an authoritative CorpusWords (from detect()).
-const wordsPerNodeEstimate = 50
-
-// defaultQuestions are the five sample prompts the report uses to
-// produce a representative reduction-ratio. Mirrors upstream exactly so
-// gogfy and graphify benchmark outputs are comparable on the same repo.
+// defaultQuestions mirrors upstream so gogfy and graphify benchmarks
+// on the same repo produce directly comparable numbers.
 var defaultQuestions = []string{
 	"how does authentication work",
 	"what is the main entry point",
@@ -42,25 +38,24 @@ var defaultQuestions = []string{
 
 // Options tunes a benchmark run.
 type Options struct {
-	// CorpusWords is the authoritative word count for the source
-	// corpus (e.g. from `detect` output). When 0, estimated from the
-	// node count: nodes * wordsPerNodeEstimate.
+	// CorpusWords is the authoritative word count from detect(). When
+	// 0, estimated from node count * wordsPerNodeEstimate.
 	CorpusWords int
 
 	// Questions overrides the default sample questions entirely. When
 	// nil or empty, defaultQuestions is used.
 	Questions []string
 
-	// Depth bounds the BFS expansion from each question's seeds. When
-	// 0, defaultDepth is used. Negative values are treated as 0.
+	// Depth bounds BFS expansion from each question's seeds. Zero or
+	// negative selects defaultDepth.
 	Depth int
 
-	// CharsPerToken is the chars→tokens approximation. When 0,
-	// defaultCharsPerToken is used.
+	// CharsPerToken is the chars→tokens approximation. Zero selects
+	// defaultCharsPerToken.
 	CharsPerToken int
 }
 
-// PerQuestion captures the per-prompt cost and savings.
+// PerQuestion captures one prompt's cost and savings ratio.
 type PerQuestion struct {
 	Question    string  `json:"question"`
 	QueryTokens int     `json:"query_tokens"`
@@ -78,21 +73,18 @@ type Result struct {
 	PerQuestion    []PerQuestion `json:"per_question"`
 }
 
-// Run executes the benchmark against the given graph and options.
+// Run executes the benchmark.
 //
-// Returns an error when *no* configured question matches any node — a
-// silent zero-ratio result would be misleading (the user likely forgot
-// to build the graph, or supplied prompts unrelated to the corpus).
+// Returns an error when no configured question matches any node — a
+// silent zero-ratio result would mislead the user (most common cause:
+// graph not built, or prompts unrelated to the corpus).
 func Run(nodes []schema.Node, edges []schema.Edge, opts Options) (Result, error) {
 	cpt := opts.CharsPerToken
 	if cpt <= 0 {
 		cpt = defaultCharsPerToken
 	}
 	depth := opts.Depth
-	if depth < 0 {
-		depth = 0
-	}
-	if depth == 0 && opts.Depth == 0 {
+	if depth <= 0 {
 		depth = defaultDepth
 	}
 	questions := opts.Questions
@@ -104,14 +96,14 @@ func Run(nodes []schema.Node, edges []schema.Edge, opts Options) (Result, error)
 	if corpusWords <= 0 {
 		corpusWords = len(nodes) * wordsPerNodeEstimate
 	}
-	// Upstream conversion: 100 words ≈ 133 tokens (words * 100 / 75).
+	// Upstream conversion: 100 words ≈ 133 tokens.
 	corpusTokens := corpusWords * 100 / 75
 
-	adj, nodeByID := buildAdjacency(nodes, edges)
+	ctx := newQueryContext(nodes, edges, depth, cpt)
 
 	per := make([]PerQuestion, 0, len(questions))
 	for _, q := range questions {
-		qt := queryTokens(q, nodes, edges, adj, nodeByID, depth, cpt)
+		qt := ctx.queryTokens(q)
 		if qt <= 0 {
 			continue
 		}
@@ -147,14 +139,12 @@ func Run(nodes []schema.Node, edges []schema.Edge, opts Options) (Result, error)
 	}, nil
 }
 
-// Render prints a human-readable report (mirrors upstream layout).
+// Render prints a human-readable report mirroring upstream's layout.
 func Render(r Result, w io.Writer) error {
-	if r.Nodes == 0 && r.CorpusTokens == 0 && len(r.PerQuestion) == 0 {
+	if r.Nodes == 0 && len(r.PerQuestion) == 0 {
 		return errors.New("benchmark: empty Result — call Run first")
 	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
+	fmt.Fprintln(w)
 	fmt.Fprintln(w, "gogfy token reduction benchmark")
 	fmt.Fprintln(w, strings.Repeat("-", 50))
 	fmt.Fprintf(w, "  Corpus:          %s words -> ~%s tokens (naive)\n",
@@ -171,8 +161,8 @@ func Render(r Result, w io.Writer) error {
 	return nil
 }
 
-// estimateTokens approximates LLM token count via chars/cpt with a
-// floor of 1 (matches upstream `max(1, len // 4)`).
+// estimateTokens approximates LLM tokens via chars/cpt with a floor of
+// 1 (matches upstream's `max(1, len // 4)`).
 func estimateTokens(text string, charsPerToken int) int {
 	if charsPerToken <= 0 {
 		charsPerToken = defaultCharsPerToken
@@ -183,42 +173,65 @@ func estimateTokens(text string, charsPerToken int) int {
 	return 1
 }
 
-// buildAdjacency returns an undirected adjacency map keyed by node ID
-// plus an id→node lookup. Neighbors are slices (sorted lazily on first
-// use in BFS for determinism).
-func buildAdjacency(nodes []schema.Node, edges []schema.Edge) (map[string][]string, map[string]schema.Node) {
+// queryContext holds the per-Run-invariant indexes. Building these
+// once (instead of per-question) makes question-scaling O(Q) instead
+// of O(Q·N).
+type queryContext struct {
+	nodes         []schema.Node
+	adj           map[string][]string
+	nodeByID      map[string]schema.Node
+	relation      map[edgeKey]string
+	lowerLabels   []string // parallel to nodes
+	depth         int
+	charsPerToken int
+}
+
+type edgeKey struct{ a, b string }
+
+func makeEdgeKey(u, v string) edgeKey {
+	if u <= v {
+		return edgeKey{u, v}
+	}
+	return edgeKey{v, u}
+}
+
+func newQueryContext(nodes []schema.Node, edges []schema.Edge, depth, cpt int) *queryContext {
 	adj := make(map[string][]string, len(nodes))
 	nodeByID := make(map[string]schema.Node, len(nodes))
 	for _, n := range nodes {
 		nodeByID[n.ID] = n
-		// Initialize so isolates appear in adj with an empty slice.
-		if _, ok := adj[n.ID]; !ok {
-			adj[n.ID] = nil
-		}
 	}
+	relation := make(map[edgeKey]string, len(edges))
 	for _, e := range edges {
 		adj[e.Source] = append(adj[e.Source], e.Target)
 		adj[e.Target] = append(adj[e.Target], e.Source)
+		k := makeEdgeKey(e.Source, e.Target)
+		if _, ok := relation[k]; !ok {
+			relation[k] = e.Relation
+		}
 	}
-	// Sort neighbor lists once so BFS expansion is deterministic.
 	for id := range adj {
 		sort.Strings(adj[id])
 	}
-	return adj, nodeByID
+	lowerLabels := make([]string, len(nodes))
+	for i, n := range nodes {
+		lowerLabels[i] = strings.ToLower(n.Label)
+	}
+	return &queryContext{
+		nodes:         nodes,
+		adj:           adj,
+		nodeByID:      nodeByID,
+		relation:      relation,
+		lowerLabels:   lowerLabels,
+		depth:         depth,
+		charsPerToken: cpt,
+	}
 }
 
-// queryTokens runs BFS from the top-scoring label-match nodes for one
-// question and returns the estimated token cost of the
-// NODE/EDGE-formatted subgraph context.
-func queryTokens(
-	question string,
-	nodes []schema.Node,
-	edges []schema.Edge,
-	adj map[string][]string,
-	nodeByID map[string]schema.Node,
-	depth, charsPerToken int,
-) int {
-	seeds := bestMatches(question, nodes)
+// queryTokens runs BFS from the top label-match seeds and returns the
+// estimated token cost of the NODE/EDGE-formatted subgraph.
+func (q *queryContext) queryTokens(question string) int {
+	seeds := q.bestMatches(question)
 	if len(seeds) == 0 {
 		return 0
 	}
@@ -232,11 +245,10 @@ func queryTokens(
 	type edgeSeen struct{ u, v string }
 	var edgesSeen []edgeSeen
 
-	for i := 0; i < depth; i++ {
+	for i := 0; i < q.depth && len(frontier) > 0; i++ {
 		var next []string
 		for _, u := range frontier {
-			// adj[u] is pre-sorted in buildAdjacency.
-			for _, v := range adj[u] {
+			for _, v := range q.adj[u] {
 				if !visited[v] {
 					visited[v] = true
 					next = append(next, v)
@@ -247,8 +259,6 @@ func queryTokens(
 		frontier = next
 	}
 
-	// Build the NODE/EDGE block. Iterate visited in sorted order so
-	// the token estimate is independent of map iteration order.
 	visIDs := make([]string, 0, len(visited))
 	for id := range visited {
 		visIDs = append(visIDs, id)
@@ -257,41 +267,25 @@ func queryTokens(
 
 	var b strings.Builder
 	for _, id := range visIDs {
-		n := nodeByID[id]
+		n := q.nodeByID[id]
 		label := n.Label
 		if label == "" {
 			label = id
 		}
 		fmt.Fprintf(&b, "NODE %s src=%s loc=%s\n", label, n.SourceFile, n.SourceLocation)
 	}
-	// Resolve edge relation by looking up the first matching edge in
-	// the original list (cheap; edge counts are small per question).
-	relation := func(u, v string) string {
-		for _, e := range edges {
-			if (e.Source == u && e.Target == v) || (e.Source == v && e.Target == u) {
-				return e.Relation
-			}
-		}
-		return ""
-	}
 	for _, e := range edgesSeen {
-		if visited[e.u] && visited[e.v] {
-			fmt.Fprintf(&b, "EDGE %s --%s--> %s\n",
-				nodeByID[e.u].Label, relation(e.u, e.v), nodeByID[e.v].Label)
-		}
+		fmt.Fprintf(&b, "EDGE %s --%s--> %s\n",
+			q.nodeByID[e.u].Label, q.relation[makeEdgeKey(e.u, e.v)], q.nodeByID[e.v].Label)
 	}
 
-	// Drop the trailing newline so length matches upstream's
-	// "\n".join(lines).
-	s := strings.TrimRight(b.String(), "\n")
-	return estimateTokens(s, charsPerToken)
+	return estimateTokens(strings.TrimRight(b.String(), "\n"), q.charsPerToken)
 }
 
-// bestMatches scores nodes by how many >2-char question terms appear
-// in their label (case-insensitive substring), and returns the top 3
-// node IDs with score > 0. Ties are broken by node ID (sorted) so the
-// result is deterministic.
-func bestMatches(question string, nodes []schema.Node) []string {
+// bestMatches returns the top-3 node IDs by lowercase label-substring
+// hit count against the question's >2-char terms. Ties break on ID for
+// determinism.
+func (q *queryContext) bestMatches(question string) []string {
 	terms := termsOf(question)
 	if len(terms) == 0 {
 		return nil
@@ -301,8 +295,8 @@ func bestMatches(question string, nodes []schema.Node) []string {
 		score int
 	}
 	var matches []scored
-	for _, n := range nodes {
-		label := strings.ToLower(n.Label)
+	for i, n := range q.nodes {
+		label := q.lowerLabels[i]
 		s := 0
 		for _, t := range terms {
 			if strings.Contains(label, t) {
@@ -339,30 +333,21 @@ func termsOf(question string) []string {
 	return out
 }
 
-// roundOne rounds to 1 decimal place (matches Python `round(x, 1)`).
+// roundOne rounds to one decimal (matches Python `round(x, 1)`).
 func roundOne(x float64) float64 {
-	scaled := x * 10
-	if scaled >= 0 {
-		scaled += 0.5
-	} else {
-		scaled -= 0.5
-	}
+	scaled := x*10 + 0.5
 	return float64(int64(scaled)) / 10
 }
 
-// trimFloat formats a float that's been rounded to one decimal, dropping
-// the ".0" when whole so "10.0x" prints as "10x" (matches upstream).
+// trimFloat formats a 1-decimal float, dropping ".0" when whole so
+// "10.0x" prints as "10x" (matches upstream).
 func trimFloat(f float64) string {
-	s := fmt.Sprintf("%.1f", f)
-	s = strings.TrimSuffix(s, ".0")
-	return s
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", f), ".0")
 }
 
+// commas formats a non-negative int with comma thousands separators.
 func commas(n int) string {
 	s := fmt.Sprintf("%d", n)
-	if n < 0 {
-		return "-" + commas(-n)
-	}
 	if len(s) <= 3 {
 		return s
 	}
@@ -370,9 +355,7 @@ func commas(n int) string {
 	pre := len(s) % 3
 	if pre > 0 {
 		out.WriteString(s[:pre])
-		if len(s) > pre {
-			out.WriteByte(',')
-		}
+		out.WriteByte(',')
 	}
 	for i := pre; i < len(s); i += 3 {
 		out.WriteString(s[i : i+3])

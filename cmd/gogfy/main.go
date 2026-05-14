@@ -1139,7 +1139,7 @@ func treeCommand(args []string, stderr io.Writer) error {
 // benchmarkCommand measures token-reduction against an existing graph.json.
 // Usage: gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]
 func benchmarkCommand(args []string, stdout, stderr io.Writer) error {
-	ordered, err := groupWikiFlags(args) // same positional+flags shape
+	ordered, err := groupBenchmarkFlags(args)
 	if err != nil {
 		return err
 	}
@@ -1219,25 +1219,59 @@ func wikiCommand(args []string, stderr io.Writer) error {
 // so the positional graph path can appear before --out without losing
 // the flag to Go's stop-at-first-positional parser.
 func groupWikiFlags(args []string) ([]string, error) {
+	return reorderFlags(args, []string{"out"}, nil)
+}
+
+// reorderFlags moves any --name / --name=val / --name val pairs ahead of
+// positional args so flag.Parse (which stops at the first non-flag) sees
+// every flag the user supplied. valueFlags carries arguments; boolFlags
+// stand alone. Unknown flags return an error rather than silently
+// becoming positional args.
+func reorderFlags(args, valueFlags, boolFlags []string) ([]string, error) {
+	isValue := make(map[string]bool, len(valueFlags))
+	for _, n := range valueFlags {
+		isValue[n] = true
+	}
+	isBool := make(map[string]bool, len(boolFlags))
+	for _, n := range boolFlags {
+		isBool[n] = true
+	}
+	flagName := func(a string) (string, bool) {
+		s := strings.TrimLeft(a, "-")
+		if eq := strings.IndexByte(s, '='); eq >= 0 {
+			s = s[:eq]
+		}
+		return s, isValue[s] || isBool[s]
+	}
+
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		switch {
-		case a == "--out", a == "-out":
-			if i+1 >= len(args) {
-				return nil, fmt.Errorf("flag %s requires a value", a)
-			}
-			flags = append(flags, a, args[i+1])
-			i++
-		case strings.HasPrefix(a, "--out="), strings.HasPrefix(a, "-out="):
-			flags = append(flags, a)
-		case strings.HasPrefix(a, "-"):
-			return nil, fmt.Errorf("unknown flag: %s", a)
-		default:
+		if !strings.HasPrefix(a, "-") {
 			positional = append(positional, a)
+			continue
 		}
+		name, known := flagName(a)
+		if !known {
+			return nil, fmt.Errorf("unknown flag: %s", a)
+		}
+		if strings.Contains(a, "=") || isBool[name] {
+			flags = append(flags, a)
+			continue
+		}
+		if i+1 >= len(args) {
+			return nil, fmt.Errorf("flag %s requires a value", a)
+		}
+		flags = append(flags, a, args[i+1])
+		i++
 	}
 	return append(flags, positional...), nil
+}
+
+// groupBenchmarkFlags reorders args for the benchmark subcommand
+// (--corpus-words/--depth/--json).
+func groupBenchmarkFlags(args []string) ([]string, error) {
+	return reorderFlags(args, []string{"corpus-words", "depth"}, []string{"json"})
 }
 
 // groupRunFlags reorders args for the `run` subcommand so all known flags
