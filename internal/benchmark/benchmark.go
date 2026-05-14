@@ -1,11 +1,8 @@
 // Package benchmark measures token-reduction: how many fewer tokens an
 // LLM needs to read to answer a question against the graph compared to
-// reading the whole corpus.
-//
-// Mirrors upstream graphify's benchmark.py — BFS from best-label-match
-// nodes to depth N, format the subgraph as NODE/EDGE lines, then
-// compare estimated tokens against a corpus-tokens baseline derived
-// from word count (words * 100 / 75 ≈ tokens).
+// reading the whole corpus. Modeled after graphify's benchmark.py;
+// formulae (words×100/75, len/4-with-floor-1) are kept aligned so
+// per-repo numbers stay comparable across the two tools.
 package benchmark
 
 import (
@@ -21,13 +18,14 @@ import (
 const (
 	defaultCharsPerToken = 4
 	defaultDepth         = 3
-	// wordsPerNodeEstimate: ~3 words of identifier + ~47 words of
-	// source context per node. Only used when CorpusWords is unset.
+	// wordsPerNodeEstimate is the fallback when CorpusWords is unset;
+	// rough average for source-code corpora (50 ≈ identifier + a few
+	// lines of surrounding context per node).
 	wordsPerNodeEstimate = 50
 )
 
-// defaultQuestions mirrors upstream so gogfy and graphify benchmarks
-// on the same repo produce directly comparable numbers.
+// defaultQuestions is kept aligned with upstream graphify so per-repo
+// numbers can be cross-compared without renormalizing.
 var defaultQuestions = []string{
 	"how does authentication work",
 	"what is the main entry point",
@@ -36,33 +34,26 @@ var defaultQuestions = []string{
 	"what are the core abstractions",
 }
 
-// Options tunes a benchmark run.
+// Options tunes a benchmark run. Zero/negative on any field selects
+// the package default. CorpusWords carries the authoritative count
+// from detect() when available.
 type Options struct {
-	// CorpusWords is the authoritative word count from detect(). When
-	// 0, estimated from node count * wordsPerNodeEstimate.
-	CorpusWords int
-
-	// Questions overrides the default sample questions entirely. When
-	// nil or empty, defaultQuestions is used.
-	Questions []string
-
-	// Depth bounds BFS expansion from each question's seeds. Zero or
-	// negative selects defaultDepth.
-	Depth int
-
-	// CharsPerToken is the chars→tokens approximation. Zero selects
-	// defaultCharsPerToken.
+	CorpusWords   int
+	Questions     []string
+	Depth         int
 	CharsPerToken int
 }
 
-// PerQuestion captures one prompt's cost and savings ratio.
 type PerQuestion struct {
 	Question    string  `json:"question"`
 	QueryTokens int     `json:"query_tokens"`
 	Reduction   float64 `json:"reduction"`
 }
 
-// Result is the full benchmark report.
+// Result is the full benchmark report. Treat as immutable after Run;
+// fields are derivable from each other (CorpusTokens from CorpusWords,
+// ReductionRatio from CorpusTokens/AvgQueryTokens) and mutating one in
+// isolation produces an inconsistent record.
 type Result struct {
 	CorpusTokens   int           `json:"corpus_tokens"`
 	CorpusWords    int           `json:"corpus_words"`
@@ -71,6 +62,11 @@ type Result struct {
 	AvgQueryTokens int           `json:"avg_query_tokens"`
 	ReductionRatio float64       `json:"reduction_ratio"`
 	PerQuestion    []PerQuestion `json:"per_question"`
+	// Skipped lists questions that produced zero seed-matches. Empty
+	// for the default question set on a typical repo; non-empty
+	// signals the caller that some prompts in a custom list were
+	// off-topic (the aggregate average ignored them).
+	Skipped []string `json:"skipped,omitempty"`
 }
 
 // Run executes the benchmark.
@@ -102,9 +98,11 @@ func Run(nodes []schema.Node, edges []schema.Edge, opts Options) (Result, error)
 	ctx := newQueryContext(nodes, edges, depth, cpt)
 
 	per := make([]PerQuestion, 0, len(questions))
+	var skipped []string
 	for _, q := range questions {
 		qt := ctx.queryTokens(q)
 		if qt <= 0 {
+			skipped = append(skipped, q)
 			continue
 		}
 		reduction := 0.0
@@ -116,6 +114,14 @@ func Run(nodes []schema.Node, edges []schema.Edge, opts Options) (Result, error)
 
 	if len(per) == 0 {
 		return Result{}, errors.New("benchmark: no matching nodes found for any sample question (is the graph built? are your prompts on-topic?)")
+	}
+	// When the caller supplied a custom question list, missing more
+	// than half is a strong signal of misuse (wrong corpus, typos)
+	// rather than expected sparseness. Default questions are
+	// best-effort by design.
+	if len(opts.Questions) > 0 && len(skipped)*2 > len(opts.Questions) {
+		return Result{}, fmt.Errorf("benchmark: %d of %d supplied questions matched no nodes (skipped: %v)",
+			len(skipped), len(opts.Questions), skipped)
 	}
 
 	totalQT := 0
@@ -136,10 +142,14 @@ func Run(nodes []schema.Node, edges []schema.Edge, opts Options) (Result, error)
 		AvgQueryTokens: avg,
 		ReductionRatio: ratio,
 		PerQuestion:    per,
+		Skipped:        skipped,
 	}, nil
 }
 
-// Render prints a human-readable report mirroring upstream's layout.
+// Render writes the human-readable report to w. Returns an error on
+// an empty Result (called before Run) or if the final write fails —
+// the last write is the one most likely to surface a broken-pipe
+// state (`gogfy benchmark ... | head -1`).
 func Render(r Result, w io.Writer) error {
 	if r.Nodes == 0 && len(r.PerQuestion) == 0 {
 		return errors.New("benchmark: empty Result — call Run first")
@@ -157,12 +167,20 @@ func Render(r Result, w io.Writer) error {
 	for _, p := range r.PerQuestion {
 		fmt.Fprintf(w, "    [%sx] %s\n", trimFloat(p.Reduction), truncate(p.Question, 55))
 	}
-	fmt.Fprintln(w)
-	return nil
+	if len(r.Skipped) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "  Skipped %d question(s) with no matching nodes:\n", len(r.Skipped))
+		for _, q := range r.Skipped {
+			fmt.Fprintf(w, "    - %s\n", truncate(q, 55))
+		}
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }
 
-// estimateTokens approximates LLM tokens via chars/cpt with a floor of
-// 1 (matches upstream's `max(1, len // 4)`).
+// estimateTokens uses chars/cpt with a floor of 1 — the floor ensures
+// an empty subgraph still consumes "some" tokens so reduction ratios
+// never divide by zero (matches upstream's `max(1, len // 4)`).
 func estimateTokens(text string, charsPerToken int) int {
 	if charsPerToken <= 0 {
 		charsPerToken = defaultCharsPerToken
@@ -173,9 +191,8 @@ func estimateTokens(text string, charsPerToken int) int {
 	return 1
 }
 
-// queryContext holds the per-Run-invariant indexes. Building these
-// once (instead of per-question) makes question-scaling O(Q) instead
-// of O(Q·N).
+// queryContext is per-Run-invariant; building once (vs per-question)
+// makes question-scaling O(Q+N) instead of O(Q·N).
 type queryContext struct {
 	nodes         []schema.Node
 	adj           map[string][]string
@@ -186,6 +203,9 @@ type queryContext struct {
 	charsPerToken int
 }
 
+// edgeKey is a normalized (a ≤ b) struct key for undirected edges.
+// Struct chosen over string concatenation to avoid separator-collision
+// risk on node IDs that contain arbitrary bytes (file paths, etc.).
 type edgeKey struct{ a, b string }
 
 func makeEdgeKey(u, v string) edgeKey {
@@ -203,6 +223,17 @@ func newQueryContext(nodes []schema.Node, edges []schema.Edge, depth, cpt int) *
 	}
 	relation := make(map[edgeKey]string, len(edges))
 	for _, e := range edges {
+		// Skip edges with endpoints absent from the node list — they
+		// would cause BFS to traverse phantom nodes and emit malformed
+		// NODE lines with empty labels. Silently dropping is safer
+		// than the alternative because a partial graph.json is a
+		// common state during incremental builds.
+		if _, ok := nodeByID[e.Source]; !ok {
+			continue
+		}
+		if _, ok := nodeByID[e.Target]; !ok {
+			continue
+		}
 		adj[e.Source] = append(adj[e.Source], e.Target)
 		adj[e.Target] = append(adj[e.Target], e.Source)
 		k := makeEdgeKey(e.Source, e.Target)
@@ -228,8 +259,6 @@ func newQueryContext(nodes []schema.Node, edges []schema.Edge, depth, cpt int) *
 	}
 }
 
-// queryTokens runs BFS from the top label-match seeds and returns the
-// estimated token cost of the NODE/EDGE-formatted subgraph.
 func (q *queryContext) queryTokens(question string) int {
 	seeds := q.bestMatches(question)
 	if len(seeds) == 0 {
@@ -282,9 +311,9 @@ func (q *queryContext) queryTokens(question string) int {
 	return estimateTokens(strings.TrimRight(b.String(), "\n"), q.charsPerToken)
 }
 
-// bestMatches returns the top-3 node IDs by lowercase label-substring
-// hit count against the question's >2-char terms. Ties break on ID for
-// determinism.
+// bestMatches returns at most 3 seed node IDs ranked by label-substring
+// hits on the question's >2-char terms (cap mirrors upstream). Ties
+// break on ID so BFS expansion is deterministic.
 func (q *queryContext) bestMatches(question string) []string {
 	terms := termsOf(question)
 	if len(terms) == 0 {
@@ -333,20 +362,24 @@ func termsOf(question string) []string {
 	return out
 }
 
-// roundOne rounds to one decimal (matches Python `round(x, 1)`).
+// roundOne rounds to one decimal, half-up. Only correct for the
+// non-negative ratios this package produces — diverges from Python's
+// round() banker's-rounding for ties.
 func roundOne(x float64) float64 {
 	scaled := x*10 + 0.5
 	return float64(int64(scaled)) / 10
 }
 
 // trimFloat formats a 1-decimal float, dropping ".0" when whole so
-// "10.0x" prints as "10x" (matches upstream).
+// "10.0x" prints as "10x".
 func trimFloat(f float64) string {
 	return strings.TrimSuffix(fmt.Sprintf("%.1f", f), ".0")
 }
 
-// commas formats a non-negative int with comma thousands separators.
 func commas(n int) string {
+	if n < 0 {
+		return "-" + commas(-n)
+	}
 	s := fmt.Sprintf("%d", n)
 	if len(s) <= 3 {
 		return s
@@ -366,9 +399,15 @@ func commas(n int) string {
 	return out.String()
 }
 
+// truncate cuts s to at most n runes. Rune-aware to avoid splitting a
+// multi-byte codepoint when custom questions contain unicode.
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n]
+	return string(r[:n])
 }

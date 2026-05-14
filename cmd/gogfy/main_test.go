@@ -2,12 +2,38 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// dispatchTo runs dispatch with stdout temporarily redirected so tests
+// can assert on what subcommands write to stdout. dispatch() itself
+// hardcodes os.Stdout for the report/serve/path/benchmark/etc.
+// subcommands; redirection is the lowest-touch alternative to a
+// signature refactor.
+func dispatchTo(t *testing.T, args []string, stdout, stderr io.Writer) error {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(stdout, r)
+		close(done)
+	}()
+	dispatchErr := dispatch(args, stderr)
+	w.Close()
+	os.Stdout = orig
+	<-done
+	return dispatchErr
+}
 
 func TestUpdateModeNoChangesPreservesOutputs(t *testing.T) {
 	root := "../../testdata/e2e/mini-corpus"
@@ -94,23 +120,128 @@ func TestDispatchBenchmarkSubcommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	graphPath := filepath.Join(out, "graph.json")
-	// The benchmark sample-question seeds won't match the mini-corpus
-	// labels, so we use a custom prompt that does. Tests the
-	// flag-reorderer's recognition of --corpus-words/--json/--depth
-	// when the positional appears before them.
-	if err := dispatch([]string{
+	// Test the flag-reorderer's recognition of --corpus-words / --depth
+	// / --json when the positional appears before them, AND that the
+	// JSON branch writes a parseable Result to stdout. mini-corpus
+	// has label "main" which matches the default
+	// "what is the main entry point" question, so success is expected.
+	var stdout, stderr bytes.Buffer
+	if err := dispatchTo(t, []string{
 		"benchmark", graphPath,
 		"--corpus-words", "1000",
 		"--depth", "2",
 		"--json",
-	}, os.Stderr); err == nil {
-		// mini-corpus has labels "Hello" / "main" — "main" hits the
-		// default "what is the main entry point" question, so we
-		// expect success.
-		return
-	} else if !strings.Contains(err.Error(), "no matching nodes") {
-		t.Fatalf("dispatch benchmark: %v", err)
+	}, &stdout, &stderr); err != nil {
+		t.Fatalf("dispatch benchmark: %v\nstderr: %s", err, stderr.String())
 	}
+	// JSON branch must emit a parseable Result with the corpus override
+	// honored.
+	var got struct {
+		CorpusWords    int     `json:"corpus_words"`
+		CorpusTokens   int     `json:"corpus_tokens"`
+		Nodes          int     `json:"nodes"`
+		AvgQueryTokens int     `json:"avg_query_tokens"`
+		ReductionRatio float64 `json:"reduction_ratio"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("benchmark --json did not emit valid JSON to stdout: %v\nstdout: %s", err, stdout.String())
+	}
+	if got.CorpusWords != 1000 {
+		t.Fatalf("--corpus-words override not honored: got %d", got.CorpusWords)
+	}
+	if got.Nodes == 0 || got.AvgQueryTokens == 0 {
+		t.Fatalf("expected non-zero nodes + avg_query_tokens, got %+v", got)
+	}
+}
+
+func TestReorderFlags(t *testing.T) {
+	cases := []struct {
+		name        string
+		args        []string
+		valueFlags  []string
+		boolFlags   []string
+		want        []string
+		errContains string
+	}{
+		{
+			name:       "positional before value flag",
+			args:       []string{"graph.json", "--out", "dir"},
+			valueFlags: []string{"out"},
+			want:       []string{"--out", "dir", "graph.json"},
+		},
+		{
+			name:       "equals form preserved without splitting",
+			args:       []string{"graph.json", "--corpus-words=500"},
+			valueFlags: []string{"corpus-words"},
+			want:       []string{"--corpus-words=500", "graph.json"},
+		},
+		{
+			name:      "bool flag does not consume next arg",
+			args:      []string{"graph.json", "--json", "extra"},
+			boolFlags: []string{"json"},
+			want:      []string{"--json", "graph.json", "extra"},
+		},
+		{
+			name:      "bool flag at end of args",
+			args:      []string{"graph.json", "--json"},
+			boolFlags: []string{"json"},
+			want:      []string{"--json", "graph.json"},
+		},
+		{
+			name:       "single-dash form also recognized",
+			args:       []string{"-out", "dir", "graph.json"},
+			valueFlags: []string{"out"},
+			want:       []string{"-out", "dir", "graph.json"},
+		},
+		{
+			name:        "missing value at end of args",
+			args:        []string{"graph.json", "--out"},
+			valueFlags:  []string{"out"},
+			errContains: "requires a value",
+		},
+		{
+			name:        "unknown flag errors",
+			args:        []string{"--bogus", "x"},
+			valueFlags:  []string{"out"},
+			errContains: "unknown flag",
+		},
+		{
+			name:        "value-flag followed by another flag is rejected",
+			args:        []string{"graph.json", "--depth", "--json"},
+			valueFlags:  []string{"depth"},
+			boolFlags:   []string{"json"},
+			errContains: "requires a value, got flag",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := reorderFlags(c.args, c.valueFlags, c.boolFlags)
+			if c.errContains != "" {
+				if err == nil || !strings.Contains(err.Error(), c.errContains) {
+					t.Fatalf("expected error containing %q, got: %v", c.errContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !equalStrings(got, c.want) {
+				t.Fatalf("reorder mismatch:\n got: %v\nwant: %v", got, c.want)
+			}
+		})
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestDispatchBenchmarkRejectsUnknownFlag(t *testing.T) {

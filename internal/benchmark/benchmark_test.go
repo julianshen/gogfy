@@ -88,6 +88,73 @@ func TestRunNoMatchingQuestionsReturnsError(t *testing.T) {
 	}
 }
 
+func TestRunMajoritySkipReturnsError(t *testing.T) {
+	// User supplies an explicit prompt list; if more than half match
+	// nothing, the aggregate average over the remaining few would be
+	// misleading. The error names the skipped prompts so the user can
+	// fix the typos / wrong corpus rather than reading a confidently
+	// wrong reduction-ratio.
+	nodes, edges := fixtureGraph()
+	_, err := Run(nodes, edges, Options{Questions: []string{
+		"main entry point",     // matches "main"
+		"zzz nothing matches",  // skip
+		"qqq also nothing",     // skip
+		"www never matches",    // skip — 3/4 skipped, over half
+	}})
+	if err == nil {
+		t.Fatal("expected error when majority of supplied questions miss")
+	}
+	if !strings.Contains(err.Error(), "matched no nodes") {
+		t.Fatalf("error should describe the cause, got: %v", err)
+	}
+}
+
+func TestRunMinoritySkipPopulatesSkipped(t *testing.T) {
+	// At-or-below-half misses is treated as best-effort: the run
+	// succeeds, but the skipped list is exposed on the Result so the
+	// caller (and Render) can surface a warning.
+	nodes, edges := fixtureGraph()
+	res, err := Run(nodes, edges, Options{Questions: []string{
+		"main entry point",      // hit
+		"auth handler",          // hit
+		"zzz nothing matches",   // 1/3 skipped — under half
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Skipped) != 1 || !strings.Contains(res.Skipped[0], "zzz") {
+		t.Fatalf("Skipped should contain the no-match prompt, got %v", res.Skipped)
+	}
+	if len(res.PerQuestion) != 2 {
+		t.Fatalf("expected 2 successful per-question entries, got %d", len(res.PerQuestion))
+	}
+}
+
+func TestRunSkipsEdgesWithPhantomEndpoints(t *testing.T) {
+	// A corrupt graph.json with an edge pointing to a missing node ID
+	// must not produce BFS through phantom nodes (those would emit
+	// "NODE  src= loc=" lines with empty labels and inflate the token
+	// estimate with garbage). Result should equal the same input with
+	// the bad edge filtered out.
+	nodes, edges := fixtureGraph()
+	withPhantom := append([]schema.Edge(nil), edges...)
+	withPhantom = append(withPhantom, schema.Edge{
+		Source: "n3", Target: "phantom-id-not-in-nodes", Relation: "calls",
+	})
+	clean, err := Run(nodes, edges, Options{Questions: []string{"main entry point"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirty, err := Run(nodes, withPhantom, Options{Questions: []string{"main entry point"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clean.PerQuestion[0].QueryTokens != dirty.PerQuestion[0].QueryTokens {
+		t.Fatalf("phantom-endpoint edge leaked into BFS: clean=%d dirty=%d",
+			clean.PerQuestion[0].QueryTokens, dirty.PerQuestion[0].QueryTokens)
+	}
+}
+
 func TestRunCustomQuestionsUsedInsteadOfDefaults(t *testing.T) {
 	// Custom Questions list must replace defaults entirely.
 	nodes, edges := fixtureGraph()

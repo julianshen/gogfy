@@ -1170,8 +1170,10 @@ func benchmarkCommand(args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("benchmark: marshal: %w", err)
 		}
-		_, err = fmt.Fprintln(stdout, string(out))
-		return err
+		if _, err := fmt.Fprintln(stdout, string(out)); err != nil {
+			return fmt.Errorf("benchmark: write json: %w", err)
+		}
+		return nil
 	}
 	return benchmark.Render(res, stdout)
 }
@@ -1261,6 +1263,15 @@ func reorderFlags(args, valueFlags, boolFlags []string) ([]string, error) {
 		}
 		if i+1 >= len(args) {
 			return nil, fmt.Errorf("flag %s requires a value", a)
+		}
+		// Reject a value that's itself a recognized flag — almost
+		// certainly a typo (e.g. `--depth --json` would set
+		// depth="--json" and surface as a cryptic int-parse error
+		// later).
+		if v := args[i+1]; strings.HasPrefix(v, "-") {
+			if vn, vknown := flagName(v); vknown && (isValue[vn] || isBool[vn]) {
+				return nil, fmt.Errorf("flag %s requires a value, got flag %q", a, v)
+			}
 		}
 		flags = append(flags, a, args[i+1])
 		i++
