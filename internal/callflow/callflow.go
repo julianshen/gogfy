@@ -1,8 +1,6 @@
-// Package callflow renders a self-contained call-flow architecture HTML
-// document from a graphify-style graph: a Mermaid LR overview at the
-// section/community level + per-section flowcharts. Modeled after
-// graphify's callflow_html.py (English-only v1; no labels/sections-file
-// or GRAPH_REPORT integration yet).
+// Package callflow renders a self-contained HTML document with a
+// Mermaid LR overview of communities-as-sections and per-section
+// flowcharts of intra-section calls.
 package callflow
 
 import (
@@ -35,18 +33,22 @@ const (
 	uncategorizedID     = "uncategorized"
 )
 
-// Generate returns the full HTML document. Empty input is an error
-// rather than an empty page so the caller can warn the user (a
-// callflow doc with zero sections is not useful).
+// Generate returns the full HTML document. Empty input is an error, not
+// an empty page, so callers can surface it.
 func Generate(nodes []schema.Node, edges []schema.Edge, opts Options) (string, error) {
 	if len(nodes) == 0 {
 		return "", errors.New("callflow: graph has no nodes; nothing to chart")
 	}
 	o := normalizeOptions(opts)
 
+	communitiesBefore := countCommunities(nodes)
 	sections := buildSections(nodes, o.MaxSections)
 	if len(sections) == 0 {
 		return "", errors.New("callflow: no non-empty sections derived from communities")
+	}
+	truncated := communitiesBefore - len(sections)
+	if truncated < 0 {
+		truncated = 0
 	}
 
 	sectionOfNode := make(map[string]string, len(nodes))
@@ -57,11 +59,13 @@ func Generate(nodes []schema.Node, edges []schema.Edge, opts Options) (string, e
 	}
 	cross := make(map[crossKey]*crossInfo)
 	intra := make(map[string][]schema.Edge)
+	droppedEdges := 0
 	for _, e := range edges {
 		ssrc, sok := sectionOfNode[e.Source]
 		stgt, tok := sectionOfNode[e.Target]
 		if !sok || !tok {
-			continue // endpoint in a dropped section or missing node
+			droppedEdges++
+			continue
 		}
 		if ssrc == stgt {
 			intra[ssrc] = append(intra[ssrc], e)
@@ -70,16 +74,16 @@ func Generate(nodes []schema.Node, edges []schema.Edge, opts Options) (string, e
 		key := crossKey{src: ssrc, tgt: stgt}
 		ci, ok := cross[key]
 		if !ok {
-			ci = &crossInfo{relations: make(map[string]int)}
+			ci = &crossInfo{}
 			cross[key] = ci
 		}
-		ci.count++
-		ci.relations[e.Relation]++
+		ci.add(e.Relation)
 	}
 
 	var b strings.Builder
 	writeHead(&b, o)
 	writeHeader(&b, o, sections)
+	writeNotices(&b, truncated, droppedEdges)
 	writeOverview(&b, sections, cross, o)
 	for i, sec := range sections {
 		writeSection(&b, i+2, sec, intra[sec.ID], o)
@@ -88,7 +92,37 @@ func Generate(nodes []schema.Node, edges []schema.Edge, opts Options) (string, e
 	return b.String(), nil
 }
 
-type Section struct {
+// countCommunities counts distinct Community values; empty Community
+// is treated as one bucket matching buildSections's uncategorized pool.
+func countCommunities(nodes []schema.Node) int {
+	seen := make(map[string]struct{})
+	for _, n := range nodes {
+		c := n.Community
+		if c == "" {
+			c = uncategorizedID
+		}
+		seen[c] = struct{}{}
+	}
+	return len(seen)
+}
+
+// writeNotices surfaces silent-data-loss conditions inside the rendered
+// HTML so the user discovers them without having to read stderr.
+func writeNotices(b *strings.Builder, truncatedSections, droppedEdges int) {
+	if truncatedSections == 0 && droppedEdges == 0 {
+		return
+	}
+	b.WriteString(`<aside class="notices">` + "\n")
+	if truncatedSections > 0 {
+		fmt.Fprintf(b, "  <p>Showing the largest sections only. %d additional smaller section(s) were truncated — re-run with --max-sections to include them.</p>\n", truncatedSections)
+	}
+	if droppedEdges > 0 {
+		fmt.Fprintf(b, "  <p>%d edge(s) reference a node in a truncated section and were omitted from the diagrams.</p>\n", droppedEdges)
+	}
+	b.WriteString("</aside>\n")
+}
+
+type section struct {
 	ID    string
 	Name  string
 	Nodes []schema.Node
@@ -96,9 +130,40 @@ type Section struct {
 
 type crossKey struct{ src, tgt string }
 
+// crossInfo accumulates a streaming top-relation while counting all
+// edges; avoids the per-pair map allocation we used to do for what's
+// effectively an argmax query.
 type crossInfo struct {
-	count     int
-	relations map[string]int // relation → count, for picking the most-common label
+	count            int
+	topRelation      string
+	topRelationCount int
+	// relationCounts is kept on the side only for tiebreak between
+	// equally-frequent relations; reset to nil after each top update
+	// is finalized. Lazy-allocated only on the first tie.
+	relationCounts map[string]int
+}
+
+func (ci *crossInfo) add(relation string) {
+	ci.count++
+	// First seen — adopt as top.
+	if ci.topRelation == "" && ci.topRelationCount == 0 {
+		ci.topRelation = relation
+		ci.topRelationCount = 1
+		return
+	}
+	if relation == ci.topRelation {
+		ci.topRelationCount++
+		return
+	}
+	// Different relation: track on the side until it overtakes top.
+	if ci.relationCounts == nil {
+		ci.relationCounts = map[string]int{ci.topRelation: ci.topRelationCount}
+	}
+	ci.relationCounts[relation]++
+	if c := ci.relationCounts[relation]; c > ci.topRelationCount || (c == ci.topRelationCount && relation < ci.topRelation) {
+		ci.topRelation = relation
+		ci.topRelationCount = c
+	}
 }
 
 func normalizeOptions(o Options) Options {
@@ -123,7 +188,7 @@ func normalizeOptions(o Options) Options {
 // buildSections groups nodes by Community. Nodes with empty Community
 // pool into a single "uncategorized" section so they're not silently
 // dropped.
-func buildSections(nodes []schema.Node, maxSections int) []Section {
+func buildSections(nodes []schema.Node, maxsections int) []section {
 	byComm := make(map[string][]schema.Node)
 	for _, n := range nodes {
 		c := n.Community
@@ -132,9 +197,9 @@ func buildSections(nodes []schema.Node, maxSections int) []Section {
 		}
 		byComm[c] = append(byComm[c], n)
 	}
-	sections := make([]Section, 0, len(byComm))
+	sections := make([]section, 0, len(byComm))
 	for cid, members := range byComm {
-		sections = append(sections, Section{ID: cid, Nodes: members})
+		sections = append(sections, section{ID: cid, Nodes: members})
 	}
 	sort.SliceStable(sections, func(i, j int) bool {
 		if len(sections[i].Nodes) != len(sections[j].Nodes) {
@@ -142,8 +207,8 @@ func buildSections(nodes []schema.Node, maxSections int) []Section {
 		}
 		return sections[i].ID < sections[j].ID
 	})
-	if len(sections) > maxSections {
-		sections = sections[:maxSections]
+	if len(sections) > maxsections {
+		sections = sections[:maxsections]
 	}
 	// Sort surviving sections' members and name them only after
 	// truncation — skipping the cost for sections that get cut.
@@ -163,25 +228,30 @@ func sectionName(communityID string, members []schema.Node) string {
 	if communityID == uncategorizedID {
 		return "Uncategorized"
 	}
-	// Most common directory among the member source files; gives the
-	// section a name like "auth" or "api/routes" without needing a
-	// separate labels file.
 	dirCounts := make(map[string]int)
 	for _, n := range members {
 		if d := topDir(n.SourceFile); d != "" {
 			dirCounts[d]++
 		}
 	}
-	best, bestCount := "", 0
-	for d, c := range dirCounts {
-		if c > bestCount || (c == bestCount && d < best) {
-			best, bestCount = d, c
+	if len(dirCounts) == 0 {
+		return "Community " + communityID
+	}
+	// Iterate via sorted dir names so ties on count resolve
+	// deterministically — map iteration alone would pick a different
+	// winner across runs and break Generate's determinism guarantee.
+	dirs := make([]string, 0, len(dirCounts))
+	for d := range dirCounts {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	best := dirs[0]
+	for _, d := range dirs[1:] {
+		if dirCounts[d] > dirCounts[best] {
+			best = d
 		}
 	}
-	if best != "" {
-		return best
-	}
-	return "Community " + communityID
+	return best
 }
 
 // topDir returns the immediate parent directory name of a POSIX-style
@@ -209,6 +279,7 @@ func writeHead(b *strings.Builder, o Options) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>%s</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<noscript><p>This document needs JavaScript and access to cdn.jsdelivr.net to render the Mermaid diagrams.</p></noscript>
 <style>
 %s
 </style>
@@ -218,7 +289,7 @@ func writeHead(b *strings.Builder, o Options) {
 `, html.EscapeString(title), inlineCSS)
 }
 
-func writeHeader(b *strings.Builder, o Options, sections []Section) {
+func writeHeader(b *strings.Builder, o Options, sections []section) {
 	fmt.Fprintf(b, "<header>\n<h1>%s</h1>\n", html.EscapeString(o.ProjectName))
 	b.WriteString(`<nav><ul>`)
 	b.WriteString(`<li><a href="#overview">Overview</a></li>`)
@@ -229,7 +300,7 @@ func writeHeader(b *strings.Builder, o Options, sections []Section) {
 	b.WriteString("</ul></nav>\n</header>\n")
 }
 
-func writeOverview(b *strings.Builder, sections []Section, cross map[crossKey]*crossInfo, o Options) {
+func writeOverview(b *strings.Builder, sections []section, cross map[crossKey]*crossInfo, o Options) {
 	b.WriteString(`<section id="overview">` + "\n")
 	b.WriteString(`<h2>1. Architecture Overview</h2>` + "\n")
 	b.WriteString(`<div class="mermaid">` + "\n")
@@ -259,7 +330,10 @@ func writeOverview(b *strings.Builder, sections []Section, cross map[crossKey]*c
 	}
 	for _, k := range keys {
 		info := cross[k]
-		rel := mostCommonRelation(info.relations)
+		rel := info.topRelation
+		if rel == "" {
+			rel = "calls"
+		}
 		label := safeMermaidText(rel)
 		if info.count > 1 {
 			label = fmt.Sprintf("%s x%d", label, info.count)
@@ -270,7 +344,7 @@ func writeOverview(b *strings.Builder, sections []Section, cross map[crossKey]*c
 	b.WriteString("</div>\n</section>\n")
 }
 
-func writeSection(b *strings.Builder, headingNum int, sec Section, sectionEdges []schema.Edge, o Options) {
+func writeSection(b *strings.Builder, headingNum int, sec section, sectionEdges []schema.Edge, o Options) {
 	fmt.Fprintf(b, "<section id=\"section-%s\">\n",
 		html.EscapeString(slugify(sec.ID)))
 	fmt.Fprintf(b, "<h2>%d. %s</h2>\n", headingNum, html.EscapeString(sec.Name))
@@ -381,16 +455,23 @@ func sanitizeMermaidID(s string) string {
 	return out
 }
 
-// safeMermaidText escapes a label for use inside a mermaid quoted
-// node-text or edge-label. Mermaid renders HTML inside labels, so we
-// apply standard HTML-entity escaping for `&`, `<`, `>`, `"` — missing
-// `&` would let a label containing a literal `&` mis-parse downstream
-// entities; missing `"` would close the quoted-string node early.
+// mermaidEscaper handles characters that would break the Mermaid
+// parser or its embedded HTML labels:
+//   - `&` first so subsequent entity replacements aren't double-escaped
+//   - `<` `>` `"` so HTML labels render safely
+//   - `|` is mermaid's edge-label delimiter (`-->|label|`) — an unescaped
+//     `|` in a relation or node label silently truncates the diagram
+//   - `\n` / `\r` break mermaid's one-statement-per-line lexer; replace
+//     with a space rather than HTML <br/> to keep edge labels single-line
 var mermaidEscaper = strings.NewReplacer(
 	"&", "&amp;",
 	"<", "&lt;",
 	">", "&gt;",
 	`"`, "&quot;",
+	"|", "&#124;",
+	"\r\n", " ",
+	"\n", " ",
+	"\r", " ",
 )
 
 func safeMermaidText(s string) string {
@@ -400,27 +481,6 @@ func safeMermaidText(s string) string {
 func mermaidInit(scale float64) string {
 	return fmt.Sprintf(`%%%%{init: {"theme":"dark", "flowchart":{"defaultRenderer":"elk","htmlLabels":true,"curve":"basis"}}}%%%%
 %%%% scale: %.2f`, scale)
-}
-
-func mostCommonRelation(rels map[string]int) string {
-	if len(rels) == 0 {
-		return "calls"
-	}
-	type rk struct {
-		rel   string
-		count int
-	}
-	xs := make([]rk, 0, len(rels))
-	for r, c := range rels {
-		xs = append(xs, rk{r, c})
-	}
-	sort.SliceStable(xs, func(i, j int) bool {
-		if xs[i].count != xs[j].count {
-			return xs[i].count > xs[j].count
-		}
-		return xs[i].rel < xs[j].rel
-	})
-	return xs[0].rel
 }
 
 func slugify(s string) string {
@@ -465,4 +525,7 @@ section { margin: 2.5rem 0; }
 section h2 { color: var(--accent); border-left: 4px solid var(--accent); padding-left: 0.75rem; }
 .summary { color: var(--muted); font-size: 0.9rem; }
 .mermaid { background: var(--surface); padding: 1rem; border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; }
+.notices { background: #422; border-left: 4px solid #c33; padding: 0.5rem 1rem; margin: 1rem 0; color: var(--muted); }
+.notices p { margin: 0.25rem 0; }
+noscript p { background: #422; border-left: 4px solid #c33; padding: 0.75rem 1rem; color: var(--text); }
 `

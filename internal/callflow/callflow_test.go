@@ -153,9 +153,108 @@ func TestGenerateMaxNodesPerSectionCaps(t *testing.T) {
 			hits++
 		}
 	}
-	// Allow an extra hit for header/nav references but it should be small.
-	if hits > 5 {
+	// Nav lists section names only — never node labels — so the count
+	// of rendered sym labels should equal the cap exactly.
+	if hits != 3 {
 		t.Fatalf("MaxNodesPerSection=3 didn't cap the rendered nodes (saw %d sym labels)", hits)
+	}
+}
+
+func TestGenerateMaxEdgesPerSectionCaps(t *testing.T) {
+	// 5 fully-connected nodes in one community (10 intra-section edges).
+	// MaxEdges=2 must produce at most 2 mermaid edge lines.
+	nodes := []schema.Node{
+		{ID: "n1", Label: "A", SourceFile: "/r/x.go", Community: "0"},
+		{ID: "n2", Label: "B", SourceFile: "/r/x.go", Community: "0"},
+		{ID: "n3", Label: "C", SourceFile: "/r/x.go", Community: "0"},
+		{ID: "n4", Label: "D", SourceFile: "/r/x.go", Community: "0"},
+		{ID: "n5", Label: "E", SourceFile: "/r/x.go", Community: "0"},
+	}
+	var edges []schema.Edge
+	ids := []string{"n1", "n2", "n3", "n4", "n5"}
+	for i := 0; i < len(ids); i++ {
+		for j := i + 1; j < len(ids); j++ {
+			edges = append(edges, schema.Edge{Source: ids[i], Target: ids[j], Relation: "calls"})
+		}
+	}
+	out, err := Generate(nodes, edges, Options{MaxEdgesPerSection: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edgeLines := strings.Count(out, " -->|calls| ")
+	// Section flowcharts only; the overview has no intra-community
+	// cross edges in a single-community graph.
+	if edgeLines > 2 {
+		t.Fatalf("MaxEdgesPerSection=2 didn't cap; saw %d ' -->|calls| ' occurrences", edgeLines)
+	}
+}
+
+func TestGenerateEscapesPipeAndNewlineInLabels(t *testing.T) {
+	// Mermaid's `|` edge-label delimiter and per-statement-newline
+	// lexer both silently corrupt diagrams if user content contains
+	// the character. Regression test for both at once.
+	nodes := []schema.Node{
+		{ID: "n1", Label: "Map|String", SourceFile: "/r/x.go", Community: "0"},
+		{ID: "n2", Label: "Multi\nLine", SourceFile: "/r/x.go", Community: "0"},
+	}
+	out, err := Generate(nodes, []schema.Edge{
+		{Source: "n1", Target: "n2", Relation: "calls"},
+	}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The raw `|` and newline must not survive into a rendered label.
+	if strings.Contains(out, `"Map|String"`) {
+		t.Fatal("raw | inside mermaid label would break edge syntax")
+	}
+	if strings.Contains(out, "Multi\nLine") {
+		t.Fatal("raw newline inside mermaid label would break the lexer")
+	}
+	if !strings.Contains(out, "Map&#124;String") {
+		t.Fatal(`expected &#124; entity escape for |`)
+	}
+	if !strings.Contains(out, "Multi Line") {
+		t.Fatal("newline should collapse to a space inside the label")
+	}
+}
+
+func TestGenerateSectionNameFallback(t *testing.T) {
+	// Source files at filesystem root have no parent directory, so
+	// topDir returns "" and sectionName must fall back to
+	// "Community <id>" — not "" / "Uncategorized".
+	nodes := []schema.Node{
+		{ID: "n1", Label: "A", SourceFile: "rootfile.go", Community: "7"},
+		{ID: "n2", Label: "B", SourceFile: "another.go", Community: "7"},
+	}
+	out, err := Generate(nodes, nil, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Community 7") {
+		t.Fatalf("expected 'Community 7' fallback heading in output; head:\n%s", head(out, 800))
+	}
+}
+
+func TestGenerateSurfacesTruncationNotice(t *testing.T) {
+	// Many communities but MaxSections=2 should produce an HTML notice
+	// telling the user some sections were dropped. Currently the bot
+	// reviewers flagged silent-truncation as data loss; this pins the
+	// notice contract.
+	var nodes []schema.Node
+	for i := 0; i < 10; i++ {
+		nodes = append(nodes, schema.Node{
+			ID:         "n" + itoa(i),
+			Label:      "L" + itoa(i),
+			SourceFile: "/r/x.go",
+			Community:  itoa(i),
+		})
+	}
+	out, err := Generate(nodes, nil, Options{MaxSections: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "smaller section(s) were truncated") {
+		t.Fatalf("expected truncation notice in output; head:\n%s", head(out, 1500))
 	}
 }
 

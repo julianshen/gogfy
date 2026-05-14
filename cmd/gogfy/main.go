@@ -284,7 +284,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy tree <graph.json> [--out <html-path>]")
 	fmt.Fprintln(w, "       gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]")
-	fmt.Fprintln(w, "       gogfy callflow <graph.json> [--out <html-path>] [--max-sections N] [--max-nodes M] [--project NAME]")
+	fmt.Fprintln(w, "       gogfy callflow <graph.json> [--out <html-path>] [--max-sections N] [--max-nodes M] [--max-edges E] [--project NAME]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> install   # combo: mcp + snippet + hook in one shot")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> uninstall # remove all three")
 }
@@ -1141,10 +1141,7 @@ func treeCommand(args []string, stderr io.Writer) error {
 }
 
 // callflowCommand renders the call-flow architecture HTML from an
-// existing graph.json. Usage:
-//
-//	gogfy callflow <graph.json> [--out <html-path>] [--max-sections N]
-//	    [--max-nodes M] [--project NAME]
+// existing graph.json.
 func callflowCommand(args []string, stderr io.Writer) error {
 	ordered, err := groupCallflowFlags(args)
 	if err != nil {
@@ -1337,7 +1334,6 @@ func groupBenchmarkFlags(args []string) ([]string, error) {
 	return reorderFlags(args, []string{"corpus-words", "depth"}, []string{"json"})
 }
 
-// groupCallflowFlags reorders args for the callflow subcommand.
 func groupCallflowFlags(args []string) ([]string, error) {
 	return reorderFlags(args, []string{"out", "max-sections", "max-nodes", "max-edges", "project"}, nil)
 }

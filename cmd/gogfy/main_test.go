@@ -244,6 +244,49 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
+func TestDispatchCallflowSubcommand(t *testing.T) {
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(out, "graph.json")
+	htmlPath := filepath.Join(out, "callflow.html")
+	if err := dispatch([]string{
+		"callflow", graphPath,
+		"--out", htmlPath,
+		"--max-sections", "3",
+		"--max-nodes", "5",
+		"--project", "test-project",
+	}, os.Stderr); err != nil {
+		t.Fatalf("dispatch callflow: %v", err)
+	}
+	body, err := os.ReadFile(htmlPath)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	if !strings.Contains(string(body), "test-project") {
+		t.Fatal("--project not honored")
+	}
+	if !strings.Contains(string(body), "mermaid") {
+		t.Fatal("output missing mermaid reference")
+	}
+}
+
+func TestDispatchCallflowRejectsUnknownFlag(t *testing.T) {
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(out, "graph.json")
+	err := dispatch([]string{"callflow", graphPath, "--no-such-flag", "x"}, os.Stderr)
+	if err == nil {
+		t.Fatal("expected error for unknown flag")
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("expected 'unknown flag' error, got: %v", err)
+	}
+}
+
 func TestDispatchBenchmarkRejectsUnknownFlag(t *testing.T) {
 	out := t.TempDir()
 	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
