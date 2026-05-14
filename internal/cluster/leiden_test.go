@@ -2,10 +2,29 @@ package cluster
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/julianshen/gogfy/internal/schema"
 )
+
+// adjFromEdges builds a symmetric adjacency map (the form cohesionScore
+// and splitCommunity expect) from a list of directed edges.
+func adjFromEdges(edges []schema.Edge) map[string]map[string]float64 {
+	adj := make(map[string]map[string]float64)
+	ensure := func(id string) {
+		if _, ok := adj[id]; !ok {
+			adj[id] = make(map[string]float64)
+		}
+	}
+	for _, e := range edges {
+		ensure(e.Source)
+		ensure(e.Target)
+		adj[e.Source][e.Target] += 1.0
+		adj[e.Target][e.Source] += 1.0
+	}
+	return adj
+}
 
 // cliqueEdges generates all pairwise edges for a complete graph of n nodes
 // with the given ID prefix (e.g. "c1_" produces c1_0–c1_(n-1)).
@@ -266,7 +285,7 @@ func TestCohesionScorePathGraph(t *testing.T) {
 		{Source: "b", Target: "c"},
 		{Source: "c", Target: "d"},
 	}
-	got := cohesionScore(nodes, edges)
+	got := cohesionScore(nodes, adjFromEdges(edges))
 	want := 0.5 // 3 edges / (4*3/2) = 3/6
 	if got != want {
 		t.Fatalf("cohesionScore = %v, want %v", got, want)
@@ -280,7 +299,7 @@ func TestCohesionScoreCompleteGraph(t *testing.T) {
 		{Source: "b", Target: "c"},
 		{Source: "c", Target: "a"},
 	}
-	got := cohesionScore(nodes, edges)
+	got := cohesionScore(nodes, adjFromEdges(edges))
 	want := 1.0
 	if got != want {
 		t.Fatalf("cohesionScore = %v, want %v", got, want)
@@ -288,7 +307,7 @@ func TestCohesionScoreCompleteGraph(t *testing.T) {
 }
 
 func TestCohesionScoreSingleNode(t *testing.T) {
-	got := cohesionScore([]string{"a"}, nil)
+	got := cohesionScore([]string{"a"}, map[string]map[string]float64{})
 	want := 1.0
 	if got != want {
 		t.Fatalf("cohesionScore = %v, want %v", got, want)
@@ -296,7 +315,7 @@ func TestCohesionScoreSingleNode(t *testing.T) {
 }
 
 func TestCohesionScoreEmpty(t *testing.T) {
-	got := cohesionScore(nil, nil)
+	got := cohesionScore(nil, map[string]map[string]float64{})
 	want := 0.0
 	if got != want {
 		t.Fatalf("cohesionScore = %v, want %v", got, want)
@@ -309,7 +328,7 @@ func TestCohesionScoreNoInternalEdges(t *testing.T) {
 		{Source: "a", Target: "x"},
 		{Source: "b", Target: "y"},
 	}
-	got := cohesionScore(nodes, edges)
+	got := cohesionScore(nodes, adjFromEdges(edges))
 	want := 0.0
 	if got != want {
 		t.Fatalf("cohesionScore = %v, want %v", got, want)
@@ -323,7 +342,7 @@ func TestCohesionScoreIgnoresDirection(t *testing.T) {
 		{Source: "a", Target: "b"},
 		{Source: "b", Target: "a"},
 	}
-	got := cohesionScore(nodes, edges)
+	got := cohesionScore(nodes, adjFromEdges(edges))
 	want := 1.0 // 1 unique undirected pair / (2*1/2) = 1
 	if got != want {
 		t.Fatalf("cohesionScore = %v, want %v", got, want)
@@ -476,7 +495,7 @@ func TestLeidenClustererSplitsLowCohesionCommunity(t *testing.T) {
 	// At minimum, the 4 subsystems should be in separate communities.
 	nonIsolateCommunities := make(map[string]int)
 	for _, n := range result {
-		if n.ID[0:3] == "iso" {
+		if strings.HasPrefix(n.ID, "iso") {
 			continue
 		}
 		nonIsolateCommunities[n.Community]++
@@ -872,5 +891,89 @@ func TestLeidenClustererWeightedEdges(t *testing.T) {
 	if communities["a"] != communities["b"] || communities["b"] != communities["c"] {
 		t.Logf("communities: %v", communities)
 		t.Fatal("all connected nodes should share a community")
+	}
+}
+
+// Pins deriveSeed to its current numeric output. If FNV-1a is swapped or
+// the trailing zero-byte separator is removed, this test fails — alerting
+// us that previously-frozen graph.json snapshots will shift their
+// community IDs after a Leiden subgraph re-pass.
+func TestDeriveSeedPinned(t *testing.T) {
+	got := deriveSeed([]string{"alpha", "beta", "gamma"})
+	want := int64(3768274256728616250)
+	if got != want {
+		t.Fatalf("deriveSeed drift: got %d, want %d (regenerate frozen seeds intentionally)", got, want)
+	}
+}
+
+// Self-loops in adj must not inflate cohesionScore past 1.0. A self-loop
+// on every member would otherwise contribute n to actual while possible
+// only counts unordered pairs (n*(n-1)/2).
+func TestCohesionScoreIgnoresSelfLoops(t *testing.T) {
+	adj := map[string]map[string]float64{
+		"a": {"a": 1, "b": 1},
+		"b": {"a": 1, "b": 1},
+	}
+	got := cohesionScore([]string{"a", "b"}, adj)
+	if got != 1.0 {
+		t.Fatalf("self-loops drove cohesion past 1.0: got %v", got)
+	}
+}
+
+// Splitting is opt-in: NewLeidenClusterer() with no options must NOT
+// invoke the splitCommunity path, even on a graph where it could trigger.
+// Locks in backward compatibility for downstream graph.json snapshots
+// frozen before splitting was introduced.
+func TestLeidenClustererDefaultsDoNotSplit(t *testing.T) {
+	// Two cliques of 10 nodes, fully connected internally, bridged by
+	// one cross-edge. A single large pre-splitting community is exactly
+	// what would trigger oversized-splitting if defaults were on.
+	var nodes []schema.Node
+	var edges []schema.Edge
+	for i := 0; i < 10; i++ {
+		nodes = append(nodes, schema.Node{ID: fmt.Sprintf("c1_%d", i)})
+		nodes = append(nodes, schema.Node{ID: fmt.Sprintf("c2_%d", i)})
+	}
+	edges = append(edges, cliqueEdges("c1_", 10)...)
+	edges = append(edges, cliqueEdges("c2_", 10)...)
+	edges = append(edges, schema.Edge{Source: "c1_0", Target: "c2_0"})
+
+	defaults := NewLeidenClusterer()
+	if defaults.maxCommunityFraction != 0 ||
+		defaults.minSplitSize != 0 ||
+		defaults.cohesionThreshold != 0 ||
+		defaults.cohesionMinSize != 0 {
+		t.Fatalf("splitting fields must default to zero (opt-in): %+v", defaults)
+	}
+	// Sanity: still produces communities; we just don't assert split shape.
+	got, err := defaults.Cluster(nodes, edges)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range got {
+		if n.Community == "" {
+			t.Fatalf("node %s missing community on default-config Cluster", n.ID)
+		}
+	}
+}
+
+// Negative / out-of-range option inputs must clamp rather than poison
+// the partition (e.g. WithMaxCommunityFraction(2.0) shouldn't actually
+// force max_size = 2*|V|).
+func TestLeidenClustererOptionClamping(t *testing.T) {
+	c := NewLeidenClusterer(
+		WithMaxCommunityFraction(2.0),
+		WithCohesionThreshold(-0.5),
+		WithMinSplitSize(-3),
+		WithCohesionMinSize(-1),
+	)
+	if c.maxCommunityFraction != 1.0 {
+		t.Fatalf("WithMaxCommunityFraction(2.0) not clamped to 1.0: %v", c.maxCommunityFraction)
+	}
+	if c.cohesionThreshold != 0 {
+		t.Fatalf("WithCohesionThreshold(-0.5) not clamped to 0: %v", c.cohesionThreshold)
+	}
+	if c.minSplitSize != 0 || c.cohesionMinSize != 0 {
+		t.Fatalf("negative size options not clamped: minSplit=%d cohesionMin=%d", c.minSplitSize, c.cohesionMinSize)
 	}
 }

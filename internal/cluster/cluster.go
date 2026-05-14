@@ -122,41 +122,79 @@ func WithRandomSeed(s int64) LeidenOption {
 	return func(c *LeidenClusterer) { c.randomSeed = s }
 }
 
-// WithMaxCommunityFraction sets the fraction of total nodes above which a
-// community is considered oversized and subject to splitting.
+// WithMaxCommunityFraction enables oversized-community splitting: any
+// community larger than f * |V| (and ≥ MinSplitSize) gets a second Leiden
+// pass on its subgraph. Zero or negative disables the feature; values
+// above 1.0 are clamped to 1.0 (which makes splitting impossible). The
+// raison d'être: Louvain/Leiden occasionally returns one community
+// holding 60%+ of nodes in graphs with strong hub structure, which
+// downstream collapses the GRAPH_REPORT's surprising-connections.
 func WithMaxCommunityFraction(f float64) LeidenOption {
-	return func(c *LeidenClusterer) { c.maxCommunityFraction = f }
+	return func(c *LeidenClusterer) {
+		if f < 0 {
+			f = 0
+		}
+		if f > 1.0 {
+			f = 1.0
+		}
+		c.maxCommunityFraction = f
+	}
 }
 
-// WithMinSplitSize sets the minimum size a community must have before it can
-// be split for being oversized.
+// WithMinSplitSize sets the floor for oversized-community splitting:
+// communities below this size are left alone even if they exceed the
+// MaxCommunityFraction threshold. Negative values clamp to 0.
 func WithMinSplitSize(n int) LeidenOption {
-	return func(c *LeidenClusterer) { c.minSplitSize = n }
+	return func(c *LeidenClusterer) {
+		if n < 0 {
+			n = 0
+		}
+		c.minSplitSize = n
+	}
 }
 
-// WithCohesionThreshold sets the cohesion score below which a large community
-// is re-split in a second pass.
+// WithCohesionThreshold enables cohesion-based re-splitting: communities
+// at or above CohesionMinSize whose intra/possible-edges ratio is below
+// t get a second Leiden pass. Catches doc-hub structures the first pass
+// missed (the hub holds many low-cohesion neighbors together). Zero or
+// negative disables; values above 1.0 are clamped (cohesion is bounded
+// at 1.0, so values >1.0 would re-split every community).
 func WithCohesionThreshold(t float64) LeidenOption {
-	return func(c *LeidenClusterer) { c.cohesionThreshold = t }
+	return func(c *LeidenClusterer) {
+		if t < 0 {
+			t = 0
+		}
+		if t > 1.0 {
+			t = 1.0
+		}
+		c.cohesionThreshold = t
+	}
 }
 
-// WithCohesionMinSize sets the minimum size for a community to be considered
-// for cohesion-based re-splitting.
+// WithCohesionMinSize sets the minimum size for a community to be
+// considered for cohesion-based re-splitting. Negative values clamp to 0.
 func WithCohesionMinSize(n int) LeidenOption {
-	return func(c *LeidenClusterer) { c.cohesionMinSize = n }
+	return func(c *LeidenClusterer) {
+		if n < 0 {
+			n = 0
+		}
+		c.cohesionMinSize = n
+	}
 }
 
 // NewLeidenClusterer creates a new LeidenClusterer with the given options.
 func NewLeidenClusterer(opts ...LeidenOption) *LeidenClusterer {
+	// Splitting (oversized + cohesion-based) is OPT-IN. Pre-existing
+	// callers of NewLeidenClusterer() must keep getting a pure Leiden
+	// partition — otherwise stable community IDs across releases break
+	// and downstream graph.json snapshots compare-fail.
 	c := &LeidenClusterer{
-		resolution:           1.0,
-		maxIterations:        100,
-		minModularityGain:    0.0001,
-		randomSeed:           42,
-		maxCommunityFraction: 0.25,
-		minSplitSize:         10,
-		cohesionThreshold:    0.05,
-		cohesionMinSize:      50,
+		resolution:        1.0,
+		maxIterations:     100,
+		minModularityGain: 0.0001,
+		randomSeed:        42,
+		// maxCommunityFraction, minSplitSize, cohesionThreshold,
+		// cohesionMinSize all default to 0 — splitting disabled.
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -244,38 +282,72 @@ func (c *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 		}
 	}
 
-	// Compute max community size threshold.
-	maxSize := max(c.minSplitSize, int(float64(len(nodes))*c.maxCommunityFraction))
-
-	// Split oversized communities.
-	var split [][]string
-	for _, members := range memberLists {
-		if len(members) > maxSize {
-			subs, err := c.splitCommunity(members, adj)
-			if err != nil {
-				return nil, fmt.Errorf("splitCommunity oversized: %w", err)
+	// Oversized-community splitting (opt-in: disabled when
+	// maxCommunityFraction <= 0). Iterate until either no community
+	// exceeds the threshold or the iteration cap is hit — the iteration
+	// cap guards against pathological subgraphs that Leiden refuses to
+	// split (always returns a single community), which would otherwise
+	// loop forever.
+	split := memberLists
+	if c.maxCommunityFraction > 0 {
+		const maxSplitPasses = 5
+		maxSize := max(c.minSplitSize, int(float64(len(nodes))*c.maxCommunityFraction))
+		for pass := 0; pass < maxSplitPasses; pass++ {
+			var next [][]string
+			changed := false
+			for _, members := range split {
+				if len(members) > maxSize {
+					subs, err := c.splitCommunity(members, adj)
+					if err != nil {
+						// Best-effort: log and keep the oversized
+						// community rather than aborting the whole
+						// cluster pass. Partial-progress preservation
+						// matters because Cluster() is called late in
+						// the pipeline.
+						fmt.Printf("cluster: oversized splitCommunity failed (size=%d): %v\n", len(members), err)
+						next = append(next, members)
+						continue
+					}
+					if len(subs) > 1 {
+						changed = true
+						next = append(next, subs...)
+					} else {
+						next = append(next, members)
+					}
+				} else {
+					next = append(next, members)
+				}
 			}
-			split = append(split, subs...)
-		} else {
-			split = append(split, members)
+			split = next
+			if !changed {
+				break
+			}
 		}
 	}
 
-	// Re-split low-cohesion communities.
-	var secondPass [][]string
-	for _, members := range split {
-		if len(members) >= c.cohesionMinSize && cohesionScore(members, edges) < c.cohesionThreshold {
-			subs, err := c.splitCommunity(members, adj)
-			if err != nil {
-				return nil, fmt.Errorf("splitCommunity cohesion: %w", err)
-			}
-			if len(subs) > 1 {
-				secondPass = append(secondPass, subs...)
+	// Cohesion-based re-splitting (opt-in: disabled when
+	// cohesionThreshold <= 0). Single pass — re-splitting low-cohesion
+	// fragments recursively risks shattering a sparse but meaningful
+	// community into singletons.
+	secondPass := split
+	if c.cohesionThreshold > 0 {
+		secondPass = nil
+		for _, members := range split {
+			if len(members) >= c.cohesionMinSize && cohesionScore(members, adj) < c.cohesionThreshold {
+				subs, err := c.splitCommunity(members, adj)
+				if err != nil {
+					fmt.Printf("cluster: cohesion splitCommunity failed (size=%d): %v\n", len(members), err)
+					secondPass = append(secondPass, members)
+					continue
+				}
+				if len(subs) > 1 {
+					secondPass = append(secondPass, subs...)
+				} else {
+					secondPass = append(secondPass, members)
+				}
 			} else {
 				secondPass = append(secondPass, members)
 			}
-		} else {
-			secondPass = append(secondPass, members)
 		}
 	}
 
@@ -351,7 +423,11 @@ func deriveSeed(members []string) int64 {
 	return int64(h.Sum64())
 }
 
-func cohesionScore(members []string, edges []schema.Edge) float64 {
+// cohesionScore = (intra-community edges) / (possible pairs). Self-loops
+// are skipped so the score stays bounded in [0, 1]. Uses adj instead of
+// scanning the full edge list — for the typical case of many small
+// communities the cost drops from O(|C|·|E|) to O(Σ degree within C).
+func cohesionScore(members []string, adj map[string]map[string]float64) float64 {
 	n := len(members)
 	if n == 0 {
 		return 0.0
@@ -365,16 +441,14 @@ func cohesionScore(members []string, edges []schema.Edge) float64 {
 		memberSet[id] = true
 	}
 
-	seen := make(map[[2]string]bool)
+	// adj is symmetric; visit each undirected pair once by requiring src<dst.
 	actual := 0
-	for _, e := range edges {
-		if memberSet[e.Source] && memberSet[e.Target] {
-			pair := [2]string{e.Source, e.Target}
-			if pair[0] > pair[1] {
-				pair[0], pair[1] = pair[1], pair[0]
+	for _, src := range members {
+		for dst := range adj[src] {
+			if src == dst {
+				continue
 			}
-			if !seen[pair] {
-				seen[pair] = true
+			if src < dst && memberSet[dst] {
 				actual++
 			}
 		}
