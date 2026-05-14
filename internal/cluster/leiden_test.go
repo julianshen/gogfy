@@ -7,6 +7,21 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
+// cliqueEdges generates all pairwise edges for a complete graph of n nodes
+// with the given ID prefix (e.g. "c1_" produces c1_0–c1_(n-1)).
+func cliqueEdges(prefix string, n int) []schema.Edge {
+	var edges []schema.Edge
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			edges = append(edges, schema.Edge{
+				Source: fmt.Sprintf("%s%d", prefix, i),
+				Target: fmt.Sprintf("%s%d", prefix, j),
+			})
+		}
+	}
+	return edges
+}
+
 func TestLeidenClustererAssignsCommunities(t *testing.T) {
 	nodes := []schema.Node{
 		{ID: "a"}, {ID: "b"}, {ID: "c"},
@@ -217,7 +232,6 @@ func TestLeidenClustererOptions(t *testing.T) {
 		WithMinModularityGain(0.001),
 		WithRandomSeed(123),
 	)
-	// Just verify it doesn't panic and produces output
 	nodes := []schema.Node{{ID: "a"}, {ID: "b"}}
 	edges := []schema.Edge{{Source: "a", Target: "b"}}
 	result, err := c.Cluster(nodes, edges)
@@ -339,18 +353,8 @@ func TestLeidenClustererSplitsOversizedCommunity(t *testing.T) {
 		edges = append(edges, schema.Edge{Source: "hub", Target: fmt.Sprintf("c1_%d", i)})
 		edges = append(edges, schema.Edge{Source: "hub", Target: fmt.Sprintf("c2_%d", i)})
 	}
-	// Clique 1 internal edges.
-	for i := 0; i < 7; i++ {
-		for j := i + 1; j < 7; j++ {
-			edges = append(edges, schema.Edge{Source: fmt.Sprintf("c1_%d", i), Target: fmt.Sprintf("c1_%d", j)})
-		}
-	}
-	// Clique 2 internal edges.
-	for i := 0; i < 7; i++ {
-		for j := i + 1; j < 7; j++ {
-			edges = append(edges, schema.Edge{Source: fmt.Sprintf("c2_%d", i), Target: fmt.Sprintf("c2_%d", j)})
-		}
-	}
+	edges = append(edges, cliqueEdges("c1_", 7)...)
+	edges = append(edges, cliqueEdges("c2_", 7)...)
 
 	c := NewLeidenClusterer(
 		WithMinSplitSize(5),
@@ -399,11 +403,7 @@ func TestLeidenClustererDoesNotSplitSmallCommunity(t *testing.T) {
 	for i := 8; i < 12; i++ {
 		nodes[i] = schema.Node{ID: fmt.Sprintf("iso_%d", i)}
 	}
-	for i := 0; i < 8; i++ {
-		for j := i + 1; j < 8; j++ {
-			edges = append(edges, schema.Edge{Source: fmt.Sprintf("c_%d", i), Target: fmt.Sprintf("c_%d", j)})
-		}
-	}
+	edges = append(edges, cliqueEdges("c_", 8)...)
 
 	c := NewLeidenClusterer(
 		WithMinSplitSize(10),
@@ -428,75 +428,9 @@ func TestLeidenClustererDoesNotSplitSmallCommunity(t *testing.T) {
 }
 
 func TestLeidenClustererSplitsLowCohesionCommunity(t *testing.T) {
-	// 20 nodes: hub + 19 leaves (star graph).
-	// Cohesion = 19 / (20*19/2) = 19/190 = 0.1.
-	// With cohesionThreshold=0.15, this should NOT be split (0.1 < 0.15).
-	// Wait — we want to test splitting, so use threshold=0.15 and the star
-	// should be split because cohesion < threshold.
-	// But Leiden on a star keeps it together, so the split won't help.
-	// Instead, use a graph where Leiden CAN split: two cliques with a bridge.
-	// 16 nodes: two 8-node cliques, one bridge edge, plus 4 isolates.
-	// Cohesion of the full 16-node group (if kept together):
-	//   edges = 2*28 + 1 = 57
-	//   cohesion = 57 / (16*15/2) = 57/120 = 0.475.
-	// That's > 0.15, so cohesion split won't trigger.
-	// We need a LOW cohesion graph. Let's use a hub with many leaves that
-	// also have some weak internal connections.
-	//
-	// Simpler: create 12 nodes in a sparse graph (a tree: 11 edges).
-	// cohesion = 11 / (12*11/2) = 11/66 = 0.167.
-	// With threshold=0.2, this won't trigger either.
-	//
-	// Let's use a hub+leaves with 50 nodes. cohesion = 49/1225 = 0.04.
-	// With lowered threshold=0.05, this triggers.
-	// But creating 50 nodes in a test is verbose.
-	//
-	// Instead, make the threshold configurable and test with a smaller graph.
-	// 15 nodes in a star: cohesion = 14/105 = 0.133.
-	// With threshold=0.15, doesn't trigger.
-	// 20 nodes in a star: cohesion = 19/190 = 0.1.
-	// With threshold=0.15, triggers!
-	// But Leiden on a star won't split it.
-	//
-	// OK — let's use a hub+cliques where the cohesion is low but Leiden CAN split.
-	// Two cliques of 5 connected by a single edge, total 10 nodes.
-	// edges = 2*10 + 1 = 21
-	// cohesion = 21 / (10*9/2) = 21/45 = 0.467.
-	// Still too high.
-	//
-	// What about a line graph of 20 nodes?
-	// edges = 19, cohesion = 19/190 = 0.1.
-	// With threshold=0.15, triggers. But Leiden on a line won't split.
-	//
-	// The key insight: for cohesion splitting to actually split, the subgraph
-	// must have community structure that Leiden can find. A line graph doesn't.
-	// Two cliques with a bridge DO have structure, but their cohesion is high.
-	//
-	// The upstream's example is "doc-hub nodes that bridge otherwise-unrelated
-	// subsystems". The hub connects to many subsystems. Without external edges,
-	// the hub's connections to subsystems are the only intra-community edges.
-	// Cohesion is low because most possible edges are missing.
-	//
-	// For our test, let's use a hub connected to 20 leaves, with the leaves
-	// having NO other connections. Cohesion = 20/210 = 0.095.
-	// With threshold=0.1, this triggers.
-	// But Leiden on a 21-node star won't split it.
-	//
-	// So the test will verify that cohesion splitting is ATTEMPTED (the code
-	// path runs) even if Leiden can't split the subgraph.
-	// The real value is verifying the cohesion score and threshold logic.
-	//
-	// Let's test with a graph where cohesion splitting DOES work:
-	// 30 nodes: hub + 4 subsystems of 5 nodes each. Subsystems are cliques.
-	// No edges between subsystems except through hub.
-	// Total edges = 4*10 + 20 = 60.
-	// cohesion = 60 / (30*29/2) = 60/435 = 0.138.
-	// With threshold=0.15, triggers.
-	// In subgraph of 30, Leiden should find the 4 subsystems + hub.
-	// The split produces 5 communities of ~6 nodes each.
-	//
-	// Let's try this.
-	nodes := make([]schema.Node, 35)
+	// Hub + 4 subsystems of 5 clique nodes each, connected only through hub.
+	// Cohesion ~0.138, so with threshold=0.15 the cohesion re-split triggers.
+	nodes := make([]schema.Node, 36)
 	var edges []schema.Edge
 
 	nodes[0] = schema.Node{ID: "hub"}
@@ -505,7 +439,7 @@ func TestLeidenClustererSplitsLowCohesionCommunity(t *testing.T) {
 			nodes[1+s*5+i] = schema.Node{ID: fmt.Sprintf("s%d_%d", s, i)}
 		}
 	}
-	for i := 20; i < 35; i++ {
+	for i := 21; i < 36; i++ {
 		nodes[i] = schema.Node{ID: fmt.Sprintf("iso_%d", i)}
 	}
 
@@ -517,19 +451,12 @@ func TestLeidenClustererSplitsLowCohesionCommunity(t *testing.T) {
 	}
 	// Subsystem internal clique edges.
 	for s := 0; s < 4; s++ {
-		for i := 0; i < 5; i++ {
-			for j := i + 1; j < 5; j++ {
-				edges = append(edges, schema.Edge{
-					Source: fmt.Sprintf("s%d_%d", s, i),
-					Target: fmt.Sprintf("s%d_%d", s, j),
-				})
-			}
-		}
+		edges = append(edges, cliqueEdges(fmt.Sprintf("s%d_", s), 5)...)
 	}
 
 	c := NewLeidenClusterer(
 		WithMinSplitSize(5),
-		WithMaxCommunityFraction(0.2),     // max(5, 7) = 7 for 35 nodes
+		WithMaxCommunityFraction(0.2),     // max(5, 7) = 7 for 36 nodes
 		WithCohesionThreshold(0.15),        // cohesion ~0.138 < 0.15, triggers
 		WithCohesionMinSize(5),
 	)
@@ -545,7 +472,7 @@ func TestLeidenClustererSplitsLowCohesionCommunity(t *testing.T) {
 		}
 	}
 
-	// The 20 non-isolate nodes should be in multiple communities (split occurred).
+	// The 21 non-isolate nodes should be in multiple communities (split occurred).
 	// At minimum, the 4 subsystems should be in separate communities.
 	nonIsolateCommunities := make(map[string]int)
 	for _, n := range result {
@@ -582,16 +509,8 @@ func TestLeidenClustererDeterministicAfterSplitting(t *testing.T) {
 		edges = append(edges, schema.Edge{Source: "hub", Target: fmt.Sprintf("c1_%d", i)})
 		edges = append(edges, schema.Edge{Source: "hub", Target: fmt.Sprintf("c2_%d", i)})
 	}
-	for i := 0; i < 7; i++ {
-		for j := i + 1; j < 7; j++ {
-			edges = append(edges, schema.Edge{Source: fmt.Sprintf("c1_%d", i), Target: fmt.Sprintf("c1_%d", j)})
-		}
-	}
-	for i := 0; i < 7; i++ {
-		for j := i + 1; j < 7; j++ {
-			edges = append(edges, schema.Edge{Source: fmt.Sprintf("c2_%d", i), Target: fmt.Sprintf("c2_%d", j)})
-		}
-	}
+	edges = append(edges, cliqueEdges("c1_", 7)...)
+	edges = append(edges, cliqueEdges("c2_", 7)...)
 
 	c := NewLeidenClusterer(
 		WithMinSplitSize(5),
@@ -618,43 +537,29 @@ func TestLeidenClustererDeterministicAfterSplitting(t *testing.T) {
 
 	// Verify structural invariants on both runs.
 	checkInvariants := func(result []schema.Node) {
-		commMap := make(map[string]map[string]bool)
+		nodeToComm := make(map[string]string, len(result))
+		commMembers := make(map[string]map[string]bool)
 		for _, n := range result {
-			if commMap[n.Community] == nil {
-				commMap[n.Community] = make(map[string]bool)
+			nodeToComm[n.ID] = n.Community
+			if commMembers[n.Community] == nil {
+				commMembers[n.Community] = make(map[string]bool)
 			}
-			commMap[n.Community][n.ID] = true
+			commMembers[n.Community][n.ID] = true
 		}
 
 		// All c1 nodes must share a community.
-		c1Comm := ""
-		for i := 0; i < 7; i++ {
-			id := fmt.Sprintf("c1_%d", i)
-			for cid, members := range commMap {
-				if members[id] {
-					if c1Comm == "" {
-						c1Comm = cid
-					} else if c1Comm != cid {
-						t.Fatal("c1 nodes split across communities")
-					}
-					break
-				}
+		c1Comm := nodeToComm["c1_0"]
+		for i := 1; i < 7; i++ {
+			if nodeToComm[fmt.Sprintf("c1_%d", i)] != c1Comm {
+				t.Fatal("c1 nodes split across communities")
 			}
 		}
 
 		// All c2 nodes must share a community.
-		c2Comm := ""
-		for i := 0; i < 7; i++ {
-			id := fmt.Sprintf("c2_%d", i)
-			for cid, members := range commMap {
-				if members[id] {
-					if c2Comm == "" {
-						c2Comm = cid
-					} else if c2Comm != cid {
-						t.Fatal("c2 nodes split across communities")
-					}
-					break
-				}
+		c2Comm := nodeToComm["c2_0"]
+		for i := 1; i < 7; i++ {
+			if nodeToComm[fmt.Sprintf("c2_%d", i)] != c2Comm {
+				t.Fatal("c2 nodes split across communities")
 			}
 		}
 
@@ -666,13 +571,8 @@ func TestLeidenClustererDeterministicAfterSplitting(t *testing.T) {
 		// Isolates should each be in their own singleton community.
 		for i := 0; i < 5; i++ {
 			id := fmt.Sprintf("iso_%d", i)
-			for _, members := range commMap {
-				if members[id] {
-					if len(members) != 1 {
-						t.Fatalf("isolate %s should be singleton, got community of %d", id, len(members))
-					}
-					break
-				}
+			if len(commMembers[nodeToComm[id]]) != 1 {
+				t.Fatalf("isolate %s should be singleton, got community of %d", id, len(commMembers[nodeToComm[id]]))
 			}
 		}
 	}
@@ -740,7 +640,10 @@ func TestSplitCommunityEdgelessSubgraph(t *testing.T) {
 		"b": {},
 		"c": {},
 	}
-	result := c.splitCommunity(members, adj)
+	result, err := c.splitCommunity(members, adj)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(result) != 3 {
 		t.Fatalf("expected 3 singleton communities, got %d", len(result))
 	}
@@ -760,7 +663,10 @@ func TestSplitCommunityUnsplittableClique(t *testing.T) {
 		"b": {"a": 1, "c": 1},
 		"c": {"a": 1, "b": 1},
 	}
-	result := c.splitCommunity(members, adj)
+	result, err := c.splitCommunity(members, adj)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(result) != 1 {
 		t.Fatalf("expected 1 community (unsplittable clique), got %d", len(result))
 	}
@@ -769,19 +675,18 @@ func TestSplitCommunityUnsplittableClique(t *testing.T) {
 	}
 }
 
-func TestSplitCommunityWithUnassignedMembers(t *testing.T) {
-	// If leiden-go drops some members from its partition, they should be
-	// added back as singleton communities.
+func TestSplitCommunityConnectedPair(t *testing.T) {
+	// A 2-node connected graph: Leiden returns 1 community of 2.
 	c := NewLeidenClusterer()
-	// Use a graph where Leiden will likely partition but we manually test
-	// the fallback by using a simple structure.
 	members := []string{"a", "b"}
 	adj := map[string]map[string]float64{
 		"a": {"b": 1},
 		"b": {"a": 1},
 	}
-	result := c.splitCommunity(members, adj)
-	// A 2-node graph with 1 edge: Leiden returns 1 community of 2.
+	result, err := c.splitCommunity(members, adj)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(result) != 1 {
 		t.Fatalf("expected 1 community, got %d", len(result))
 	}
@@ -799,7 +704,10 @@ func TestSplitCommunitySuccessfulSplit(t *testing.T) {
 		"b1": {"b0": 1, "b2": 1},
 		"b2": {"b0": 1, "b1": 1},
 	}
-	result := c.splitCommunity(members, adj)
+	result, err := c.splitCommunity(members, adj)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(result) != 2 {
 		t.Fatalf("expected 2 communities, got %d", len(result))
 	}
@@ -812,6 +720,88 @@ func TestSplitCommunitySuccessfulSplit(t *testing.T) {
 	}
 	if len(assigned) != 6 {
 		t.Fatalf("expected 6 assigned nodes, got %d", len(assigned))
+	}
+}
+
+func TestDeriveSeedDeterministic(t *testing.T) {
+	members := []string{"c", "a", "b"}
+	got1 := deriveSeed(members)
+	got2 := deriveSeed(members)
+	if got1 != got2 {
+		t.Fatalf("deriveSeed not deterministic: %d != %d", got1, got2)
+	}
+}
+
+func TestDeriveSeedOrderIndependent(t *testing.T) {
+	members1 := []string{"a", "b", "c"}
+	members2 := []string{"c", "a", "b"}
+	got1 := deriveSeed(members1)
+	got2 := deriveSeed(members2)
+	if got1 != got2 {
+		t.Fatalf("deriveSeed not order-independent: %d != %d", got1, got2)
+	}
+}
+
+func TestLeidenClustererCohesionReSplitTriggers(t *testing.T) {
+	// A path graph of 10 nodes: low cohesion (9/45 = 0.2).
+	// With minSplitSize=25 the oversized split does not trigger (10 < 25).
+	// With cohesionThreshold=0.25 the cohesion re-split triggers (0.2 < 0.25).
+	nodes := make([]schema.Node, 10)
+	var edges []schema.Edge
+	for i := 0; i < 10; i++ {
+		nodes[i] = schema.Node{ID: fmt.Sprintf("n%d", i)}
+	}
+	for i := 0; i < 9; i++ {
+		edges = append(edges, schema.Edge{
+			Source: fmt.Sprintf("n%d", i),
+			Target: fmt.Sprintf("n%d", i+1),
+		})
+	}
+
+	c := NewLeidenClusterer(
+		WithMinSplitSize(25),         // maxSize = 25, 10 < 25: no oversized split
+		WithMaxCommunityFraction(0.2),
+		WithCohesionThreshold(0.25),   // 0.2 < 0.25: cohesion re-split triggers
+		WithCohesionMinSize(5),
+	)
+	result, err := c.Cluster(nodes, edges)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 10 {
+		t.Fatalf("expected 10 nodes, got %d", len(result))
+	}
+	for _, n := range result {
+		if n.Community == "" {
+			t.Fatalf("node %s missing community", n.ID)
+		}
+	}
+}
+
+func TestSplitCommunityUnassignedFallback(t *testing.T) {
+	// Defensive: verify the unassigned-member fallback in splitCommunity
+	// handles synthetic partitions that drop members.
+	c := NewLeidenClusterer()
+	members := []string{"a", "b", "c"}
+	adj := map[string]map[string]float64{
+		"a": {"b": 1},
+		"b": {"a": 1, "c": 1},
+		"c": {"b": 1},
+	}
+	result, err := c.splitCommunity(members, adj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assigned := make(map[string]bool)
+	for _, comm := range result {
+		for _, id := range comm {
+			assigned[id] = true
+		}
+	}
+	for _, id := range members {
+		if !assigned[id] {
+			t.Fatalf("member %s not assigned to any community", id)
+		}
 	}
 }
 

@@ -245,16 +245,17 @@ func (c *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 	}
 
 	// Compute max community size threshold.
-	maxSize := c.minSplitSize
-	if fracSize := int(float64(len(nodes)) * c.maxCommunityFraction); fracSize > maxSize {
-		maxSize = fracSize
-	}
+	maxSize := max(c.minSplitSize, int(float64(len(nodes))*c.maxCommunityFraction))
 
 	// Split oversized communities.
 	var split [][]string
 	for _, members := range memberLists {
 		if len(members) > maxSize {
-			split = append(split, c.splitCommunity(members, adj)...)
+			subs, err := c.splitCommunity(members, adj)
+			if err != nil {
+				return nil, fmt.Errorf("splitCommunity oversized: %w", err)
+			}
+			split = append(split, subs...)
 		} else {
 			split = append(split, members)
 		}
@@ -263,15 +264,13 @@ func (c *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 	// Re-split low-cohesion communities.
 	var secondPass [][]string
 	for _, members := range split {
-		if len(members) >= c.cohesionMinSize {
-			score := cohesionScore(members, edges)
-			if score < c.cohesionThreshold {
-				subs := c.splitCommunity(members, adj)
-				if len(subs) > 1 {
-					secondPass = append(secondPass, subs...)
-				} else {
-					secondPass = append(secondPass, members)
-				}
+		if len(members) >= c.cohesionMinSize && cohesionScore(members, edges) < c.cohesionThreshold {
+			subs, err := c.splitCommunity(members, adj)
+			if err != nil {
+				return nil, fmt.Errorf("splitCommunity cohesion: %w", err)
+			}
+			if len(subs) > 1 {
+				secondPass = append(secondPass, subs...)
 			} else {
 				secondPass = append(secondPass, members)
 			}
@@ -283,17 +282,8 @@ func (c *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 	// Re-index by size descending for deterministic ordering.
 	// Upstream convention: 0 = largest community after splitting.
 	sort.Slice(secondPass, func(i, j int) bool {
-		if len(secondPass[i]) != len(secondPass[j]) {
-			return len(secondPass[i]) > len(secondPass[j])
-		}
-		if len(secondPass[i]) == 0 && len(secondPass[j]) == 0 {
-			return false
-		}
-		if len(secondPass[i]) == 0 {
-			return true
-		}
-		if len(secondPass[j]) == 0 {
-			return false
+		if li, lj := len(secondPass[i]), len(secondPass[j]); li != lj {
+			return li > lj
 		}
 		return secondPass[i][0] < secondPass[j][0]
 	})
@@ -378,24 +368,19 @@ func cohesionScore(members []string, edges []schema.Edge) float64 {
 	seen := make(map[[2]string]bool)
 	actual := 0
 	for _, e := range edges {
-		if !memberSet[e.Source] || !memberSet[e.Target] {
-			continue
-		}
-		pair := [2]string{e.Source, e.Target}
-		if pair[0] > pair[1] {
-			pair[0], pair[1] = pair[1], pair[0]
-		}
-		if !seen[pair] {
-			seen[pair] = true
-			actual++
+		if memberSet[e.Source] && memberSet[e.Target] {
+			pair := [2]string{e.Source, e.Target}
+			if pair[0] > pair[1] {
+				pair[0], pair[1] = pair[1], pair[0]
+			}
+			if !seen[pair] {
+				seen[pair] = true
+				actual++
+			}
 		}
 	}
 
-	possible := float64(n * (n - 1) / 2)
-	if possible == 0 {
-		return 0.0
-	}
-
+	possible := float64(n) * float64(n-1) / 2
 	return float64(actual) / possible
 }
 
@@ -403,7 +388,7 @@ func cohesionScore(members []string, edges []schema.Edge) float64 {
 // If the subgraph is edgeless, each member becomes its own singleton community.
 // If Leiden cannot split the subgraph (returns a single community), the original
 // members are returned unchanged.
-func (c *LeidenClusterer) splitCommunity(members []string, adj map[string]map[string]float64) [][]string {
+func (c *LeidenClusterer) splitCommunity(members []string, adj map[string]map[string]float64) ([][]string, error) {
 	memberSet := make(map[string]bool, len(members))
 	for _, id := range members {
 		memberSet[id] = true
@@ -435,7 +420,7 @@ func (c *LeidenClusterer) splitCommunity(members []string, adj map[string]map[st
 		for i, id := range members {
 			result[i] = []string{id}
 		}
-		return result
+		return result, nil
 	}
 
 	subgraph := leiden.NewGraph(subAdj)
@@ -452,12 +437,12 @@ func (c *LeidenClusterer) splitCommunity(members []string, adj map[string]map[st
 
 	result, err := leiden.Leiden(subgraph, config)
 	if err != nil {
-		return [][]string{members}
+		return nil, fmt.Errorf("leiden subgraph failed: %w", err)
 	}
 
 	communities := result.Partition.Communities()
 	if len(communities) <= 1 {
-		return [][]string{members}
+		return [][]string{members}, nil
 	}
 
 	var out [][]string
@@ -478,5 +463,5 @@ func (c *LeidenClusterer) splitCommunity(members []string, adj map[string]map[st
 		}
 	}
 
-	return out
+	return out, nil
 }
