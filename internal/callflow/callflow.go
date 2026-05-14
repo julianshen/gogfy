@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"path"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/julianshen/gogfy/internal/schema"
@@ -26,13 +26,13 @@ type Options struct {
 }
 
 const (
-	defaultMaxSections    = 15
-	defaultMaxNodes       = 18
-	defaultMaxEdges       = 24
-	defaultDiagramScale   = 1.0
-	defaultProjectName    = "Project"
-	overviewEdgesCap      = 12
-	defaultProjectHeading = "Architecture Overview"
+	defaultMaxSections  = 15
+	defaultMaxNodes     = 18
+	defaultMaxEdges     = 24
+	defaultDiagramScale = 1.0
+	defaultProjectName  = "Project"
+	overviewEdgesCap    = 12
+	uncategorizedID     = "uncategorized"
 )
 
 // Generate returns the full HTML document. Empty input is an error
@@ -49,12 +49,6 @@ func Generate(nodes []schema.Node, edges []schema.Edge, opts Options) (string, e
 		return "", errors.New("callflow: no non-empty sections derived from communities")
 	}
 
-	nodeByID := make(map[string]schema.Node, len(nodes))
-	for _, n := range nodes {
-		nodeByID[n.ID] = n
-	}
-	// Classify edges: intra-section vs cross-section, and bucket
-	// cross-section edges by ordered (src-section, tgt-section) pair.
 	sectionOfNode := make(map[string]string, len(nodes))
 	for _, sec := range sections {
 		for _, n := range sec.Nodes {
@@ -126,34 +120,22 @@ func normalizeOptions(o Options) Options {
 	return o
 }
 
-// buildSections groups nodes by Community and returns the top N
-// non-empty groups by size descending (ties broken by community ID for
-// determinism). Nodes with empty Community are pooled into a single
-// "uncategorized" section so they're not silently dropped.
+// buildSections groups nodes by Community. Nodes with empty Community
+// pool into a single "uncategorized" section so they're not silently
+// dropped.
 func buildSections(nodes []schema.Node, maxSections int) []Section {
 	byComm := make(map[string][]schema.Node)
 	for _, n := range nodes {
 		c := n.Community
 		if c == "" {
-			c = "uncategorized"
+			c = uncategorizedID
 		}
 		byComm[c] = append(byComm[c], n)
 	}
 	sections := make([]Section, 0, len(byComm))
 	for cid, members := range byComm {
-		// Sort members deterministically by ID so per-section
-		// rendering is stable.
-		sort.SliceStable(members, func(i, j int) bool {
-			return members[i].ID < members[j].ID
-		})
-		sections = append(sections, Section{
-			ID:    cid,
-			Name:  sectionName(cid, members),
-			Nodes: members,
-		})
+		sections = append(sections, Section{ID: cid, Nodes: members})
 	}
-	// Largest first; ties on size break on community ID for
-	// determinism.
 	sort.SliceStable(sections, func(i, j int) bool {
 		if len(sections[i].Nodes) != len(sections[j].Nodes) {
 			return len(sections[i].Nodes) > len(sections[j].Nodes)
@@ -163,13 +145,22 @@ func buildSections(nodes []schema.Node, maxSections int) []Section {
 	if len(sections) > maxSections {
 		sections = sections[:maxSections]
 	}
+	// Sort surviving sections' members and name them only after
+	// truncation — skipping the cost for sections that get cut.
+	for i := range sections {
+		sort.SliceStable(sections[i].Nodes, func(a, b int) bool {
+			return sections[i].Nodes[a].ID < sections[i].Nodes[b].ID
+		})
+		sections[i].Name = sectionName(sections[i].ID, sections[i].Nodes)
+	}
 	return sections
 }
 
-// sectionName builds a human-readable name from a community's most
-// distinctive file-directory prefix. Falls back to "Community <id>".
+// sectionName picks the most-common parent directory among the
+// section's source files as a human-readable label. Falls back to
+// "Community <id>" when no directory dominates.
 func sectionName(communityID string, members []schema.Node) string {
-	if communityID == "uncategorized" {
+	if communityID == uncategorizedID {
 		return "Uncategorized"
 	}
 	// Most common directory among the member source files; gives the
@@ -193,23 +184,17 @@ func sectionName(communityID string, members []schema.Node) string {
 	return "Community " + communityID
 }
 
-// topDir returns the immediate parent directory name of a source file
-// path. For "/r/auth/login.go" → "auth".
+// topDir returns the immediate parent directory name of a POSIX-style
+// source-file path. For "/r/auth/login.go" → "auth".
 func topDir(p string) string {
 	if p == "" {
 		return ""
 	}
-	// Drop trailing slash so "/r/auth/" still returns "auth".
-	p = strings.TrimRight(p, "/")
-	slash := strings.LastIndexByte(p, '/')
-	if slash < 0 {
+	dir := path.Dir(strings.TrimRight(p, "/"))
+	if dir == "/" || dir == "." {
 		return ""
 	}
-	dir := p[:slash]
-	if i := strings.LastIndexByte(dir, '/'); i >= 0 {
-		return dir[i+1:]
-	}
-	return dir
+	return path.Base(dir)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,7 +233,7 @@ func writeOverview(b *strings.Builder, sections []Section, cross map[crossKey]*c
 	b.WriteString(`<section id="overview">` + "\n")
 	b.WriteString(`<h2>1. Architecture Overview</h2>` + "\n")
 	b.WriteString(`<div class="mermaid">` + "\n")
-	b.WriteString(mermaidInit(o.DiagramScale, "LR"))
+	b.WriteString(mermaidInit(o.DiagramScale))
 	b.WriteString("\nflowchart LR\n")
 	for _, sec := range sections {
 		nid := sectionMermaidID(sec.ID)
@@ -256,8 +241,6 @@ func writeOverview(b *strings.Builder, sections []Section, cross map[crossKey]*c
 			safeMermaidText(sec.Name), len(sec.Nodes))
 		fmt.Fprintf(b, "    %s(\"%s\")\n", nid, label)
 	}
-	// Cross-section edges, ordered by count desc then by deterministic
-	// key, capped at overviewEdgesCap.
 	keys := make([]crossKey, 0, len(cross))
 	for k := range cross {
 		keys = append(keys, k)
@@ -301,7 +284,7 @@ func writeSection(b *strings.Builder, headingNum int, sec Section, sectionEdges 
 	}
 
 	b.WriteString(`<div class="mermaid">` + "\n")
-	b.WriteString(mermaidInit(o.DiagramScale, "LR"))
+	b.WriteString(mermaidInit(o.DiagramScale))
 	b.WriteString("\nflowchart LR\n")
 	if len(selected) == 0 {
 		fmt.Fprintf(b, "    empty(\"%s - no nodes\")\n", safeMermaidText(sec.Name))
@@ -309,8 +292,12 @@ func writeSection(b *strings.Builder, headingNum int, sec Section, sectionEdges 
 		return
 	}
 	for _, n := range selected {
+		label := n.Label
+		if label == "" {
+			label = n.ID
+		}
 		fmt.Fprintf(b, "    %s(\"%s\")\n",
-			nodeMermaidID(n.ID), safeMermaidText(displayLabel(n)))
+			nodeMermaidID(n.ID), safeMermaidText(label))
 	}
 	emitted := 0
 	for _, e := range sectionEdges {
@@ -343,11 +330,8 @@ if (window.mermaid && window.mermaid.initialize) {
 `)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Diagram-node selection: pick the most "central" nodes for the
-// per-section flowchart. v1 ranks by intra-section degree (counts of
-// incident edges among section members). Ties break on node ID.
-
+// selectDiagramNodes returns the top-cap nodes ranked by intra-section
+// degree, ties broken on node ID for determinism.
 func selectDiagramNodes(nodes []schema.Node, edges []schema.Edge, cap int) []schema.Node {
 	if len(nodes) <= cap {
 		return nodes
@@ -367,7 +351,6 @@ func selectDiagramNodes(nodes []schema.Node, edges []schema.Edge, cap int) []sch
 	return scored[:cap]
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Mermaid identifier + text escaping. Mermaid is picky: node IDs must
 // be alphanumeric+underscore; node labels inside quoted strings can't
 // contain double-quotes or `<script>` breakouts.
@@ -399,28 +382,24 @@ func sanitizeMermaidID(s string) string {
 }
 
 // safeMermaidText escapes a label for use inside a mermaid quoted
-// node-text or edge-label. Mermaid uses HTML for labels, so we
-// HTML-escape and additionally strip `"` (which would close the
-// quoted-string node) and stray script-breakout patterns.
+// node-text or edge-label. Mermaid renders HTML inside labels, so we
+// apply standard HTML-entity escaping for `&`, `<`, `>`, `"` — missing
+// `&` would let a label containing a literal `&` mis-parse downstream
+// entities; missing `"` would close the quoted-string node early.
+var mermaidEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+)
+
 func safeMermaidText(s string) string {
-	s = strings.ReplaceAll(s, `"`, "&quot;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	return s
+	return mermaidEscaper.Replace(s)
 }
 
-func displayLabel(n schema.Node) string {
-	if n.Label != "" {
-		return n.Label
-	}
-	return n.ID
-}
-
-func mermaidInit(scale float64, direction string) string {
-	// %%{init: ...}%% directive controls theming/scale at the diagram
-	// level. Mermaid 11 accepts a JSON object.
+func mermaidInit(scale float64) string {
 	return fmt.Sprintf(`%%%%{init: {"theme":"dark", "flowchart":{"defaultRenderer":"elk","htmlLabels":true,"curve":"basis"}}}%%%%
-%%%% scale: %.2f, direction: %s`, scale, direction)
+%%%% scale: %.2f`, scale)
 }
 
 func mostCommonRelation(rels map[string]int) string {
@@ -470,11 +449,6 @@ func max0(n int) int {
 	}
 	return n
 }
-
-// itoa avoids importing strconv just for the section-heading numerics
-// where we want zero allocations on hot paths. Currently only used in
-// a comment placeholder; strconv suffices.
-var _ = strconv.Itoa
 
 const inlineCSS = `:root {
   --bg: #0f172a; --surface: #1e293b; --border: #334155;

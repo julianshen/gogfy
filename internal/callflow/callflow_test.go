@@ -187,6 +187,22 @@ func TestGenerateEscapesUserContentInMermaid(t *testing.T) {
 	}
 }
 
+func TestGenerateEscapesAmpersandInLabels(t *testing.T) {
+	// A label containing & must be HTML-entity-escaped or downstream
+	// (mermaid renders labels via HTML) would misparse an entity-like
+	// substring such as "&amp" inside the user's identifier.
+	nodes := []schema.Node{
+		{ID: "n1", Label: "Foo&Bar", SourceFile: "/r/x.go", Community: "0"},
+	}
+	out, err := Generate(nodes, nil, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Foo&amp;Bar") {
+		t.Fatalf("`&` in label not entity-escaped:\n%s", head(out, 800))
+	}
+}
+
 func TestGenerateNavLinksAllSections(t *testing.T) {
 	// Each rendered section needs an in-page anchor so the nav bar
 	// can jump to it. Pin one anchor per fixture community.
