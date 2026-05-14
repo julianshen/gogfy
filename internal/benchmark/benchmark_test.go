@@ -1,0 +1,332 @@
+package benchmark
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+
+	"github.com/julianshen/gogfy/internal/schema"
+)
+
+// fixtureGraph returns a small connected graph that the default sample
+// questions will match against (label "auth" matches "how does
+// authentication work", "main" matches "what is the main entry point").
+func fixtureGraph() ([]schema.Node, []schema.Edge) {
+	nodes := []schema.Node{
+		{ID: "n1", Label: "authHandler", SourceFile: "/r/auth.go", SourceLocation: "10:1"},
+		{ID: "n2", Label: "authMiddleware", SourceFile: "/r/auth.go", SourceLocation: "30:1"},
+		{ID: "n3", Label: "main", SourceFile: "/r/main.go", SourceLocation: "1:1"},
+		{ID: "n4", Label: "errorHandler", SourceFile: "/r/errors.go", SourceLocation: "5:1"},
+		{ID: "n5", Label: "dataLayer", SourceFile: "/r/db.go", SourceLocation: "1:1"},
+		{ID: "n6", Label: "apiHandler", SourceFile: "/r/api.go", SourceLocation: "1:1"},
+		{ID: "n7", Label: "coreAbstractions", SourceFile: "/r/core.go", SourceLocation: "1:1"},
+	}
+	edges := []schema.Edge{
+		{Source: "n1", Target: "n2", Relation: "calls"},
+		{Source: "n2", Target: "n3", Relation: "calls"},
+		{Source: "n3", Target: "n4", Relation: "calls"},
+		{Source: "n3", Target: "n6", Relation: "calls"},
+		{Source: "n6", Target: "n5", Relation: "calls"},
+		{Source: "n7", Target: "n1", Relation: "references"},
+	}
+	return nodes, edges
+}
+
+func TestRunReturnsCorpusAndQueryReductions(t *testing.T) {
+	nodes, edges := fixtureGraph()
+	res, err := Run(nodes, edges, Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Nodes != 7 || res.Edges != 6 {
+		t.Fatalf("node/edge count off: nodes=%d edges=%d", res.Nodes, res.Edges)
+	}
+	if res.CorpusWords <= 0 || res.CorpusTokens <= 0 {
+		t.Fatalf("corpus should be estimated when CorpusWords unset, got words=%d tokens=%d", res.CorpusWords, res.CorpusTokens)
+	}
+	if len(res.PerQuestion) == 0 {
+		t.Fatalf("expected at least one matching sample question against fixture")
+	}
+	for _, p := range res.PerQuestion {
+		if p.QueryTokens <= 0 {
+			t.Fatalf("query tokens must be >0 for matched question %q", p.Question)
+		}
+		if p.Reduction <= 0 {
+			t.Fatalf("reduction must be >0 for %q (corpus=%d, query=%d)", p.Question, res.CorpusTokens, p.QueryTokens)
+		}
+	}
+	if res.AvgQueryTokens <= 0 || res.ReductionRatio <= 0 {
+		t.Fatalf("aggregate avg/ratio must be >0: avg=%d ratio=%v", res.AvgQueryTokens, res.ReductionRatio)
+	}
+}
+
+func TestRunHonorsExplicitCorpusWords(t *testing.T) {
+	// Explicit CorpusWords must bypass the node-count estimation so
+	// callers can plug in a real wc-style count from detect().
+	nodes, edges := fixtureGraph()
+	res, err := Run(nodes, edges, Options{CorpusWords: 9000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.CorpusWords != 9000 {
+		t.Fatalf("CorpusWords override ignored: got %d", res.CorpusWords)
+	}
+	// Pin the upstream words→tokens conversion (words*100/75).
+	want := 9000 * 100 / 75
+	if res.CorpusTokens != want {
+		t.Fatalf("CorpusTokens: got %d want %d (must match upstream words*100/75)", res.CorpusTokens, want)
+	}
+}
+
+func TestRunNoMatchingQuestionsReturnsError(t *testing.T) {
+	// Custom question with no overlap against any label should produce
+	// an explicit error (not a divide-by-zero or silent zero ratio).
+	nodes, edges := fixtureGraph()
+	_, err := Run(nodes, edges, Options{Questions: []string{"zzz-no-such-token here"}})
+	if err == nil {
+		t.Fatal("expected error when no question matches any node label")
+	}
+}
+
+func TestRunMajoritySkipReturnsError(t *testing.T) {
+	// User supplies an explicit prompt list; if more than half match
+	// nothing, the aggregate average over the remaining few would be
+	// misleading. The error names the skipped prompts so the user can
+	// fix the typos / wrong corpus rather than reading a confidently
+	// wrong reduction-ratio.
+	nodes, edges := fixtureGraph()
+	_, err := Run(nodes, edges, Options{Questions: []string{
+		"main entry point",     // matches "main"
+		"zzz nothing matches",  // skip
+		"qqq also nothing",     // skip
+		"www never matches",    // skip — 3/4 skipped, over half
+	}})
+	if err == nil {
+		t.Fatal("expected error when majority of supplied questions miss")
+	}
+	if !strings.Contains(err.Error(), "matched no nodes") {
+		t.Fatalf("error should describe the cause, got: %v", err)
+	}
+}
+
+func TestRunMinoritySkipPopulatesSkipped(t *testing.T) {
+	// At-or-below-half misses is treated as best-effort: the run
+	// succeeds, but the skipped list is exposed on the Result so the
+	// caller (and Render) can surface a warning.
+	nodes, edges := fixtureGraph()
+	res, err := Run(nodes, edges, Options{Questions: []string{
+		"main entry point",      // hit
+		"auth handler",          // hit
+		"zzz nothing matches",   // 1/3 skipped — under half
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Skipped) != 1 || !strings.Contains(res.Skipped[0], "zzz") {
+		t.Fatalf("Skipped should contain the no-match prompt, got %v", res.Skipped)
+	}
+	if len(res.PerQuestion) != 2 {
+		t.Fatalf("expected 2 successful per-question entries, got %d", len(res.PerQuestion))
+	}
+}
+
+func TestRunSkipsEdgesWithPhantomEndpoints(t *testing.T) {
+	// A corrupt graph.json with an edge pointing to a missing node ID
+	// must not produce BFS through phantom nodes (those would emit
+	// "NODE  src= loc=" lines with empty labels and inflate the token
+	// estimate with garbage). Result should equal the same input with
+	// the bad edge filtered out.
+	nodes, edges := fixtureGraph()
+	withPhantom := append([]schema.Edge(nil), edges...)
+	withPhantom = append(withPhantom, schema.Edge{
+		Source: "n3", Target: "phantom-id-not-in-nodes", Relation: "calls",
+	})
+	clean, err := Run(nodes, edges, Options{Questions: []string{"main entry point"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirty, err := Run(nodes, withPhantom, Options{Questions: []string{"main entry point"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clean.PerQuestion[0].QueryTokens != dirty.PerQuestion[0].QueryTokens {
+		t.Fatalf("phantom-endpoint edge leaked into BFS: clean=%d dirty=%d",
+			clean.PerQuestion[0].QueryTokens, dirty.PerQuestion[0].QueryTokens)
+	}
+}
+
+func TestRunCustomQuestionsUsedInsteadOfDefaults(t *testing.T) {
+	// Custom Questions list must replace defaults entirely.
+	nodes, edges := fixtureGraph()
+	res, err := Run(nodes, edges, Options{Questions: []string{"main entry point"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.PerQuestion) != 1 {
+		t.Fatalf("expected exactly 1 per-question entry, got %d", len(res.PerQuestion))
+	}
+	if !strings.Contains(res.PerQuestion[0].Question, "main") {
+		t.Fatalf("returned question doesn't match input: %+v", res.PerQuestion[0])
+	}
+}
+
+func TestRunBFSDepthBoundsContext(t *testing.T) {
+	// A larger Depth visits more nodes than a smaller one (BFS expands).
+	// This pins the contract that Depth actually affects subgraph size.
+	nodes, edges := fixtureGraph()
+	shallow, err := Run(nodes, edges, Options{Questions: []string{"main"}, Depth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deep, err := Run(nodes, edges, Options{Questions: []string{"main"}, Depth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deep.PerQuestion[0].QueryTokens < shallow.PerQuestion[0].QueryTokens {
+		t.Fatalf("Depth=3 should visit >= as many tokens as Depth=1, got %d vs %d",
+			deep.PerQuestion[0].QueryTokens, shallow.PerQuestion[0].QueryTokens)
+	}
+}
+
+func TestRunDeterministic(t *testing.T) {
+	// Same input → identical Result. BFS frontiers use maps; without
+	// sorted iteration over neighbors the per-question token count
+	// drifts across runs as edges_seen accumulates in different orders.
+	nodes, edges := fixtureGraph()
+	r1, err := Run(nodes, edges, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, err := Run(nodes, edges, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r1.AvgQueryTokens != r2.AvgQueryTokens || r1.ReductionRatio != r2.ReductionRatio {
+		t.Fatalf("non-deterministic Result:\n%+v\nvs\n%+v", r1, r2)
+	}
+	if len(r1.PerQuestion) != len(r2.PerQuestion) {
+		t.Fatalf("per-question count drift: %d vs %d", len(r1.PerQuestion), len(r2.PerQuestion))
+	}
+	for i := range r1.PerQuestion {
+		if r1.PerQuestion[i] != r2.PerQuestion[i] {
+			t.Fatalf("per-question drift at %d: %+v vs %+v", i, r1.PerQuestion[i], r2.PerQuestion[i])
+		}
+	}
+}
+
+func TestRenderHumanReadable(t *testing.T) {
+	nodes, edges := fixtureGraph()
+	res, err := Run(nodes, edges, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := Render(res, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"token reduction benchmark",
+		"Corpus:",
+		"Avg query cost:",
+		"Reduction:",
+		"Per question:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderEmptyResultReportsError(t *testing.T) {
+	// If a user passes a zero-Result (e.g. forgot to call Run), Render
+	// shouldn't divide-by-zero or print a misleading 0x reduction
+	// banner. Surface it as a clear message.
+	var buf bytes.Buffer
+	if err := Render(Result{}, &buf); err == nil {
+		t.Fatal("Render(Result{}) should return an error for an empty/un-run result")
+	}
+}
+
+func TestRoundOneBankersRounding(t *testing.T) {
+	// Matches Python round(x, 1). Without banker's rounding, gogfy
+	// and graphify produce different reduction ratios on tie inputs,
+	// undermining the cross-tool comparability claim.
+	// Values commented with their Python round(x, 1) result. Notes:
+	// IEEE 754 makes most .x5 inputs not actually exact half-ties
+	// (2.15 stores as 2.1499..., so it rounds DOWN under any
+	// reasonable algorithm). Only inputs exactly representable in
+	// binary (.0, .25, .5, .75) trigger the banker's-rounding
+	// tiebreak. Pin both: the genuine-tie cases (where banker's
+	// matters) and the imprecise-tie cases (where matching Python's
+	// result is what users actually compare against).
+	// Genuine binary-exact ties at the 1-decimal level (after x*10):
+	// these are the cases where banker's vs half-up diverges and
+	// matter for parity. Decimal-ambiguous inputs like 0.05 are
+	// covered by the IEEE 754 representation (Python's round-decimal
+	// path also drifts for them; not the contract we promise).
+	cases := []struct {
+		in   float64
+		want float64
+	}{
+		{2.25, 2.2}, // exact tie → even (2). Was 2.3 under half-up — fix-target.
+		{2.75, 2.8}, // exact tie → even (8).
+		{2.15, 2.2}, // 2.15 stores as ≈2.1499... but 2.15*10 rounds to 21.5 in float64; RoundToEven gives 22. Python's decimal-aware round() gives 2.1; we diverge here.
+		{2.24, 2.2}, // not a tie.
+		{2.26, 2.3}, // not a tie.
+		{0.5, 0.5},  // already at 1 decimal.
+		{0.25, 0.2}, // exact tie → even (2).
+		{103.5, 103.5},
+	}
+	for _, c := range cases {
+		if got := roundOne(c.in); got != c.want {
+			t.Errorf("roundOne(%v) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestCommasHandlesMinInt(t *testing.T) {
+	// commas(math.MinInt64) must not stack-overflow. The naive
+	// `-n` flip on MinInt64 wraps back to MinInt64 in two's
+	// complement and would infinite-recurse. Token counts are
+	// non-negative in practice, but the function is public-facing
+	// formatting and shouldn't have a latent crash.
+	got := commas(-9223372036854775808)
+	want := "-9,223,372,036,854,775,808"
+	if got != want {
+		t.Fatalf("commas(MinInt64) = %q, want %q", got, want)
+	}
+}
+
+func TestCommasNegativeFormatting(t *testing.T) {
+	cases := []struct {
+		in   int
+		want string
+	}{
+		{0, "0"},
+		{12, "12"},
+		{-12, "-12"},
+		{1234, "1,234"},
+		{-1234, "-1,234"},
+		{1234567, "1,234,567"},
+		{-1234567, "-1,234,567"},
+	}
+	for _, c := range cases {
+		if got := commas(c.in); got != c.want {
+			t.Errorf("commas(%d) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestEstimateTokens(t *testing.T) {
+	// Pinning the 4-chars-per-token approximation and the floor of 1.
+	if got := estimateTokens("", 4); got != 1 {
+		t.Fatalf("empty string should still cost 1 token, got %d", got)
+	}
+	if got := estimateTokens("abcd", 4); got != 1 {
+		t.Fatalf("4 chars / 4 = 1, got %d", got)
+	}
+	if got := estimateTokens("abcdefghij", 4); got != 2 {
+		t.Fatalf("10 chars / 4 = 2 (integer division), got %d", got)
+	}
+}

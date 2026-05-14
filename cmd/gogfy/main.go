@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/julianshen/gogfy/internal/analyze"
+	"github.com/julianshen/gogfy/internal/benchmark"
 	"github.com/julianshen/gogfy/internal/cache"
 	"github.com/julianshen/gogfy/internal/cluster"
 	"github.com/julianshen/gogfy/internal/dedup"
@@ -121,6 +122,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return wikiCommand(rest, stderr)
 	case "tree":
 		return treeCommand(rest, stderr)
+	case "benchmark":
+		return benchmarkCommand(rest, os.Stdout, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -277,6 +280,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy tree <graph.json> [--out <html-path>]")
+	fmt.Fprintln(w, "       gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> install   # combo: mcp + snippet + hook in one shot")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> uninstall # remove all three")
 }
@@ -1132,6 +1136,48 @@ func treeCommand(args []string, stderr io.Writer) error {
 	return nil
 }
 
+// benchmarkCommand measures token-reduction against an existing graph.json.
+// Usage: gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]
+func benchmarkCommand(args []string, stdout, stderr io.Writer) error {
+	ordered, err := groupBenchmarkFlags(args)
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("benchmark", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	corpusWords := fs.Int("corpus-words", 0, "authoritative source-corpus word count (0 = estimate from node count)")
+	depth := fs.Int("depth", 0, "BFS depth from question seeds (0 = default 3)")
+	asJSON := fs.Bool("json", false, "emit the raw Result as JSON instead of the human-readable report")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("benchmark: expected <graph.json>, got %d positional argument(s)", fs.NArg())
+	}
+	g, err := loadGraph(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	res, err := benchmark.Run(g.Nodes, g.Edges, benchmark.Options{
+		CorpusWords: *corpusWords,
+		Depth:       *depth,
+	})
+	if err != nil {
+		return fmt.Errorf("benchmark: %w", err)
+	}
+	if *asJSON {
+		out, err := json.MarshalIndent(res, "", "  ")
+		if err != nil {
+			return fmt.Errorf("benchmark: marshal: %w", err)
+		}
+		if _, err := fmt.Fprintln(stdout, string(out)); err != nil {
+			return fmt.Errorf("benchmark: write json: %w", err)
+		}
+		return nil
+	}
+	return benchmark.Render(res, stdout)
+}
+
 // wikiCommand turns an existing graph.json into a wiki directory.
 // Usage: gogfy wiki <graph.json> [--out <dir>]
 // Default output is <graph-dir>/wiki/.
@@ -1175,25 +1221,68 @@ func wikiCommand(args []string, stderr io.Writer) error {
 // so the positional graph path can appear before --out without losing
 // the flag to Go's stop-at-first-positional parser.
 func groupWikiFlags(args []string) ([]string, error) {
+	return reorderFlags(args, []string{"out"}, nil)
+}
+
+// reorderFlags moves any --name / --name=val / --name val pairs ahead of
+// positional args so flag.Parse (which stops at the first non-flag) sees
+// every flag the user supplied. valueFlags carries arguments; boolFlags
+// stand alone. Unknown flags return an error rather than silently
+// becoming positional args.
+func reorderFlags(args, valueFlags, boolFlags []string) ([]string, error) {
+	isValue := make(map[string]bool, len(valueFlags))
+	for _, n := range valueFlags {
+		isValue[n] = true
+	}
+	isBool := make(map[string]bool, len(boolFlags))
+	for _, n := range boolFlags {
+		isBool[n] = true
+	}
+	flagName := func(a string) (string, bool) {
+		s := strings.TrimLeft(a, "-")
+		if eq := strings.IndexByte(s, '='); eq >= 0 {
+			s = s[:eq]
+		}
+		return s, isValue[s] || isBool[s]
+	}
+
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		switch {
-		case a == "--out", a == "-out":
-			if i+1 >= len(args) {
-				return nil, fmt.Errorf("flag %s requires a value", a)
-			}
-			flags = append(flags, a, args[i+1])
-			i++
-		case strings.HasPrefix(a, "--out="), strings.HasPrefix(a, "-out="):
-			flags = append(flags, a)
-		case strings.HasPrefix(a, "-"):
-			return nil, fmt.Errorf("unknown flag: %s", a)
-		default:
+		if !strings.HasPrefix(a, "-") {
 			positional = append(positional, a)
+			continue
 		}
+		name, known := flagName(a)
+		if !known {
+			return nil, fmt.Errorf("unknown flag: %s", a)
+		}
+		if strings.Contains(a, "=") || isBool[name] {
+			flags = append(flags, a)
+			continue
+		}
+		if i+1 >= len(args) {
+			return nil, fmt.Errorf("flag %s requires a value", a)
+		}
+		// Reject a value that's itself a recognized flag — almost
+		// certainly a typo (e.g. `--depth --json` would set
+		// depth="--json" and surface as a cryptic int-parse error
+		// later).
+		if v := args[i+1]; strings.HasPrefix(v, "-") {
+			if vn, vknown := flagName(v); vknown && (isValue[vn] || isBool[vn]) {
+				return nil, fmt.Errorf("flag %s requires a value, got flag %q", a, v)
+			}
+		}
+		flags = append(flags, a, args[i+1])
+		i++
 	}
 	return append(flags, positional...), nil
+}
+
+// groupBenchmarkFlags reorders args for the benchmark subcommand
+// (--corpus-words/--depth/--json).
+func groupBenchmarkFlags(args []string) ([]string, error) {
+	return reorderFlags(args, []string{"corpus-words", "depth"}, []string{"json"})
 }
 
 // groupRunFlags reorders args for the `run` subcommand so all known flags
