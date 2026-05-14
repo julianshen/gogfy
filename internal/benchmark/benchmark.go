@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strings"
 
@@ -362,12 +363,15 @@ func termsOf(question string) []string {
 	return out
 }
 
-// roundOne rounds to one decimal, half-up. Only correct for the
-// non-negative ratios this package produces — diverges from Python's
-// round() banker's-rounding for ties.
+// roundOne rounds to one decimal place using IEEE 754 banker's
+// rounding (ties-to-even at the binary float level). Aligns with
+// Python's `round(x, 1)` for the genuine-tie cases — values exactly
+// representable as binary float, like 2.25 (→ 2.2 in both, vs 2.3
+// under half-up). Strict decimal-aware Python ties (e.g. 0.05) will
+// still diverge because that requires a decimal library, not a
+// float64 algorithm.
 func roundOne(x float64) float64 {
-	scaled := x*10 + 0.5
-	return float64(int64(scaled)) / 10
+	return math.RoundToEven(x*10) / 10
 }
 
 // trimFloat formats a 1-decimal float, dropping ".0" when whole so
@@ -377,14 +381,20 @@ func trimFloat(f float64) string {
 }
 
 func commas(n int) string {
-	if n < 0 {
-		return "-" + commas(-n)
-	}
+	// Sign-strip via the formatted string instead of `-n` to dodge
+	// the math.MinInt64 trap (`-math.MinInt64` overflows back to
+	// negative and would infinite-recurse).
 	s := fmt.Sprintf("%d", n)
+	sign := ""
+	if strings.HasPrefix(s, "-") {
+		sign = "-"
+		s = s[1:]
+	}
 	if len(s) <= 3 {
-		return s
+		return sign + s
 	}
 	var out strings.Builder
+	out.WriteString(sign)
 	pre := len(s) % 3
 	if pre > 0 {
 		out.WriteString(s[:pre])
