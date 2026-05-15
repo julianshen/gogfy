@@ -37,6 +37,9 @@ import (
 	"github.com/julianshen/gogfy/internal/serve"
 	"github.com/julianshen/gogfy/internal/tree"
 	"github.com/julianshen/gogfy/internal/watch"
+	"errors"
+
+	"github.com/julianshen/gogfy/internal/labels"
 	"github.com/julianshen/gogfy/internal/wiki"
 )
 
@@ -124,6 +127,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return mergeGraphsCommand(rest, os.Stdout, stderr)
 	case "wiki":
 		return wikiCommand(rest, stderr)
+	case "labels":
+		return labelsCommand(rest, stderr)
 	case "tree":
 		return treeCommand(rest, stderr)
 	case "benchmark":
@@ -287,6 +292,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
+	fmt.Fprintln(w, "       gogfy labels <graph.json> [--out <path>] [--force]")
 	fmt.Fprintln(w, "       gogfy tree <graph.json> [--out <html-path>]")
 	fmt.Fprintln(w, "       gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]")
 	fmt.Fprintln(w, "       gogfy callflow <graph.json> [--out <html-path>] [--max-sections N] [--max-nodes M] [--max-edges E] [--project NAME]")
@@ -1411,11 +1417,64 @@ func wikiCommand(args []string, stderr io.Writer) error {
 		dir = filepath.Join(filepath.Dir(graphPath), "wiki")
 	}
 	r := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
-	count, err := wiki.Generate(g.Nodes, g.Edges, dir, wiki.Options{GodNodes: r.GodNodes})
+	// Auto-load .graphify_labels.json from the graph directory if
+	// present, so wiki articles get human-readable community names
+	// without an extra CLI flag. Missing file is non-fatal — the wiki
+	// falls back to "Community <N>" naming.
+	labelsPath := filepath.Join(filepath.Dir(graphPath), ".graphify_labels.json")
+	communityLabels, err := labels.Load(labelsPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	count, err := wiki.Generate(g.Nodes, g.Edges, dir, wiki.Options{
+		GodNodes:        r.GodNodes,
+		CommunityLabels: communityLabels,
+	})
 	if err != nil {
 		return fmt.Errorf("wiki: %w", err)
 	}
 	fmt.Fprintf(stderr, "wiki: wrote %d articles + index.md to %s\n", count, dir)
+	return nil
+}
+
+// labelsCommand derives human-readable community labels from a clustered
+// graph.json and writes them to `.graphify_labels.json` next to the graph
+// (or to --out). Existing file is preserved unless --force is set, so
+// hand-edited labels survive re-runs.
+func labelsCommand(args []string, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"out"}, []string{"force"})
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("labels", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outPath := fs.String("out", "", ".graphify_labels.json output path (defaults to <graph-dir>/.graphify_labels.json)")
+	force := fs.Bool("force", false, "overwrite an existing labels file (default: refuse so hand-edits survive)")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("labels: expected <graph.json>, got %d positional argument(s)", fs.NArg())
+	}
+	graphPath := fs.Arg(0)
+	g, err := loadGraph(graphPath)
+	if err != nil {
+		return err
+	}
+	path := *outPath
+	if path == "" {
+		path = filepath.Join(filepath.Dir(graphPath), ".graphify_labels.json")
+	}
+	if !*force {
+		if _, statErr := os.Stat(path); statErr == nil {
+			return fmt.Errorf("labels: %s already exists; pass --force to overwrite", path)
+		}
+	}
+	out := labels.Generate(g.Nodes, g.Edges)
+	if err := labels.Save(path, out); err != nil {
+		return fmt.Errorf("labels: %w", err)
+	}
+	fmt.Fprintf(stderr, "labels: wrote %d community labels to %s\n", len(out), path)
 	return nil
 }
 
