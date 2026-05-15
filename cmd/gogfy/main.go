@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"os/signal"
@@ -18,6 +19,7 @@ import (
 	"github.com/julianshen/gogfy/internal/benchmark"
 	"github.com/julianshen/gogfy/internal/cache"
 	"github.com/julianshen/gogfy/internal/callflow"
+	"github.com/julianshen/gogfy/internal/globalgraph"
 	"github.com/julianshen/gogfy/internal/cluster"
 	"github.com/julianshen/gogfy/internal/dedup"
 	"github.com/julianshen/gogfy/internal/detect"
@@ -127,6 +129,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return benchmarkCommand(rest, os.Stdout, stderr)
 	case "callflow":
 		return callflowCommand(rest, stderr)
+	case "global":
+		return globalCommand(rest, os.Stdout, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -285,6 +289,10 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy tree <graph.json> [--out <html-path>]")
 	fmt.Fprintln(w, "       gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]")
 	fmt.Fprintln(w, "       gogfy callflow <graph.json> [--out <html-path>] [--max-sections N] [--max-nodes M] [--max-edges E] [--project NAME]")
+	fmt.Fprintln(w, "       gogfy global add <graph.json> [--as TAG] [--dir <store-dir>]")
+	fmt.Fprintln(w, "       gogfy global remove <TAG> [--dir <store-dir>]")
+	fmt.Fprintln(w, "       gogfy global list [--dir <store-dir>]")
+	fmt.Fprintln(w, "       gogfy global path [--dir <store-dir>]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> install   # combo: mcp + snippet + hook in one shot")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> uninstall # remove all three")
 }
@@ -1138,6 +1146,123 @@ func treeCommand(args []string, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stderr, "tree: wrote %s\n", dst)
 	return nil
+}
+
+// globalCommand dispatches the four `global` verbs (add/remove/list/path)
+// against a directory-backed cross-repo graph store. The store defaults
+// to ~/.gogfy (matching upstream's ~/.graphify shape) but every verb
+// accepts --dir to support test isolation and per-user overrides.
+func globalCommand(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("global: missing verb (one of: add, remove, list, path)")
+	}
+	verb, rest := args[0], args[1:]
+	switch verb {
+	case "add":
+		ordered, err := reorderFlags(rest, []string{"as", "dir"}, nil)
+		if err != nil {
+			return err
+		}
+		fs := flag.NewFlagSet("global add", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		asTag := fs.String("as", "", "repo tag (defaults to source-dir basename)")
+		dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
+		if err := fs.Parse(ordered); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("global add: expected <graph.json>, got %d positional argument(s)", fs.NArg())
+		}
+		src := fs.Arg(0)
+		tag := *asTag
+		if tag == "" {
+			// Default: basename of the *parent* directory, since
+			// graph.json paths are typically <project>/graphify-out/graph.json
+			// and the project name is the more useful tag.
+			abs, _ := filepath.Abs(src)
+			parent := filepath.Dir(abs)
+			tag = filepath.Base(filepath.Dir(parent))
+			if tag == "" || tag == "." || tag == "/" {
+				tag = filepath.Base(parent)
+			}
+		}
+		s := globalgraph.NewStore(*dir)
+		res, err := s.Add(src, tag)
+		if err != nil {
+			return fmt.Errorf("global add: %w", err)
+		}
+		if res.Skipped {
+			fmt.Fprintf(stdout, "global: %s unchanged (skipped)\n", res.RepoTag)
+		} else {
+			fmt.Fprintf(stdout, "global: %s — added %d nodes, removed %d stale nodes\n",
+				res.RepoTag, res.NodesAdded, res.NodesRemoved)
+		}
+		return nil
+
+	case "remove":
+		ordered, err := reorderFlags(rest, []string{"dir"}, nil)
+		if err != nil {
+			return err
+		}
+		fs := flag.NewFlagSet("global remove", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
+		if err := fs.Parse(ordered); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("global remove: expected <TAG>, got %d positional argument(s)", fs.NArg())
+		}
+		s := globalgraph.NewStore(*dir)
+		n, err := s.Remove(fs.Arg(0))
+		if err != nil {
+			return fmt.Errorf("global remove: %w", err)
+		}
+		fmt.Fprintf(stdout, "global: removed %s (%d nodes)\n", fs.Arg(0), n)
+		return nil
+
+	case "list":
+		fs := flag.NewFlagSet("global list", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		s := globalgraph.NewStore(*dir)
+		repos, err := s.List()
+		if err != nil {
+			return fmt.Errorf("global list: %w", err)
+		}
+		if len(repos) == 0 {
+			fmt.Fprintln(stdout, "global: no repos added yet")
+			return nil
+		}
+		tags := make([]string, 0, len(repos))
+		for t := range repos {
+			tags = append(tags, t)
+		}
+		sort.Strings(tags)
+		for _, t := range tags {
+			e := repos[t]
+			fmt.Fprintf(stdout, "%s\t%d nodes, %d edges\t%s\t%s\n",
+				t, e.NodeCount, e.EdgeCount, e.AddedAt, e.SourcePath)
+		}
+		return nil
+
+	case "path":
+		fs := flag.NewFlagSet("global path", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		s := globalgraph.NewStore(*dir)
+		fmt.Fprintln(stdout, s.Path())
+		return nil
+
+	default:
+		return fmt.Errorf("global: unknown verb %q (want one of: add, remove, list, path)", verb)
+	}
 }
 
 // callflowCommand renders the call-flow architecture HTML from an

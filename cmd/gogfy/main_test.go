@@ -244,6 +244,76 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
+func TestDispatchGlobalAddListRemove(t *testing.T) {
+	// End-to-end: run pipeline → global add → global list → global remove.
+	// Uses --dir to isolate from any real ~/.gogfy on the test machine.
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(out, "graph.json")
+	storeDir := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	if err := dispatchTo(t, []string{"global", "add", graphPath, "--as", "minirepo", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global add: %v\nstderr: %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "minirepo") {
+		t.Fatalf("add stdout missing repo tag: %q", stdout.String())
+	}
+
+	// Re-add unchanged source → skipped path.
+	stdout.Reset()
+	stderr.Reset()
+	if err := dispatchTo(t, []string{"global", "add", graphPath, "--as", "minirepo", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global add (re-run): %v", err)
+	}
+	if !strings.Contains(stdout.String(), "skipped") {
+		t.Fatalf("re-add should report skipped, got: %q", stdout.String())
+	}
+
+	// list must show the tag.
+	stdout.Reset()
+	if err := dispatchTo(t, []string{"global", "list", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global list: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "minirepo") {
+		t.Fatalf("list missing tag: %q", stdout.String())
+	}
+
+	// path prints the merged-graph file path.
+	stdout.Reset()
+	if err := dispatchTo(t, []string{"global", "path", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global path: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "global-graph.json") {
+		t.Fatalf("path missing global-graph.json: %q", stdout.String())
+	}
+
+	// remove cleans it up.
+	stdout.Reset()
+	if err := dispatchTo(t, []string{"global", "remove", "minirepo", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global remove: %v", err)
+	}
+	stdout.Reset()
+	if err := dispatchTo(t, []string{"global", "list", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global list (after remove): %v", err)
+	}
+	if !strings.Contains(stdout.String(), "no repos added yet") {
+		t.Fatalf("list should report empty after remove, got: %q", stdout.String())
+	}
+}
+
+func TestDispatchGlobalRejectsUnknownVerb(t *testing.T) {
+	err := dispatch([]string{"global", "bogus"}, os.Stderr)
+	if err == nil {
+		t.Fatal("expected error for unknown global verb")
+	}
+	if !strings.Contains(err.Error(), "unknown verb") {
+		t.Fatalf("expected 'unknown verb' error, got: %v", err)
+	}
+}
+
 func TestDispatchCallflowSubcommand(t *testing.T) {
 	out := t.TempDir()
 	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
