@@ -17,6 +17,7 @@ import (
 	"github.com/julianshen/gogfy/internal/analyze"
 	"github.com/julianshen/gogfy/internal/benchmark"
 	"github.com/julianshen/gogfy/internal/cache"
+	"github.com/julianshen/gogfy/internal/callflow"
 	"github.com/julianshen/gogfy/internal/cluster"
 	"github.com/julianshen/gogfy/internal/dedup"
 	"github.com/julianshen/gogfy/internal/detect"
@@ -124,6 +125,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return treeCommand(rest, stderr)
 	case "benchmark":
 		return benchmarkCommand(rest, os.Stdout, stderr)
+	case "callflow":
+		return callflowCommand(rest, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -281,6 +284,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy tree <graph.json> [--out <html-path>]")
 	fmt.Fprintln(w, "       gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]")
+	fmt.Fprintln(w, "       gogfy callflow <graph.json> [--out <html-path>] [--max-sections N] [--max-nodes M] [--max-edges E] [--project NAME]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> install   # combo: mcp + snippet + hook in one shot")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> uninstall # remove all three")
 }
@@ -1136,6 +1140,51 @@ func treeCommand(args []string, stderr io.Writer) error {
 	return nil
 }
 
+// callflowCommand renders the call-flow architecture HTML from an
+// existing graph.json.
+func callflowCommand(args []string, stderr io.Writer) error {
+	ordered, err := groupCallflowFlags(args)
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("callflow", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outPath := fs.String("out", "", "output HTML path (defaults to <graph-dir>/callflow.html)")
+	maxSections := fs.Int("max-sections", 0, "cap number of sections (default 15)")
+	maxNodes := fs.Int("max-nodes", 0, "cap per-section diagram nodes (default 18)")
+	maxEdges := fs.Int("max-edges", 0, "cap per-section diagram edges (default 24)")
+	project := fs.String("project", "", "project name used in title (default 'Project')")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("callflow: expected <graph.json>, got %d positional argument(s)", fs.NArg())
+	}
+	graphPath := fs.Arg(0)
+	g, err := loadGraph(graphPath)
+	if err != nil {
+		return err
+	}
+	html, err := callflow.Generate(g.Nodes, g.Edges, callflow.Options{
+		MaxSections:        *maxSections,
+		MaxNodesPerSection: *maxNodes,
+		MaxEdgesPerSection: *maxEdges,
+		ProjectName:        *project,
+	})
+	if err != nil {
+		return fmt.Errorf("callflow: %w", err)
+	}
+	dst := *outPath
+	if dst == "" {
+		dst = filepath.Join(filepath.Dir(graphPath), "callflow.html")
+	}
+	if err := atomicWrite(dst, []byte(html)); err != nil {
+		return fmt.Errorf("callflow: %w", err)
+	}
+	fmt.Fprintf(stderr, "callflow: wrote %s\n", dst)
+	return nil
+}
+
 // benchmarkCommand measures token-reduction against an existing graph.json.
 // Usage: gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]
 func benchmarkCommand(args []string, stdout, stderr io.Writer) error {
@@ -1283,6 +1332,10 @@ func reorderFlags(args, valueFlags, boolFlags []string) ([]string, error) {
 // (--corpus-words/--depth/--json).
 func groupBenchmarkFlags(args []string) ([]string, error) {
 	return reorderFlags(args, []string{"corpus-words", "depth"}, []string{"json"})
+}
+
+func groupCallflowFlags(args []string) ([]string, error) {
+	return reorderFlags(args, []string{"out", "max-sections", "max-nodes", "max-edges", "project"}, nil)
 }
 
 // groupRunFlags reorders args for the `run` subcommand so all known flags
