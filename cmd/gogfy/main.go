@@ -1231,9 +1231,12 @@ func globalCommand(args []string, stdout, stderr io.Writer) error {
 		return nil
 
 	case "list":
-		_, s, err := parseGlobalFlags("list", rest, stderr, nil, nil)
+		fs, s, err := parseGlobalFlags("list", rest, stderr, nil, nil)
 		if err != nil {
 			return err
+		}
+		if fs.NArg() > 0 {
+			return fmt.Errorf("global list: unexpected positional argument(s): %v", fs.Args())
 		}
 		repos, err := s.List()
 		if err != nil {
@@ -1251,9 +1254,12 @@ func globalCommand(args []string, stdout, stderr io.Writer) error {
 		return nil
 
 	case "path":
-		_, s, err := parseGlobalFlags("path", rest, stderr, nil, nil)
+		fs, s, err := parseGlobalFlags("path", rest, stderr, nil, nil)
 		if err != nil {
 			return err
+		}
+		if fs.NArg() > 0 {
+			return fmt.Errorf("global path: unexpected positional argument(s): %v", fs.Args())
 		}
 		fmt.Fprintln(stdout, s.Path())
 		return nil

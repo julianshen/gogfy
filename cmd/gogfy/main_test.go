@@ -343,6 +343,20 @@ func TestDispatchGlobalAddUsesIsolatedDir(t *testing.T) {
 	}
 }
 
+func TestDispatchGlobalListRejectsStrayPositional(t *testing.T) {
+	err := dispatch([]string{"global", "list", "stray", "--dir", t.TempDir()}, os.Stderr)
+	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
+		t.Fatalf("expected unexpected-positional error, got: %v", err)
+	}
+}
+
+func TestDispatchGlobalPathRejectsStrayPositional(t *testing.T) {
+	err := dispatch([]string{"global", "path", "stray", "--dir", t.TempDir()}, os.Stderr)
+	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
+		t.Fatalf("expected unexpected-positional error, got: %v", err)
+	}
+}
+
 func TestDispatchGlobalRejectsUnknownVerb(t *testing.T) {
 	err := dispatch([]string{"global", "bogus"}, os.Stderr)
 	if err == nil {

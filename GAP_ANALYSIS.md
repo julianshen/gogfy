@@ -191,7 +191,6 @@
 | `graphify benchmark` | `__main__.py` | Token reduction measurement (gogfy: `gogfy benchmark <graph.json>`) ✅ |
 | `graphify clone <github-url>` | `__main__.py` | Clone repos to cache |
 | `graphify add <url>` | `__main__.py` | Fetch URL into corpus |
-| `graphify global add/remove/list/path` | `__main__.py` | Cross-repo global graph management (gogfy: `gogfy global add/remove/list/path`) ✅ |
 | `graphify export obsidian` | `__main__.py` | Obsidian vault export |
 | `graphify export svg` | `__main__.py` | Static SVG export |
 | `graphify export neo4j` | `__main__.py` | Direct Neo4j push |

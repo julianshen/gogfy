@@ -112,8 +112,15 @@ func (s *Store) Add(sourcePath, repoTag string) (AddResult, error) {
 	if err != nil {
 		return AddResult{}, fmt.Errorf("globalgraph: hash %s: %w", sourcePath, err)
 	}
+	// Skip only when the manifest says we already have this content
+	// AND the graph file is still on disk. Without the file-presence
+	// check, a user who deletes global-graph.json (or whose store
+	// gets partially-wiped) cannot self-heal by re-adding — every
+	// re-add would fast-path to "skipped".
 	if existing, ok := man.Repos[repoTag]; ok && existing.SourceHash == hash {
-		return AddResult{RepoTag: repoTag, Skipped: true}, nil
+		if _, statErr := os.Stat(s.Path()); statErr == nil {
+			return AddResult{RepoTag: repoTag, Skipped: true}, nil
+		}
 	}
 
 	src, err := export.LoadJSON(sourcePath)
@@ -138,7 +145,10 @@ func (s *Store) Add(sourcePath, repoTag string) (AddResult, error) {
 		return AddResult{}, err
 	}
 
-	abs, _ := filepath.Abs(sourcePath)
+	abs := sourcePath
+	if a, err := filepath.Abs(sourcePath); err == nil {
+		abs = a
+	}
 	man.Repos[repoTag] = RepoEntry{
 		AddedAt:    time.Now().UTC().Format(time.RFC3339),
 		SourcePath: abs,
@@ -257,9 +267,12 @@ func prefixGraph(g export.GraphExport, tag string) export.GraphExport {
 }
 
 // pruneRepo removes every node prefixed with "<tag>::" plus any edge
-// referencing such a node. Returns count of nodes removed. Operates
-// in-place via slices.DeleteFunc to avoid duplicating large global
-// graphs when one tag holds a sizable fraction.
+// referencing such a node. It additionally garbage-collects external
+// (no-SourceFile) nodes that no surviving edge still references —
+// these were dedupe-shared by the repo being removed and otherwise
+// linger as orphan stale data. Returns count of "real" nodes removed
+// (the tag's prefixed nodes); orphan-external cleanup is not reported.
+// Operates in-place via slices.DeleteFunc.
 func pruneRepo(g *export.GraphExport, tag string) int {
 	pfx := tag + tagSeparator
 	before := len(g.Nodes)
@@ -269,7 +282,17 @@ func pruneRepo(g *export.GraphExport, tag string) int {
 	g.Edges = slices.DeleteFunc(g.Edges, func(e schema.Edge) bool {
 		return strings.HasPrefix(e.Source, pfx) || strings.HasPrefix(e.Target, pfx)
 	})
-	return before - len(g.Nodes)
+	removed := before - len(g.Nodes)
+	// Garbage-collect orphan externals.
+	referenced := make(map[string]bool, 2*len(g.Edges))
+	for _, e := range g.Edges {
+		referenced[e.Source] = true
+		referenced[e.Target] = true
+	}
+	g.Nodes = slices.DeleteFunc(g.Nodes, func(n schema.Node) bool {
+		return n.SourceFile == "" && !referenced[n.ID]
+	})
+	return removed
 }
 
 // mergeWithExternalDedup merges prefixed into base, but for each

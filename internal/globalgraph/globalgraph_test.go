@@ -269,6 +269,68 @@ func TestAddRejectsEmptyTag(t *testing.T) {
 	}
 }
 
+func TestAddRecoversWhenGraphFileDeleted(t *testing.T) {
+	// Self-healing path: if global-graph.json is deleted while the
+	// manifest still has an entry, the next Add must NOT short-circuit
+	// to skipped — otherwise the user has no way to rebuild the store
+	// without manually editing manifest state.
+	tmp := t.TempDir()
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := writeGraph(t, tmp, "a.json", sampleGraph("a"))
+	if _, err := s.Add(src, "repoA"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(s.Path()); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Add(src, "repoA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Skipped {
+		t.Fatal("missing graph file must NOT short-circuit to skipped")
+	}
+	if _, err := os.Stat(s.Path()); err != nil {
+		t.Fatalf("graph file should be regenerated, got: %v", err)
+	}
+}
+
+func TestRemovePrunesOrphanExternalNodes(t *testing.T) {
+	// When the removed repo was the only contributor citing an
+	// external (no-SourceFile) node, the external should be cleaned
+	// up too. Otherwise externals accumulate as orphan stale data
+	// across the store's lifetime.
+	tmp := t.TempDir()
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only repoA cites this external; repoB doesn't.
+	a := export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "ext:a", Label: "uniquelib.Anchor"},
+			{ID: "fn:1", Label: "Foo", SourceFile: "/r/foo.go"},
+		},
+		Edges: []schema.Edge{{Source: "fn:1", Target: "ext:a", Relation: "uses"}},
+	}
+	srcA := writeGraph(t, tmp, "a.json", a)
+	if _, err := s.Add(srcA, "repoA"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Remove("repoA"); err != nil {
+		t.Fatal(err)
+	}
+	gg, _ := s.Load()
+	for _, n := range gg.Nodes {
+		if n.Label == "uniquelib.Anchor" {
+			t.Fatalf("orphan external survived Remove: %+v", n)
+		}
+	}
+}
+
 func TestExternalNodesDedupedAcrossRepos(t *testing.T) {
 	// Both repos cite the same external library node "context.Context".
 	// The merged graph should contain only ONE node for it, with its
