@@ -98,6 +98,29 @@ func TestLoadMissingReturnsErrNotExist(t *testing.T) {
 	}
 }
 
+func TestLoadSanitizesHandEditedLabels(t *testing.T) {
+	// Users may hand-edit `.graphify_labels.json` with arbitrary text. The
+	// package doc promises a 256-rune cap and no-control-chars to all
+	// downstream wiki/mermaid renderers — Load must enforce that too.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "l.json")
+	long := strings.Repeat("y", 500)
+	raw := "{\"1\": \"Bad\\nName\", \"2\": \"" + long + "\"}"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(out["1"], "\x00\n\r\t") {
+		t.Fatalf("control chars not stripped on load: %q", out["1"])
+	}
+	if len([]rune(out["2"])) > 256 {
+		t.Fatalf("not capped on load: %d runes", len([]rune(out["2"])))
+	}
+}
+
 func TestSaveProducesStableJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "l.json")

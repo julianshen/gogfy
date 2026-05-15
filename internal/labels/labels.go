@@ -95,5 +95,11 @@ func Load(path string) (map[string]string, error) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("labels: parse %s: %w", path, err)
 	}
+	// Re-apply sanitize so hand-edited labels also honor the 256-rune /
+	// no-control-char contract that the package doc promises to all
+	// cross-tool consumers (downstream wiki/mermaid renderers).
+	for k, v := range out {
+		out[k] = sanitize(v)
+	}
 	return out, nil
 }
