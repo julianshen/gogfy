@@ -3,9 +3,29 @@
 package fsutil
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
 )
+
+// SHA256File streams the file at path through SHA-256 and returns the
+// hex digest. Used by `cache` for source-file fingerprinting and by
+// `globalgraph` for source-graph idempotency. Streaming (vs ReadFile +
+// Sum256) keeps peak memory bounded for large graph.json inputs.
+func SHA256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
 
 // ReadFileOrEmpty reads path, returning nil bytes for ENOENT (caller
 // treats as "no file yet"). Any other error propagates.

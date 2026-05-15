@@ -7,14 +7,12 @@
 package globalgraph
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -91,19 +89,22 @@ func (s *Store) Add(sourcePath, repoTag string) (AddResult, error) {
 	if err := validateTag(repoTag); err != nil {
 		return AddResult{}, err
 	}
-	hash, err := fileHash(sourcePath)
-	if err != nil {
-		return AddResult{}, err
-	}
+	// Load manifest before hashing — when the repo has been added
+	// before and the file hasn't changed we can skip the full
+	// SHA-256 pass on a potentially-large graph.json.
 	man, err := s.loadManifest()
 	if err != nil {
 		return AddResult{}, err
+	}
+	hash, err := fsutil.SHA256File(sourcePath)
+	if err != nil {
+		return AddResult{}, fmt.Errorf("globalgraph: hash %s: %w", sourcePath, err)
 	}
 	if existing, ok := man.Repos[repoTag]; ok && existing.SourceHash == hash {
 		return AddResult{RepoTag: repoTag, Skipped: true}, nil
 	}
 
-	src, err := loadGraph(sourcePath)
+	src, err := export.LoadJSON(sourcePath)
 	if err != nil {
 		return AddResult{}, err
 	}
@@ -125,9 +126,7 @@ func (s *Store) Add(sourcePath, repoTag string) (AddResult, error) {
 		return AddResult{}, err
 	}
 
-	if man.Repos == nil {
-		man.Repos = map[string]RepoEntry{}
-	}
+	// loadManifest guarantees Repos is non-nil; no defensive init needed.
 	abs, _ := filepath.Abs(sourcePath)
 	man.Repos[repoTag] = RepoEntry{
 		AddedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -188,18 +187,10 @@ func (s *Store) List() (map[string]RepoEntry, error) {
 // Load reads and returns the current global graph. Returns an empty
 // graph if the file doesn't exist yet (first-add path).
 func (s *Store) Load() (export.GraphExport, error) {
-	b, err := os.ReadFile(s.Path())
-	if errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(s.Path()); errors.Is(err, os.ErrNotExist) {
 		return export.GraphExport{Nodes: []schema.Node{}, Edges: []schema.Edge{}}, nil
 	}
-	if err != nil {
-		return export.GraphExport{}, fmt.Errorf("globalgraph: read graph: %w", err)
-	}
-	var g export.GraphExport
-	if err := json.Unmarshal(b, &g); err != nil {
-		return export.GraphExport{}, fmt.Errorf("globalgraph: parse graph: %w", err)
-	}
-	return g, nil
+	return export.LoadJSON(s.Path())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -251,28 +242,19 @@ func prefixGraph(g export.GraphExport, tag string) export.GraphExport {
 }
 
 // pruneRepo removes every node prefixed with "<tag>::" plus any edge
-// referencing such a node. Returns count of nodes removed.
+// referencing such a node. Returns count of nodes removed. Operates
+// in-place via slices.DeleteFunc to avoid duplicating large global
+// graphs when one tag holds a sizable fraction.
 func pruneRepo(g *export.GraphExport, tag string) int {
 	pfx := tag + tagSeparator
-	keepNodes := make([]schema.Node, 0, len(g.Nodes))
-	removed := 0
-	for _, n := range g.Nodes {
-		if strings.HasPrefix(n.ID, pfx) {
-			removed++
-			continue
-		}
-		keepNodes = append(keepNodes, n)
-	}
-	keepEdges := make([]schema.Edge, 0, len(g.Edges))
-	for _, e := range g.Edges {
-		if strings.HasPrefix(e.Source, pfx) || strings.HasPrefix(e.Target, pfx) {
-			continue
-		}
-		keepEdges = append(keepEdges, e)
-	}
-	g.Nodes = keepNodes
-	g.Edges = keepEdges
-	return removed
+	before := len(g.Nodes)
+	g.Nodes = slices.DeleteFunc(g.Nodes, func(n schema.Node) bool {
+		return strings.HasPrefix(n.ID, pfx)
+	})
+	g.Edges = slices.DeleteFunc(g.Edges, func(e schema.Edge) bool {
+		return strings.HasPrefix(e.Source, pfx) || strings.HasPrefix(e.Target, pfx)
+	})
+	return before - len(g.Nodes)
 }
 
 // mergeWithExternalDedup merges prefixed into base, but for each
@@ -352,27 +334,3 @@ func (s *Store) saveGraph(g export.GraphExport) error {
 	return fsutil.WriteFileAtomic(s.Path(), b, 0o644)
 }
 
-func loadGraph(path string) (export.GraphExport, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return export.GraphExport{}, fmt.Errorf("globalgraph: read source %s: %w", path, err)
-	}
-	var g export.GraphExport
-	if err := json.Unmarshal(b, &g); err != nil {
-		return export.GraphExport{}, fmt.Errorf("globalgraph: parse source %s: %w", path, err)
-	}
-	return g, nil
-}
-
-func fileHash(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("globalgraph: open %s: %w", path, err)
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", fmt.Errorf("globalgraph: hash %s: %w", path, err)
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}

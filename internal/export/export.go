@@ -4,6 +4,8 @@ package export
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/julianshen/gogfy/internal/schema"
@@ -18,6 +20,22 @@ type GraphExport struct {
 // ExportJSON returns the graph as indented JSON bytes.
 func ExportJSON(g GraphExport) ([]byte, error) {
 	return json.MarshalIndent(g, "", "  ")
+}
+
+// LoadJSON reads and decodes a graph.json file. Centralized so the
+// `read + Unmarshal` pair has a single owner — three packages
+// (cmd/gogfy, globalgraph, etc.) previously open-coded the same
+// boilerplate with subtly different error messages.
+func LoadJSON(path string) (GraphExport, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return GraphExport{}, fmt.Errorf("export: read %s: %w", path, err)
+	}
+	var g GraphExport
+	if err := json.Unmarshal(data, &g); err != nil {
+		return GraphExport{}, fmt.Errorf("export: parse %s: %w", path, err)
+	}
+	return g, nil
 }
 
 //go:embed template.html

@@ -1152,22 +1152,43 @@ func treeCommand(args []string, stderr io.Writer) error {
 // against a directory-backed cross-repo graph store. The store defaults
 // to ~/.gogfy (matching upstream's ~/.graphify shape) but every verb
 // accepts --dir to support test isolation and per-user overrides.
+// globalVerbs lists the verbs `gogfy global` accepts. Used in both the
+// missing-verb and unknown-verb error messages so the two never drift.
+const globalVerbs = "add, remove, list, path"
+
+// parseGlobalFlags handles the boilerplate shared by every `global`
+// verb: reorder flags so positional args can precede them, register
+// --dir, and return the parsed FlagSet plus a Store rooted at --dir.
+// extraFlags registers verb-specific flags BEFORE parsing.
+func parseGlobalFlags(name string, args []string, stderr io.Writer, valueFlags []string, extraFlags func(*flag.FlagSet)) (*flag.FlagSet, *globalgraph.Store, error) {
+	ordered, err := reorderFlags(args, append([]string{"dir"}, valueFlags...), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	fs := flag.NewFlagSet("global "+name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
+	if extraFlags != nil {
+		extraFlags(fs)
+	}
+	if err := fs.Parse(ordered); err != nil {
+		return nil, nil, err
+	}
+	return fs, globalgraph.NewStore(*dir), nil
+}
+
 func globalCommand(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("global: missing verb (one of: add, remove, list, path)")
+		return fmt.Errorf("global: missing verb (one of: %s)", globalVerbs)
 	}
 	verb, rest := args[0], args[1:]
 	switch verb {
 	case "add":
-		ordered, err := reorderFlags(rest, []string{"as", "dir"}, nil)
+		var asTag *string
+		fs, s, err := parseGlobalFlags("add", rest, stderr, []string{"as"}, func(fs *flag.FlagSet) {
+			asTag = fs.String("as", "", "repo tag (defaults to source-dir basename)")
+		})
 		if err != nil {
-			return err
-		}
-		fs := flag.NewFlagSet("global add", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		asTag := fs.String("as", "", "repo tag (defaults to source-dir basename)")
-		dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
-		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
 		if fs.NArg() != 1 {
@@ -1176,17 +1197,8 @@ func globalCommand(args []string, stdout, stderr io.Writer) error {
 		src := fs.Arg(0)
 		tag := *asTag
 		if tag == "" {
-			// Default: basename of the *parent* directory, since
-			// graph.json paths are typically <project>/graphify-out/graph.json
-			// and the project name is the more useful tag.
-			abs, _ := filepath.Abs(src)
-			parent := filepath.Dir(abs)
-			tag = filepath.Base(filepath.Dir(parent))
-			if tag == "" || tag == "." || tag == "/" {
-				tag = filepath.Base(parent)
-			}
+			tag = defaultRepoTag(src)
 		}
-		s := globalgraph.NewStore(*dir)
 		res, err := s.Add(src, tag)
 		if err != nil {
 			return fmt.Errorf("global add: %w", err)
@@ -1200,20 +1212,13 @@ func globalCommand(args []string, stdout, stderr io.Writer) error {
 		return nil
 
 	case "remove":
-		ordered, err := reorderFlags(rest, []string{"dir"}, nil)
+		fs, s, err := parseGlobalFlags("remove", rest, stderr, nil, nil)
 		if err != nil {
-			return err
-		}
-		fs := flag.NewFlagSet("global remove", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
-		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
 		if fs.NArg() != 1 {
 			return fmt.Errorf("global remove: expected <TAG>, got %d positional argument(s)", fs.NArg())
 		}
-		s := globalgraph.NewStore(*dir)
 		n, err := s.Remove(fs.Arg(0))
 		if err != nil {
 			return fmt.Errorf("global remove: %w", err)
@@ -1222,13 +1227,10 @@ func globalCommand(args []string, stdout, stderr io.Writer) error {
 		return nil
 
 	case "list":
-		fs := flag.NewFlagSet("global list", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
-		if err := fs.Parse(rest); err != nil {
+		_, s, err := parseGlobalFlags("list", rest, stderr, nil, nil)
+		if err != nil {
 			return err
 		}
-		s := globalgraph.NewStore(*dir)
 		repos, err := s.List()
 		if err != nil {
 			return fmt.Errorf("global list: %w", err)
@@ -1250,19 +1252,29 @@ func globalCommand(args []string, stdout, stderr io.Writer) error {
 		return nil
 
 	case "path":
-		fs := flag.NewFlagSet("global path", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
-		if err := fs.Parse(rest); err != nil {
+		_, s, err := parseGlobalFlags("path", rest, stderr, nil, nil)
+		if err != nil {
 			return err
 		}
-		s := globalgraph.NewStore(*dir)
 		fmt.Fprintln(stdout, s.Path())
 		return nil
 
 	default:
-		return fmt.Errorf("global: unknown verb %q (want one of: add, remove, list, path)", verb)
+		return fmt.Errorf("global: unknown verb %q (want one of: %s)", verb, globalVerbs)
 	}
+}
+
+// defaultRepoTag derives a repo tag from a graph.json path when the
+// caller didn't supply --as. Graph paths are typically shaped like
+// <project>/graphify-out/graph.json, so the parent's parent gives the
+// project name; falls back to immediate parent if that's missing.
+func defaultRepoTag(src string) string {
+	abs, _ := filepath.Abs(src)
+	parent := filepath.Dir(abs)
+	if tag := filepath.Base(filepath.Dir(parent)); tag != "" && tag != "." && tag != "/" {
+		return tag
+	}
+	return filepath.Base(parent)
 }
 
 // callflowCommand renders the call-flow architecture HTML from an
@@ -1519,15 +1531,7 @@ func artifactsExist(out string, noViz bool) bool {
 }
 
 func loadGraph(path string) (export.GraphExport, error) {
-	var g export.GraphExport
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return g, fmt.Errorf("read %s: %w", path, err)
-	}
-	if err := json.Unmarshal(data, &g); err != nil {
-		return g, fmt.Errorf("parse %s: %w", path, err)
-	}
-	return g, nil
+	return export.LoadJSON(path)
 }
 
 // atomicWrite is a thin wrapper kept for callers that don't import fsutil
