@@ -6,6 +6,7 @@ package callflow
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"html"
 	"path"
 	"sort"
@@ -254,12 +255,17 @@ func sectionName(communityID string, members []schema.Node) string {
 	return best
 }
 
-// topDir returns the immediate parent directory name of a POSIX-style
-// source-file path. For "/r/auth/login.go" → "auth".
+// topDir returns the immediate parent directory name of a source-file
+// path. Accepts both POSIX (`/r/auth/login.go` → "auth") and Windows
+// (`C:\repo\auth\login.go` → "auth") styles by normalizing backslashes
+// to forward slashes first — extractors run filepath.Abs(...) and
+// produce OS-native separators, so a POSIX-only parse would silently
+// drop directory hints on Windows.
 func topDir(p string) string {
 	if p == "" {
 		return ""
 	}
+	p = strings.ReplaceAll(p, "\\", "/")
 	dir := path.Dir(strings.TrimRight(p, "/"))
 	if dir == "/" || dir == "." {
 		return ""
@@ -272,6 +278,14 @@ func topDir(p string) string {
 
 func writeHead(b *strings.Builder, o Options) {
 	title := o.ProjectName + " — Call Flow & Architecture"
+	// Mermaid renders an inline SVG; the only reliable way to scale
+	// it post-render is a CSS transform on the host div. Skipped when
+	// scale==1.0 to keep the output diff-clean for the common case.
+	scaleCSS := ""
+	if o.DiagramScale != defaultDiagramScale {
+		scaleCSS = fmt.Sprintf(".mermaid svg { transform: scale(%.2f); transform-origin: 0 0; }\n",
+			o.DiagramScale)
+	}
 	fmt.Fprintf(b, `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -281,12 +295,11 @@ func writeHead(b *strings.Builder, o Options) {
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <noscript><p>This document needs JavaScript and access to cdn.jsdelivr.net to render the Mermaid diagrams.</p></noscript>
 <style>
-%s
-</style>
+%s%s</style>
 </head>
 <body>
 <div class="container">
-`, html.EscapeString(title), inlineCSS)
+`, html.EscapeString(title), inlineCSS, scaleCSS)
 }
 
 func writeHeader(b *strings.Builder, o Options, sections []section) {
@@ -304,7 +317,7 @@ func writeOverview(b *strings.Builder, sections []section, cross map[crossKey]*c
 	b.WriteString(`<section id="overview">` + "\n")
 	b.WriteString(`<h2>1. Architecture Overview</h2>` + "\n")
 	b.WriteString(`<div class="mermaid">` + "\n")
-	b.WriteString(mermaidInit(o.DiagramScale))
+	b.WriteString(mermaidInit())
 	b.WriteString("\nflowchart LR\n")
 	for _, sec := range sections {
 		nid := sectionMermaidID(sec.ID)
@@ -358,7 +371,7 @@ func writeSection(b *strings.Builder, headingNum int, sec section, sectionEdges 
 	}
 
 	b.WriteString(`<div class="mermaid">` + "\n")
-	b.WriteString(mermaidInit(o.DiagramScale))
+	b.WriteString(mermaidInit())
 	b.WriteString("\nflowchart LR\n")
 	if len(selected) == 0 {
 		fmt.Fprintf(b, "    empty(\"%s - no nodes\")\n", safeMermaidText(sec.Name))
@@ -437,20 +450,36 @@ func nodeMermaidID(id string) string {
 	return "node_" + sanitizeMermaidID(id)
 }
 
+// sanitizeMermaidID produces an injective alphanumeric-plus-underscore
+// identifier so distinct graph node IDs never collide into the same
+// Mermaid node (which would silently merge nodes + rewire edges in the
+// rendered diagram). Strategy: replace each non-alphanumeric rune with
+// "_" and append a deterministic 8-hex-digit FNV-1a suffix of the
+// original string when sanitization actually changed anything. The
+// suffix is skipped for already-alphanumeric IDs so the common case
+// stays readable.
 func sanitizeMermaidID(s string) string {
 	var b strings.Builder
-	b.Grow(len(s))
+	b.Grow(len(s) + 9)
+	changed := false
 	for _, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
 			b.WriteRune(r)
 		default:
 			b.WriteByte('_')
+			changed = true
 		}
 	}
 	out := b.String()
 	if out == "" {
-		return "id"
+		out = "id"
+		changed = true
+	}
+	if changed {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(s))
+		out = out + "_" + fmt.Sprintf("%08x", h.Sum32())
 	}
 	return out
 }
@@ -478,9 +507,13 @@ func safeMermaidText(s string) string {
 	return mermaidEscaper.Replace(s)
 }
 
-func mermaidInit(scale float64) string {
-	return fmt.Sprintf(`%%%%{init: {"theme":"dark", "flowchart":{"defaultRenderer":"elk","htmlLabels":true,"curve":"basis"}}}%%%%
-%%%% scale: %.2f`, scale)
+// mermaidInit emits the Mermaid %%{init}%% directive that configures
+// theming + renderer for every diagram. DiagramScale is intentionally
+// not passed here — Mermaid has no init field that scales the rendered
+// SVG. Scale is applied via a CSS transform on the .mermaid container
+// (see writeHead's inline-CSS branch).
+func mermaidInit() string {
+	return `%%{init: {"theme":"dark", "flowchart":{"defaultRenderer":"elk","htmlLabels":true,"curve":"basis"}}}%%`
 }
 
 func slugify(s string) string {

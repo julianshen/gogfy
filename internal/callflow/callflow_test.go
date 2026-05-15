@@ -218,6 +218,65 @@ func TestGenerateEscapesPipeAndNewlineInLabels(t *testing.T) {
 	}
 }
 
+func TestSanitizeMermaidIDInjectiveOnAmbiguousIDs(t *testing.T) {
+	// Two IDs that differ only by a separator (/ vs -) used to collapse
+	// to the same Mermaid identifier. The collision would let Mermaid
+	// merge two distinct nodes into one and silently corrupt the
+	// diagram by rewiring edges onto the merged node. The injective
+	// encoding appends a hash of the original ID when sanitization
+	// changes anything.
+	a := sanitizeMermaidID("auth/login")
+	b := sanitizeMermaidID("auth-login")
+	c := sanitizeMermaidID("auth_login")
+	if a == b || a == c || b == c {
+		t.Fatalf("non-injective sanitization: %q, %q, %q", a, b, c)
+	}
+	// Already-alphanumeric IDs keep their nice readable form.
+	if got := sanitizeMermaidID("authLogin"); got != "authLogin" {
+		t.Fatalf("alphanumeric ID should pass through unchanged, got %q", got)
+	}
+}
+
+func TestTopDirAcceptsWindowsPaths(t *testing.T) {
+	cases := map[string]string{
+		"/r/auth/login.go":           "auth",
+		`C:\repo\auth\login.go`:      "auth",
+		`C:/repo/auth/login.go`:      "auth",
+		`\\share\repo\auth\login.go`: "auth",
+		"rootfile.go":                "",
+		"/":                          "",
+		"":                           "",
+	}
+	for in, want := range cases {
+		if got := topDir(in); got != want {
+			t.Errorf("topDir(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestGenerateDiagramScaleEmitsCSSTransform(t *testing.T) {
+	// DiagramScale != 1.0 must emit a real CSS transform — the option
+	// is documented as affecting rendering and the v1 emitted only a
+	// no-op Mermaid comment for it (review finding).
+	nodes := []schema.Node{
+		{ID: "n1", Label: "A", SourceFile: "/r/x.go", Community: "0"},
+	}
+	defaultOut, err := Generate(nodes, nil, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(defaultOut, "transform: scale") {
+		t.Fatal("default scale should not emit a CSS transform (keeps output diff-clean)")
+	}
+	scaledOut, err := Generate(nodes, nil, Options{DiagramScale: 1.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(scaledOut, "transform: scale(1.50)") {
+		t.Fatalf("DiagramScale=1.5 didn't produce a CSS transform; head:\n%s", head(scaledOut, 1200))
+	}
+}
+
 func TestGenerateSectionNameFallback(t *testing.T) {
 	// Source files at filesystem root have no parent directory, so
 	// topDir returns "" and sectionName must fall back to
