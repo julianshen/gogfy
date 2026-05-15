@@ -108,7 +108,7 @@
 | Normalized ID reconciliation | Missing | Upstream uses Jaro-Winkler-ish normalization to reconcile LLM-generated IDs with AST extractor IDs |
 | Direction preservation | Partial | gogfy preserves direction in schema; upstream stashes `_src`/`_tgt` on undirected NetworkX graphs |
 | Incremental merge (`build_merge`) | Missing | Upstream can merge new extractions into existing graph.json with prune for deleted files |
-| Multi-repo prefixing | Missing | Upstream's `prefix_graph_for_global` tags nodes with repo name |
+| Multi-repo prefixing | **Done** | `internal/globalgraph` prefixes node IDs with `<tag>::` and dedupes external-library nodes by label. CLI: `gogfy global add/remove/list/path` ✅ |
 
 ### 2.4 Clustering
 | Feature | Status | What's Missing |
@@ -191,7 +191,6 @@
 | `graphify benchmark` | `__main__.py` | Token reduction measurement (gogfy: `gogfy benchmark <graph.json>`) ✅ |
 | `graphify clone <github-url>` | `__main__.py` | Clone repos to cache |
 | `graphify add <url>` | `__main__.py` | Fetch URL into corpus |
-| `graphify global add/remove/list/path` | `__main__.py` | Cross-repo global graph management |
 | `graphify export obsidian` | `__main__.py` | Obsidian vault export |
 | `graphify export svg` | `__main__.py` | Static SVG export |
 | `graphify export neo4j` | `__main__.py` | Direct Neo4j push |
@@ -333,7 +332,7 @@
 10. **Cross-file resolution** — Two-pass import resolution for Python and Java
 
 ### P2 (Nice to have)
-11. **Global graph** — Cross-repo graph merging with repo-tag prefixing
+11. ~~**Global graph** — Cross-repo graph merging with repo-tag prefixing~~ ✅ Done
 12. **Transcription** — Video/audio pipeline via whisper
 13. **URL ingestion** — Fetch and convert web content
 14. **Platform hooks** — PreToolUse/BeforeTool hooks for Claude/Gemini/Codex

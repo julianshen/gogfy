@@ -2,11 +2,66 @@ package export
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/julianshen/gogfy/internal/schema"
 )
+
+func TestLoadJSONRoundTrip(t *testing.T) {
+	g := GraphExport{
+		Nodes: []schema.Node{{ID: "a", Label: "A", SourceFile: "a.go"}},
+		Edges: []schema.Edge{{Source: "a", Target: "b", Relation: "calls"}},
+	}
+	b, err := ExportJSON(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "g.json")
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Nodes) != 1 || got.Nodes[0].ID != "a" {
+		t.Fatalf("round-trip Nodes mismatch: %+v", got.Nodes)
+	}
+	if len(got.Edges) != 1 || got.Edges[0].Relation != "calls" {
+		t.Fatalf("round-trip Edges mismatch: %+v", got.Edges)
+	}
+}
+
+func TestLoadJSONMissingFileReturnsErrNotExist(t *testing.T) {
+	// Callers (globalgraph.Store.Load) match on errors.Is(err,
+	// os.ErrNotExist) to fall back to an empty graph. Pin the
+	// wrapping contract.
+	_, err := LoadJSON(filepath.Join(t.TempDir(), "nope.json"))
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("error must wrap os.ErrNotExist for callers to detect missing files; got: %v", err)
+	}
+}
+
+func TestLoadJSONMalformedJSONErrors(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(p, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadJSON(p)
+	if err == nil {
+		t.Fatal("expected error for malformed JSON")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Fatalf("error should mention parse failure, got: %v", err)
+	}
+}
 
 func TestExportJSON(t *testing.T) {
 	g := GraphExport{

@@ -7,8 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"os/signal"
@@ -18,6 +20,7 @@ import (
 	"github.com/julianshen/gogfy/internal/benchmark"
 	"github.com/julianshen/gogfy/internal/cache"
 	"github.com/julianshen/gogfy/internal/callflow"
+	"github.com/julianshen/gogfy/internal/globalgraph"
 	"github.com/julianshen/gogfy/internal/cluster"
 	"github.com/julianshen/gogfy/internal/dedup"
 	"github.com/julianshen/gogfy/internal/detect"
@@ -127,6 +130,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return benchmarkCommand(rest, os.Stdout, stderr)
 	case "callflow":
 		return callflowCommand(rest, stderr)
+	case "global":
+		return globalCommand(rest, os.Stdout, stderr)
 	case "watch":
 		ordered, err := groupRunFlags(rest)
 		if err != nil {
@@ -285,6 +290,10 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy tree <graph.json> [--out <html-path>]")
 	fmt.Fprintln(w, "       gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]")
 	fmt.Fprintln(w, "       gogfy callflow <graph.json> [--out <html-path>] [--max-sections N] [--max-nodes M] [--max-edges E] [--project NAME]")
+	fmt.Fprintln(w, "       gogfy global add <graph.json> [--as TAG] [--dir <store-dir>]")
+	fmt.Fprintln(w, "       gogfy global remove <TAG> [--dir <store-dir>]")
+	fmt.Fprintln(w, "       gogfy global list [--dir <store-dir>]")
+	fmt.Fprintln(w, "       gogfy global path [--dir <store-dir>]")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> install   # combo: mcp + snippet + hook in one shot")
 	fmt.Fprintln(w, "       gogfy <claude|codex|cursor|vscode|gemini|opencode|kilocode|qwen|kimi|aider|claw|copilot|droid|trae|trae-cn|hermes|kiro|pi|antigravity> uninstall # remove all three")
 }
@@ -1140,6 +1149,150 @@ func treeCommand(args []string, stderr io.Writer) error {
 	return nil
 }
 
+// globalVerbs is used by both the missing-verb and unknown-verb error
+// messages so the two listings never drift.
+const globalVerbs = "add, remove, list, path"
+
+// parseGlobalFlags handles the boilerplate shared by every `global`
+// verb: reorder flags so positional args can precede them, register
+// --dir, and return the parsed FlagSet plus a Store rooted at --dir.
+// extraFlags registers verb-specific flags BEFORE parsing.
+func parseGlobalFlags(name string, args []string, stderr io.Writer, valueFlags []string, extraFlags func(*flag.FlagSet)) (*flag.FlagSet, *globalgraph.Store, error) {
+	ordered, err := reorderFlags(args, append([]string{"dir"}, valueFlags...), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	fs := flag.NewFlagSet("global "+name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", "", "store directory (defaults to ~/.gogfy)")
+	if extraFlags != nil {
+		extraFlags(fs)
+	}
+	if err := fs.Parse(ordered); err != nil {
+		return nil, nil, err
+	}
+	store, err := globalgraph.NewStore(*dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return fs, store, nil
+}
+
+// globalCommand dispatches the four `global` verbs against a
+// directory-backed cross-repo graph store. Each verb accepts --dir
+// to override the default ~/.gogfy location for test isolation.
+func globalCommand(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("global: missing verb (one of: %s)", globalVerbs)
+	}
+	verb, rest := args[0], args[1:]
+	switch verb {
+	case "add":
+		var asTag *string
+		fs, s, err := parseGlobalFlags("add", rest, stderr, []string{"as"}, func(fs *flag.FlagSet) {
+			asTag = fs.String("as", "", "repo tag (defaults to source-dir basename)")
+		})
+		if err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("global add: expected <graph.json>, got %d positional argument(s)", fs.NArg())
+		}
+		src := fs.Arg(0)
+		tag := *asTag
+		if tag == "" {
+			tag = defaultRepoTag(src)
+		}
+		res, err := s.Add(src, tag)
+		if err != nil {
+			return fmt.Errorf("global add: %w", err)
+		}
+		if res.Skipped {
+			fmt.Fprintf(stdout, "global: %s unchanged (skipped)\n", res.RepoTag)
+		} else {
+			fmt.Fprintf(stdout, "global: %s — added %d nodes, removed %d stale nodes\n",
+				res.RepoTag, res.NodesAdded, res.NodesRemoved)
+		}
+		return nil
+
+	case "remove":
+		fs, s, err := parseGlobalFlags("remove", rest, stderr, nil, nil)
+		if err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("global remove: expected <TAG>, got %d positional argument(s)", fs.NArg())
+		}
+		n, err := s.Remove(fs.Arg(0))
+		if err != nil {
+			return fmt.Errorf("global remove: %w", err)
+		}
+		fmt.Fprintf(stdout, "global: removed %s (%d nodes)\n", fs.Arg(0), n)
+		return nil
+
+	case "list":
+		fs, s, err := parseGlobalFlags("list", rest, stderr, nil, nil)
+		if err != nil {
+			return err
+		}
+		if fs.NArg() > 0 {
+			return fmt.Errorf("global list: unexpected positional argument(s): %v", fs.Args())
+		}
+		repos, err := s.List()
+		if err != nil {
+			return fmt.Errorf("global list: %w", err)
+		}
+		if len(repos) == 0 {
+			fmt.Fprintln(stdout, "global: no repos added yet")
+			return nil
+		}
+		for _, t := range slices.Sorted(maps.Keys(repos)) {
+			e := repos[t]
+			fmt.Fprintf(stdout, "%s\t%d nodes, %d edges\t%s\t%s\n",
+				t, e.NodeCount, e.EdgeCount, e.AddedAt, e.SourcePath)
+		}
+		return nil
+
+	case "path":
+		fs, s, err := parseGlobalFlags("path", rest, stderr, nil, nil)
+		if err != nil {
+			return err
+		}
+		if fs.NArg() > 0 {
+			return fmt.Errorf("global path: unexpected positional argument(s): %v", fs.Args())
+		}
+		fmt.Fprintln(stdout, s.Path())
+		return nil
+
+	default:
+		return fmt.Errorf("global: unknown verb %q (want one of: %s)", verb, globalVerbs)
+	}
+}
+
+// defaultRepoTag derives a repo tag from a graph.json path when the
+// caller didn't supply --as. Graph paths are typically shaped like
+// <project>/graphify-out/graph.json, so the parent's parent gives the
+// project name; falls back to immediate parent if that's missing.
+// Returns "" when no usable tag can be derived (Add's validateTag
+// will surface the error with an actionable "pass --as" message).
+func defaultRepoTag(src string) string {
+	abs, err := filepath.Abs(src)
+	if err != nil {
+		return ""
+	}
+	bad := func(t string) bool {
+		return t == "" || t == "." || t == ".." || t == "/" || t == "\\"
+	}
+	parent := filepath.Dir(abs)
+	if tag := filepath.Base(filepath.Dir(parent)); !bad(tag) {
+		return tag
+	}
+	if tag := filepath.Base(parent); !bad(tag) {
+		return tag
+	}
+	return ""
+}
+
 // callflowCommand renders the call-flow architecture HTML from an
 // existing graph.json.
 func callflowCommand(args []string, stderr io.Writer) error {
@@ -1394,15 +1547,7 @@ func artifactsExist(out string, noViz bool) bool {
 }
 
 func loadGraph(path string) (export.GraphExport, error) {
-	var g export.GraphExport
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return g, fmt.Errorf("read %s: %w", path, err)
-	}
-	if err := json.Unmarshal(data, &g); err != nil {
-		return g, fmt.Errorf("parse %s: %w", path, err)
-	}
-	return g, nil
+	return export.LoadJSON(path)
 }
 
 // atomicWrite is a thin wrapper kept for callers that don't import fsutil

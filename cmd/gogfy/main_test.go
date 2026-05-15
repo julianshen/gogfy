@@ -244,6 +244,129 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
+func TestDispatchGlobalAddListRemove(t *testing.T) {
+	// End-to-end: run pipeline → global add → global list → global remove.
+	// Uses --dir to isolate from any real ~/.gogfy on the test machine.
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(out, "graph.json")
+	storeDir := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	if err := dispatchTo(t, []string{"global", "add", graphPath, "--as", "minirepo", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global add: %v\nstderr: %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "minirepo") {
+		t.Fatalf("add stdout missing repo tag: %q", stdout.String())
+	}
+
+	// Re-add unchanged source → skipped path.
+	stdout.Reset()
+	stderr.Reset()
+	if err := dispatchTo(t, []string{"global", "add", graphPath, "--as", "minirepo", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global add (re-run): %v", err)
+	}
+	if !strings.Contains(stdout.String(), "skipped") {
+		t.Fatalf("re-add should report skipped, got: %q", stdout.String())
+	}
+
+	// list must show the tag.
+	stdout.Reset()
+	if err := dispatchTo(t, []string{"global", "list", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global list: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "minirepo") {
+		t.Fatalf("list missing tag: %q", stdout.String())
+	}
+
+	// path prints the merged-graph file path.
+	stdout.Reset()
+	if err := dispatchTo(t, []string{"global", "path", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global path: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "global-graph.json") {
+		t.Fatalf("path missing global-graph.json: %q", stdout.String())
+	}
+
+	// remove cleans it up.
+	stdout.Reset()
+	if err := dispatchTo(t, []string{"global", "remove", "minirepo", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global remove: %v", err)
+	}
+	stdout.Reset()
+	if err := dispatchTo(t, []string{"global", "list", "--dir", storeDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("global list (after remove): %v", err)
+	}
+	if !strings.Contains(stdout.String(), "no repos added yet") {
+		t.Fatalf("list should report empty after remove, got: %q", stdout.String())
+	}
+}
+
+func TestDefaultRepoTag(t *testing.T) {
+	// Project-shaped path: parent-of-parent wins.
+	if got := defaultRepoTag("/home/me/myproj/graphify-out/graph.json"); got != "myproj" {
+		t.Errorf("project path: got %q, want myproj", got)
+	}
+	// Bare graph.json in cwd resolves to the cwd's basename or
+	// falls through to "". Whatever the result, validateTag in
+	// globalgraph.Add must accept it or the user gets a clear
+	// "pass --as" error.
+	if got := defaultRepoTag("graph.json"); got == "." || got == ".." || got == "/" {
+		t.Errorf("defaultRepoTag should never return a path-only token, got %q", got)
+	}
+}
+
+func TestDispatchGlobalAddUsesIsolatedDir(t *testing.T) {
+	// Regression: the --dir flag must actually drive the write
+	// location. If a future refactor dropped the flag wiring, the
+	// existing list-then-remove test would still pass (it'd read
+	// from whatever ~/.gogfy holds). Pin the location with os.Stat.
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	storeDir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if err := dispatchTo(t, []string{
+		"global", "add", filepath.Join(out, "graph.json"),
+		"--as", "iso", "--dir", storeDir,
+	}, &stdout, &stderr); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(storeDir, "global-graph.json")); err != nil {
+		t.Fatalf("expected global-graph.json inside --dir %q: %v", storeDir, err)
+	}
+	if _, err := os.Stat(filepath.Join(storeDir, "global-manifest.json")); err != nil {
+		t.Fatalf("expected global-manifest.json inside --dir %q: %v", storeDir, err)
+	}
+}
+
+func TestDispatchGlobalListRejectsStrayPositional(t *testing.T) {
+	err := dispatch([]string{"global", "list", "stray", "--dir", t.TempDir()}, os.Stderr)
+	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
+		t.Fatalf("expected unexpected-positional error, got: %v", err)
+	}
+}
+
+func TestDispatchGlobalPathRejectsStrayPositional(t *testing.T) {
+	err := dispatch([]string{"global", "path", "stray", "--dir", t.TempDir()}, os.Stderr)
+	if err == nil || !strings.Contains(err.Error(), "unexpected positional") {
+		t.Fatalf("expected unexpected-positional error, got: %v", err)
+	}
+}
+
+func TestDispatchGlobalRejectsUnknownVerb(t *testing.T) {
+	err := dispatch([]string{"global", "bogus"}, os.Stderr)
+	if err == nil {
+		t.Fatal("expected error for unknown global verb")
+	}
+	if !strings.Contains(err.Error(), "unknown verb") {
+		t.Fatalf("expected 'unknown verb' error, got: %v", err)
+	}
+}
+
 func TestDispatchCallflowSubcommand(t *testing.T) {
 	out := t.TempDir()
 	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
