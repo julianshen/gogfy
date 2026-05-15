@@ -116,7 +116,7 @@
 | Community splitting | **Done** | Oversized communities (>25% of graph, min 10) and low-cohesion communities (<0.05, min 50) split with second Leiden pass |
 | Cohesion scoring | **Done** | `cohesionScore()` computes intra-community edges / max possible |
 | Louvain fallback | Partial | gogfy has ConnectedComponents fallback; upstream tries graspologic Leiden then networkx Louvain |
-| Community labels | Missing | Upstream generates `.graphify_labels.json` with human-readable community names |
+| Community labels | **Done (heuristic)** | `internal/labels` derives names from top-degree member node label (no LLM dependency); `gogfy labels <graph.json>` writes `.graphify_labels.json`; `gogfy wiki` auto-loads it. Hand-edits preserved unless `--force`. |
 
 ### 2.5 Analysis
 | Feature | Status | What's Missing |
@@ -173,7 +173,7 @@
 | SSRF-guarded socket | Missing | Upstream has DNS rebinding protection |
 | Safe fetch | Missing | Upstream has `safe_fetch()` / `safe_fetch_text()` with size caps |
 | Path traversal guard | Partial | gogfy has RootGuard; upstream also has `validate_graph_path()` |
-| Label sanitization | Missing | Upstream strips control chars and caps at 256 chars |
+| Label sanitization | Partial | `internal/labels` strips control chars and caps at 256 runes for community names; node Label/SourceFile fields not yet sanitized at ingest. |
 
 ---
 

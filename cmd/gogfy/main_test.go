@@ -1365,3 +1365,65 @@ func TestRunPipelineReadOnlyOut(t *testing.T) {
 		t.Fatal("expected error for read-only output directory")
 	}
 }
+
+func TestDispatchLabelsAndWikiAutoload(t *testing.T) {
+	// Pipeline produces graph.json; `labels` derives names; `wiki` picks
+	// them up automatically via the adjacent .graphify_labels.json file.
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(out, "graph.json")
+
+	var stdout, stderr bytes.Buffer
+	if err := dispatchTo(t, []string{"labels", graphPath}, &stdout, &stderr); err != nil {
+		t.Fatalf("labels: %v\nstderr: %s", err, stderr.String())
+	}
+	labelsPath := filepath.Join(out, ".graphify_labels.json")
+	if _, err := os.Stat(labelsPath); err != nil {
+		t.Fatalf("labels file not created: %v", err)
+	}
+
+	// Second invocation must refuse without --force, so hand-edits survive.
+	stderr.Reset()
+	if err := dispatchTo(t, []string{"labels", graphPath}, &stdout, &stderr); err == nil {
+		t.Fatal("expected error on second labels run without --force")
+	}
+
+	// --force allows overwrite.
+	if err := dispatchTo(t, []string{"labels", graphPath, "--force"}, &stdout, &stderr); err != nil {
+		t.Fatalf("labels --force: %v", err)
+	}
+
+	// wiki must pick up labels automatically.
+	wikiDir := filepath.Join(out, "wiki-auto")
+	if err := dispatchTo(t, []string{"wiki", graphPath, "--out", wikiDir}, &stdout, &stderr); err != nil {
+		t.Fatalf("wiki: %v", err)
+	}
+	// index.md should reference at least one community by a non-default name.
+	idx, err := os.ReadFile(filepath.Join(wikiDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lbl, err := os.ReadFile(labelsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]string
+	if err := json.Unmarshal(lbl, &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m) == 0 {
+		t.Skip("clustering produced no communities — nothing to assert")
+	}
+	hit := false
+	for _, name := range m {
+		if name != "" && bytes.Contains(idx, []byte(name)) {
+			hit = true
+			break
+		}
+	}
+	if !hit {
+		t.Fatalf("none of the labels %+v appeared in index.md", m)
+	}
+}
