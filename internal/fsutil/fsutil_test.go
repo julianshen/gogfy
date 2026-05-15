@@ -7,6 +7,47 @@ import (
 	"testing"
 )
 
+func TestSHA256FileHashesContent(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "f.txt")
+	if err := os.WriteFile(p, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := SHA256File(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// SHA-256("hello") — pinning the exact digest catches a future
+	// refactor that accidentally hashes path or metadata instead of
+	// content.
+	want := "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	if got != want {
+		t.Fatalf("SHA256File(hello) = %q, want %q", got, want)
+	}
+}
+
+func TestSHA256FileMissingErrors(t *testing.T) {
+	if _, err := SHA256File(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestSHA256FileChangesOnContentChange(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "f.txt")
+	_ = os.WriteFile(p, []byte("a"), 0o644)
+	h1, err := SHA256File(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(p, []byte("b"), 0o644)
+	h2, err := SHA256File(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h1 == h2 {
+		t.Fatal("hash should change when content changes")
+	}
+}
+
 func TestReadFileOrEmptyMissingReturnsNil(t *testing.T) {
 	data, err := ReadFileOrEmpty(filepath.Join(t.TempDir(), "no-such-file"))
 	if err != nil {

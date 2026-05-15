@@ -7,9 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"os/signal"
@@ -1148,12 +1149,8 @@ func treeCommand(args []string, stderr io.Writer) error {
 	return nil
 }
 
-// globalCommand dispatches the four `global` verbs (add/remove/list/path)
-// against a directory-backed cross-repo graph store. The store defaults
-// to ~/.gogfy (matching upstream's ~/.graphify shape) but every verb
-// accepts --dir to support test isolation and per-user overrides.
-// globalVerbs lists the verbs `gogfy global` accepts. Used in both the
-// missing-verb and unknown-verb error messages so the two never drift.
+// globalVerbs is used by both the missing-verb and unknown-verb error
+// messages so the two listings never drift.
 const globalVerbs = "add, remove, list, path"
 
 // parseGlobalFlags handles the boilerplate shared by every `global`
@@ -1174,9 +1171,16 @@ func parseGlobalFlags(name string, args []string, stderr io.Writer, valueFlags [
 	if err := fs.Parse(ordered); err != nil {
 		return nil, nil, err
 	}
-	return fs, globalgraph.NewStore(*dir), nil
+	store, err := globalgraph.NewStore(*dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return fs, store, nil
 }
 
+// globalCommand dispatches the four `global` verbs against a
+// directory-backed cross-repo graph store. Each verb accepts --dir
+// to override the default ~/.gogfy location for test isolation.
 func globalCommand(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return fmt.Errorf("global: missing verb (one of: %s)", globalVerbs)
@@ -1239,12 +1243,7 @@ func globalCommand(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, "global: no repos added yet")
 			return nil
 		}
-		tags := make([]string, 0, len(repos))
-		for t := range repos {
-			tags = append(tags, t)
-		}
-		sort.Strings(tags)
-		for _, t := range tags {
+		for _, t := range slices.Sorted(maps.Keys(repos)) {
 			e := repos[t]
 			fmt.Fprintf(stdout, "%s\t%d nodes, %d edges\t%s\t%s\n",
 				t, e.NodeCount, e.EdgeCount, e.AddedAt, e.SourcePath)
@@ -1268,13 +1267,24 @@ func globalCommand(args []string, stdout, stderr io.Writer) error {
 // caller didn't supply --as. Graph paths are typically shaped like
 // <project>/graphify-out/graph.json, so the parent's parent gives the
 // project name; falls back to immediate parent if that's missing.
+// Returns "" when no usable tag can be derived (Add's validateTag
+// will surface the error with an actionable "pass --as" message).
 func defaultRepoTag(src string) string {
-	abs, _ := filepath.Abs(src)
+	abs, err := filepath.Abs(src)
+	if err != nil {
+		return ""
+	}
+	bad := func(t string) bool {
+		return t == "" || t == "." || t == ".." || t == "/" || t == "\\"
+	}
 	parent := filepath.Dir(abs)
-	if tag := filepath.Base(filepath.Dir(parent)); tag != "" && tag != "." && tag != "/" {
+	if tag := filepath.Base(filepath.Dir(parent)); !bad(tag) {
 		return tag
 	}
-	return filepath.Base(parent)
+	if tag := filepath.Base(parent); !bad(tag) {
+		return tag
+	}
+	return ""
 }
 
 // callflowCommand renders the call-flow architecture HTML from an

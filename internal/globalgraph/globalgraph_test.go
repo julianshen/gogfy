@@ -41,7 +41,10 @@ func sampleGraph(prefix string) export.GraphExport {
 
 func TestAddCreatesStoreAndMergesPrefixed(t *testing.T) {
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	src := writeGraph(t, tmp, "a.json", sampleGraph("a"))
 
 	res, err := s.Add(src, "repoA")
@@ -76,7 +79,10 @@ func TestAddIsIdempotentBySourceHash(t *testing.T) {
 	// a no-op (skipped=true), not a duplicate-merge that bloats the
 	// global graph.
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	src := writeGraph(t, tmp, "a.json", sampleGraph("a"))
 	if _, err := s.Add(src, "repoA"); err != nil {
 		t.Fatal(err)
@@ -96,7 +102,10 @@ func TestAddReplacesPriorVersionOnContentChange(t *testing.T) {
 	// across re-runs (the most common workflow: re-run `gogfy run`,
 	// then re-add the result).
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	src := writeGraph(t, tmp, "a.json", sampleGraph("a"))
 	if _, err := s.Add(src, "repoA"); err != nil {
 		t.Fatal(err)
@@ -128,7 +137,10 @@ func TestAddMergesMultipleReposIsolated(t *testing.T) {
 	// produce 4 prefixed nodes plus deduped externals, not 2 with the
 	// last-write winning.
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	srcA := writeGraph(t, tmp, "a.json", sampleGraph("a"))
 	srcB := writeGraph(t, tmp, "b.json", sampleGraph("b"))
 	if _, err := s.Add(srcA, "repoA"); err != nil {
@@ -154,7 +166,10 @@ func TestAddMergesMultipleReposIsolated(t *testing.T) {
 
 func TestRemoveDropsAllRepoNodesAndEdges(t *testing.T) {
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	srcA := writeGraph(t, tmp, "a.json", sampleGraph("a"))
 	srcB := writeGraph(t, tmp, "b.json", sampleGraph("b"))
 	if _, err := s.Add(srcA, "repoA"); err != nil {
@@ -190,7 +205,10 @@ func TestRemoveDropsAllRepoNodesAndEdges(t *testing.T) {
 
 func TestRemoveUnknownRepoErrors(t *testing.T) {
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.Remove("never-added"); err == nil {
 		t.Fatal("expected error when removing repo not in manifest")
 	}
@@ -198,7 +216,10 @@ func TestRemoveUnknownRepoErrors(t *testing.T) {
 
 func TestListReflectsAddedRepos(t *testing.T) {
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	src := writeGraph(t, tmp, "a.json", sampleGraph("a"))
 	if _, err := s.Add(src, "alpha"); err != nil {
 		t.Fatal(err)
@@ -217,7 +238,10 @@ func TestListReflectsAddedRepos(t *testing.T) {
 
 func TestAddMissingSourceErrors(t *testing.T) {
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.Add(filepath.Join(tmp, "nope.json"), "x"); err == nil {
 		t.Fatal("expected error for missing source path")
 	}
@@ -225,13 +249,23 @@ func TestAddMissingSourceErrors(t *testing.T) {
 
 func TestAddRejectsEmptyTag(t *testing.T) {
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	src := writeGraph(t, tmp, "a.json", sampleGraph("a"))
 	if _, err := s.Add(src, ""); err == nil {
 		t.Fatal("expected error for empty repo tag")
 	}
 	if _, err := s.Add(src, "has::separator"); err == nil {
 		t.Fatal("expected error: tags must not contain the :: separator that's reserved for prefixing")
+	}
+	// Path-shaped fallbacks from defaultRepoTag must be rejected too,
+	// not silently anchor data under a confusing label.
+	for _, bad := range []string{".", "..", "/", "a/b", `c\d`} {
+		if _, err := s.Add(src, bad); err == nil {
+			t.Fatalf("expected error for path-shaped tag %q", bad)
+		}
 	}
 }
 
@@ -241,7 +275,10 @@ func TestExternalNodesDedupedAcrossRepos(t *testing.T) {
 	// original (un-prefixed) ID so other repos' edges can reference
 	// the same anchor.
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	a := export.GraphExport{
 		Nodes: []schema.Node{
 			{ID: "ext:a", Label: "context.Context"}, // external
@@ -278,7 +315,10 @@ func TestExternalNodesDedupedAcrossRepos(t *testing.T) {
 
 func TestPathPointsAtGlobalGraphFile(t *testing.T) {
 	tmp := t.TempDir()
-	s := NewStore(tmp)
+	s, err := NewStore(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	p := s.Path()
 	if !strings.HasSuffix(p, "global-graph.json") {
 		t.Fatalf("Path() should end with global-graph.json, got %q", p)

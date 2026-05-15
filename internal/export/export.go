@@ -22,10 +22,9 @@ func ExportJSON(g GraphExport) ([]byte, error) {
 	return json.MarshalIndent(g, "", "  ")
 }
 
-// LoadJSON reads and decodes a graph.json file. Centralized so the
-// `read + Unmarshal` pair has a single owner — three packages
-// (cmd/gogfy, globalgraph, etc.) previously open-coded the same
-// boilerplate with subtly different error messages.
+// LoadJSON reads and decodes a graph.json file. The "missing file"
+// error wraps os.ErrNotExist so callers can detect the first-run case
+// via errors.Is.
 func LoadJSON(path string) (GraphExport, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

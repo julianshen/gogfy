@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,9 +23,11 @@ import (
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
-// tagSeparator is the "<tag>::<local-id>" delimiter chosen because no
-// language extractor in gogfy produces it inside node IDs, and it
-// reads clearly in tooling output. Reserved — tags must not contain it.
+// tagSeparator is the "<tag>::<local-id>" delimiter. Reserved — tag
+// strings must not contain it (validateTag enforces). Local IDs may
+// (the Rust extractor emits IDs like "std::collections::HashMap");
+// pruneRepo uses HasPrefix on the full "<tag>::" anchor so the
+// embedded "::" inside a local segment is harmless.
 const tagSeparator = "::"
 
 // graphFile / manifestFile are the on-disk names inside the store dir.
@@ -42,13 +45,20 @@ type Store struct {
 }
 
 // NewStore returns a store rooted at dir. Empty dir defaults to
-// ~/.gogfy. The directory is created lazily on first write.
-func NewStore(dir string) *Store {
+// ~/.gogfy; returns an error if dir is empty and the user's home
+// directory cannot be determined (most often: $HOME unset in a
+// container or cron context — surfacing the error here is more
+// helpful than letting a later os.Mkdir fail with "permission denied"
+// on "/.gogfy").
+func NewStore(dir string) (*Store, error) {
 	if dir == "" {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("globalgraph: home directory unavailable; pass --dir explicitly: %w", err)
+		}
 		dir = filepath.Join(home, ".gogfy")
 	}
-	return &Store{dir: dir}
+	return &Store{dir: dir}, nil
 }
 
 // Path returns the absolute path to the merged graph JSON, useful for
@@ -57,13 +67,18 @@ func (s *Store) Path() string {
 	return filepath.Join(s.dir, graphFile)
 }
 
-// Manifest is the persisted record of which repos have been added.
-type Manifest struct {
+// manifest is the persisted record of which repos have been added.
+// Unexported: callers read it through List() which returns a cloned
+// map of RepoEntry values; constructing a manifest by hand from
+// outside the package isn't a supported workflow.
+type manifest struct {
 	Version int                  `json:"version"`
 	Repos   map[string]RepoEntry `json:"repos"`
 }
 
 // RepoEntry records one repo's contribution to the global graph.
+// Exported so callers iterating List() can name the value type.
+// Counts are a snapshot at AddedAt — re-Add to refresh.
 type RepoEntry struct {
 	AddedAt    string `json:"added_at"`
 	SourcePath string `json:"source_path"`
@@ -89,9 +104,6 @@ func (s *Store) Add(sourcePath, repoTag string) (AddResult, error) {
 	if err := validateTag(repoTag); err != nil {
 		return AddResult{}, err
 	}
-	// Load manifest before hashing — when the repo has been added
-	// before and the file hasn't changed we can skip the full
-	// SHA-256 pass on a potentially-large graph.json.
 	man, err := s.loadManifest()
 	if err != nil {
 		return AddResult{}, err
@@ -126,7 +138,6 @@ func (s *Store) Add(sourcePath, repoTag string) (AddResult, error) {
 		return AddResult{}, err
 	}
 
-	// loadManifest guarantees Repos is non-nil; no defensive init needed.
 	abs, _ := filepath.Abs(sourcePath)
 	man.Repos[repoTag] = RepoEntry{
 		AddedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -177,20 +188,17 @@ func (s *Store) List() (map[string]RepoEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]RepoEntry, len(man.Repos))
-	for k, v := range man.Repos {
-		out[k] = v
-	}
-	return out, nil
+	return maps.Clone(man.Repos), nil
 }
 
 // Load reads and returns the current global graph. Returns an empty
 // graph if the file doesn't exist yet (first-add path).
 func (s *Store) Load() (export.GraphExport, error) {
-	if _, err := os.Stat(s.Path()); errors.Is(err, os.ErrNotExist) {
+	g, err := export.LoadJSON(s.Path())
+	if errors.Is(err, os.ErrNotExist) {
 		return export.GraphExport{Nodes: []schema.Node{}, Edges: []schema.Edge{}}, nil
 	}
-	return export.LoadJSON(s.Path())
+	return g, err
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,6 +207,13 @@ func (s *Store) Load() (export.GraphExport, error) {
 func validateTag(tag string) error {
 	if tag == "" {
 		return errors.New("globalgraph: repo tag must not be empty")
+	}
+	// `.`, `..`, `/` can sneak through when the CLI's defaultRepoTag
+	// derivation hits an unusable source path; reject them here too
+	// rather than letting them anchor real repo data under a confusing
+	// name.
+	if tag == "." || tag == ".." || strings.ContainsAny(tag, "/\\") {
+		return fmt.Errorf("globalgraph: repo tag %q is not a valid identifier (use --as to set one explicitly)", tag)
 	}
 	if strings.Contains(tag, tagSeparator) {
 		return fmt.Errorf("globalgraph: repo tag %q must not contain %q (reserved as the prefix separator)", tag, tagSeparator)
@@ -297,17 +312,17 @@ func mergeWithExternalDedup(base, prefixed export.GraphExport) (export.GraphExpo
 	return merged, len(keptNodes)
 }
 
-func (s *Store) loadManifest() (Manifest, error) {
+func (s *Store) loadManifest() (manifest, error) {
 	b, err := os.ReadFile(filepath.Join(s.dir, manifestFile))
 	if errors.Is(err, os.ErrNotExist) {
-		return Manifest{Version: manifestV, Repos: map[string]RepoEntry{}}, nil
+		return manifest{Version: manifestV, Repos: map[string]RepoEntry{}}, nil
 	}
 	if err != nil {
-		return Manifest{}, fmt.Errorf("globalgraph: read manifest: %w", err)
+		return manifest{}, fmt.Errorf("globalgraph: read manifest: %w", err)
 	}
-	var m Manifest
+	var m manifest
 	if err := json.Unmarshal(b, &m); err != nil {
-		return Manifest{}, fmt.Errorf("globalgraph: parse manifest: %w", err)
+		return manifest{}, fmt.Errorf("globalgraph: parse manifest: %w", err)
 	}
 	if m.Repos == nil {
 		m.Repos = map[string]RepoEntry{}
@@ -315,7 +330,7 @@ func (s *Store) loadManifest() (Manifest, error) {
 	return m, nil
 }
 
-func (s *Store) saveManifest(m Manifest) error {
+func (s *Store) saveManifest(m manifest) error {
 	if m.Version == 0 {
 		m.Version = manifestV
 	}

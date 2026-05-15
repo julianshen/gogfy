@@ -304,6 +304,45 @@ func TestDispatchGlobalAddListRemove(t *testing.T) {
 	}
 }
 
+func TestDefaultRepoTag(t *testing.T) {
+	// Project-shaped path: parent-of-parent wins.
+	if got := defaultRepoTag("/home/me/myproj/graphify-out/graph.json"); got != "myproj" {
+		t.Errorf("project path: got %q, want myproj", got)
+	}
+	// Bare graph.json in cwd resolves to the cwd's basename or
+	// falls through to "". Whatever the result, validateTag in
+	// globalgraph.Add must accept it or the user gets a clear
+	// "pass --as" error.
+	if got := defaultRepoTag("graph.json"); got == "." || got == ".." || got == "/" {
+		t.Errorf("defaultRepoTag should never return a path-only token, got %q", got)
+	}
+}
+
+func TestDispatchGlobalAddUsesIsolatedDir(t *testing.T) {
+	// Regression: the --dir flag must actually drive the write
+	// location. If a future refactor dropped the flag wiring, the
+	// existing list-then-remove test would still pass (it'd read
+	// from whatever ~/.gogfy holds). Pin the location with os.Stat.
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	storeDir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if err := dispatchTo(t, []string{
+		"global", "add", filepath.Join(out, "graph.json"),
+		"--as", "iso", "--dir", storeDir,
+	}, &stdout, &stderr); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(storeDir, "global-graph.json")); err != nil {
+		t.Fatalf("expected global-graph.json inside --dir %q: %v", storeDir, err)
+	}
+	if _, err := os.Stat(filepath.Join(storeDir, "global-manifest.json")); err != nil {
+		t.Fatalf("expected global-manifest.json inside --dir %q: %v", storeDir, err)
+	}
+}
+
 func TestDispatchGlobalRejectsUnknownVerb(t *testing.T) {
 	err := dispatch([]string{"global", "bogus"}, os.Stderr)
 	if err == nil {
