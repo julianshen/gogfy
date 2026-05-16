@@ -40,6 +40,7 @@ const (
 	ToolPath         = "gogfy_path"
 	ToolGetNeighbors = "gogfy_get_neighbors"
 	ToolGraphStats   = "gogfy_graph_stats"
+	ToolGetCommunity = "gogfy_get_community"
 )
 
 // Server holds the in-memory graph + report bytes the MCP tools read from.
@@ -212,6 +213,8 @@ func (s *Server) toolsCall(req rpcRequest) []byte {
 		return jsonRPCResult(req.ID, s.callGetNeighbors(p.Arguments))
 	case ToolGraphStats:
 		return jsonRPCResult(req.ID, s.callGraphStats(p.Arguments))
+	case ToolGetCommunity:
+		return jsonRPCResult(req.ID, s.callGetCommunity(p.Arguments))
 	default:
 		return jsonRPCError(req.ID, -32602, "unknown tool: "+p.Name)
 	}
@@ -390,6 +393,125 @@ func relationFilterSuffix(rel string) string {
 		return ""
 	}
 	return " for relation " + rel
+}
+
+// callGetCommunity lists a community's members and its cross-community
+// edges. Accepts either a community ID or a member node's ID/label so
+// agents don't have to maintain their own member-→-community map.
+func (s *Server) callGetCommunity(args json.RawMessage) map[string]any {
+	var p struct {
+		ID    string `json:"id"`
+		Limit int    `json:"limit"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil || p.ID == "" {
+		return toolResult("get_community requires an `id` argument (community ID or member node ID/label)", true)
+	}
+	if p.Limit <= 0 {
+		p.Limit = 50
+	}
+
+	// Resolve `p.ID` to a community ID. Direct community match wins;
+	// otherwise treat it as a node lookup and pull the node's community.
+	communityID := ""
+	for _, n := range s.graph.Nodes {
+		if n.Community == p.ID {
+			communityID = p.ID
+			break
+		}
+	}
+	if communityID == "" {
+		if n, _, ok := s.findNode(p.ID); ok && n.Community != "" {
+			communityID = n.Community
+		}
+	}
+	if communityID == "" {
+		return toolResult(fmt.Sprintf("no community matched %q (tried community ID, then member ID/label)", p.ID), true)
+	}
+
+	var members []schema.Node
+	for _, n := range s.graph.Nodes {
+		if n.Community == communityID {
+			members = append(members, n)
+		}
+	}
+	// Sort by label so the digest is reproducible run-to-run.
+	sort.Slice(members, func(i, j int) bool {
+		li := members[i].Label
+		if li == "" {
+			li = members[i].ID
+		}
+		lj := members[j].Label
+		if lj == "" {
+			lj = members[j].ID
+		}
+		return li < lj
+	})
+
+	// Cross-community link counts: by other-community ID, summed across
+	// edges. Drops intra-community + dangling-target edges.
+	cross := map[string]int{}
+	memberSet := make(map[string]struct{}, len(members))
+	for _, m := range members {
+		memberSet[m.ID] = struct{}{}
+	}
+	for _, e := range s.graph.Edges {
+		_, srcIn := memberSet[e.Source]
+		_, dstIn := memberSet[e.Target]
+		if srcIn == dstIn {
+			// Both inside (intra) or both outside (no relevance).
+			continue
+		}
+		otherID := e.Source
+		if srcIn {
+			otherID = e.Target
+		}
+		otherNode, ok := s.nodesByID[otherID]
+		if !ok || otherNode.Community == "" || otherNode.Community == communityID {
+			continue
+		}
+		cross[otherNode.Community]++
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Community %s (%d members)\n", communityID, len(members))
+	for i, m := range members {
+		if i >= p.Limit {
+			fmt.Fprintf(&b, "- _… %d more_\n", len(members)-p.Limit)
+			break
+		}
+		label := m.Label
+		if label == "" {
+			label = m.ID
+		}
+		fmt.Fprintf(&b, "- %s\n", label)
+	}
+	if len(cross) > 0 {
+		// Highest edge count first; ties broken by other community ID
+		// so output diffs cleanly.
+		type pair struct {
+			cid   string
+			count int
+		}
+		ps := make([]pair, 0, len(cross))
+		for cid, n := range cross {
+			ps = append(ps, pair{cid, n})
+		}
+		sort.Slice(ps, func(i, j int) bool {
+			if ps[i].count != ps[j].count {
+				return ps[i].count > ps[j].count
+			}
+			return ps[i].cid < ps[j].cid
+		})
+		fmt.Fprintf(&b, "\n### Connections to other communities\n")
+		for _, p := range ps {
+			plural := "edges"
+			if p.count == 1 {
+				plural = "edge"
+			}
+			fmt.Fprintf(&b, "- Community %s: %d %s\n", p.cid, p.count, plural)
+		}
+	}
+	return toolResult(b.String(), false)
 }
 
 // callGraphStats surfaces orientation-level numbers an agent can use
@@ -675,6 +797,18 @@ var toolDescriptors = []map[string]any{
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{},
+		},
+	},
+	{
+		"name":        ToolGetCommunity,
+		"description": "List members of a community plus its connections to other communities. Pass the community ID or a member's node ID/label — both resolve to the same community.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":    map[string]any{"type": "string", "description": "Community ID, or a node ID/label whose community to inspect."},
+				"limit": map[string]any{"type": "integer", "description": "Max members to list (default: 50). Cross-community link list isn't capped."},
+			},
+			"required": []any{"id"},
 		},
 	},
 }

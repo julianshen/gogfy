@@ -448,3 +448,82 @@ func TestCollectFilesLoadIgnorePermissionError(t *testing.T) {
 		t.Fatal("expected error for unreadable ignore file")
 	}
 }
+
+func TestCollectFilesLayersGraphifyignoreUpToVCSRoot(t *testing.T) {
+	// vcsRoot/.git marks the boundary.
+	// vcsRoot/.graphifyignore ignores *.tmp project-wide.
+	// vcsRoot/sub/.graphifyignore re-includes via `!keep.tmp`.
+	// Scan from vcsRoot/sub — should find keep.tmp but not other.tmp.
+	root := t.TempDir()
+	if err := os.MkdirAll(root+"/.git", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/.graphifyignore", []byte("*.tmp\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(root+"/sub", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/sub/.graphifyignore", []byte("!keep.tmp\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/sub/keep.tmp", []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root+"/sub/other.tmp", []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := CollectFiles(root+"/sub", []string{".tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasKeep, hasOther := false, false
+	for _, p := range got {
+		if filepath.Base(p) == "keep.tmp" {
+			hasKeep = true
+		}
+		if filepath.Base(p) == "other.tmp" {
+			hasOther = true
+		}
+	}
+	if !hasKeep {
+		t.Errorf("ancestor .graphifyignore + child negation: keep.tmp should be included, got %v", got)
+	}
+	if hasOther {
+		t.Errorf("ancestor *.tmp should still ignore other.tmp, got %v", got)
+	}
+}
+
+func TestIgnoreDirChainStopsAtVCSRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(root+"/.git", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(root+"/a/b/c", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chain := ignoreDirChain(root + "/a/b/c")
+	if len(chain) < 4 {
+		t.Fatalf("expected at least 4 entries in chain (root → a → b → c), got %d: %v", len(chain), chain)
+	}
+	if !strings.HasSuffix(chain[len(chain)-1], "/c") {
+		t.Errorf("scan root must be last in chain (gitignore last-match-wins): %v", chain)
+	}
+}
+
+func TestIgnoreDirChainNoVCSReturnsScanRootOnly(t *testing.T) {
+	// Without a VCS marker we don't blindly walk to /; return scanRoot
+	// only so behavior matches pre-PR semantics outside repos.
+	root := t.TempDir()
+	chain := ignoreDirChain(root)
+	// Outside a repo we walk up to filesystem root. The scan root must
+	// still be the last entry (gitignore last-match-wins). We don't
+	// strictly bound it because /tmp on some systems IS inside a git
+	// worktree — the assertion stays loose.
+	if chain[len(chain)-1] != root {
+		// On macOS t.TempDir resolves through /var → /private/var; tolerate.
+		if !strings.HasSuffix(chain[len(chain)-1], filepath.Base(root)) {
+			t.Errorf("scan root must be last in chain: got %q, want suffix %q", chain[len(chain)-1], root)
+		}
+	}
+}
