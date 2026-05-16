@@ -34,10 +34,12 @@ const protocolVersion = "2024-11-05"
 // internal/installer's snippet writer) can reference them by const rather
 // than risking drift if a tool is renamed.
 const (
-	ToolGodNodes = "gogfy_god_nodes"
-	ToolExplain  = "gogfy_explain"
-	ToolQuery    = "gogfy_query"
-	ToolPath     = "gogfy_path"
+	ToolGodNodes     = "gogfy_god_nodes"
+	ToolExplain      = "gogfy_explain"
+	ToolQuery        = "gogfy_query"
+	ToolPath         = "gogfy_path"
+	ToolGetNeighbors = "gogfy_get_neighbors"
+	ToolGraphStats   = "gogfy_graph_stats"
 )
 
 // Server holds the in-memory graph + report bytes the MCP tools read from.
@@ -206,6 +208,10 @@ func (s *Server) toolsCall(req rpcRequest) []byte {
 		return jsonRPCResult(req.ID, s.callQuery(p.Arguments))
 	case ToolPath:
 		return jsonRPCResult(req.ID, s.callPath(p.Arguments))
+	case ToolGetNeighbors:
+		return jsonRPCResult(req.ID, s.callGetNeighbors(p.Arguments))
+	case ToolGraphStats:
+		return jsonRPCResult(req.ID, s.callGraphStats(p.Arguments))
 	default:
 		return jsonRPCError(req.ID, -32602, "unknown tool: "+p.Name)
 	}
@@ -311,6 +317,133 @@ func (s *Server) callPath(args json.RawMessage) map[string]any {
 	var b strings.Builder
 	for i, id := range path {
 		fmt.Fprintf(&b, "%d. %s (%s)\n", i+1, s.labelFor(id), id)
+	}
+	return toolResult(b.String(), false)
+}
+
+// callGetNeighbors returns a node's direct neighbors grouped by
+// relation and direction. Cheaper than explain when the caller only
+// wants the connection list (no community/source-file frontmatter).
+func (s *Server) callGetNeighbors(args json.RawMessage) map[string]any {
+	var p struct {
+		ID       string `json:"id"`
+		Relation string `json:"relation"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil || p.ID == "" {
+		return toolResult("get_neighbors requires an `id` argument (node ID or label)", true)
+	}
+	target, _, ok := s.findNode(p.ID)
+	if !ok {
+		return toolResult(fmt.Sprintf("no node matched %q", p.ID), true)
+	}
+	out := s.outEdges[target.ID]
+	in := s.inEdges[target.ID]
+	// Group by relation so the agent sees a clean per-relation list
+	// instead of a flat blob. Sorted keys keep output byte-stable.
+	type bucket struct {
+		out []schema.Edge
+		in  []schema.Edge
+	}
+	by := map[string]*bucket{}
+	for _, e := range out {
+		if p.Relation != "" && e.Relation != p.Relation {
+			continue
+		}
+		if by[e.Relation] == nil {
+			by[e.Relation] = &bucket{}
+		}
+		by[e.Relation].out = append(by[e.Relation].out, e)
+	}
+	for _, e := range in {
+		if p.Relation != "" && e.Relation != p.Relation {
+			continue
+		}
+		if by[e.Relation] == nil {
+			by[e.Relation] = &bucket{}
+		}
+		by[e.Relation].in = append(by[e.Relation].in, e)
+	}
+	if len(by) == 0 {
+		return toolResult(fmt.Sprintf("%s has no neighbors%s", target.Label, relationFilterSuffix(p.Relation)), false)
+	}
+	relations := make([]string, 0, len(by))
+	for r := range by {
+		relations = append(relations, r)
+	}
+	sort.Strings(relations)
+	var b strings.Builder
+	fmt.Fprintf(&b, "## %s neighbors\n", target.Label)
+	for _, r := range relations {
+		fmt.Fprintf(&b, "\n### %s\n", r)
+		for _, e := range by[r].out {
+			fmt.Fprintf(&b, "- → %s\n", s.labelFor(e.Target))
+		}
+		for _, e := range by[r].in {
+			fmt.Fprintf(&b, "- ← %s\n", s.labelFor(e.Source))
+		}
+	}
+	return toolResult(b.String(), false)
+}
+
+func relationFilterSuffix(rel string) string {
+	if rel == "" {
+		return ""
+	}
+	return " for relation " + rel
+}
+
+// callGraphStats surfaces orientation-level numbers an agent can use
+// to decide where to drill in: node/edge/community counts plus
+// file-type and confidence breakdowns.
+func (s *Server) callGraphStats(_ json.RawMessage) map[string]any {
+	communities := map[string]struct{}{}
+	fileTypes := map[schema.FileType]int{}
+	confidence := map[schema.Confidence]int{}
+	for _, n := range s.graph.Nodes {
+		if n.Community != "" {
+			communities[n.Community] = struct{}{}
+		}
+		if n.FileType != "" {
+			fileTypes[n.FileType]++
+		}
+	}
+	for _, e := range s.graph.Edges {
+		confidence[e.Confidence]++
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Graph stats\n")
+	fmt.Fprintf(&b, "- %d nodes\n", len(s.graph.Nodes))
+	fmt.Fprintf(&b, "- %d edges\n", len(s.graph.Edges))
+	fmt.Fprintf(&b, "- %d communities\n", len(communities))
+	if len(fileTypes) > 0 {
+		kinds := make([]schema.FileType, 0, len(fileTypes))
+		for k := range fileTypes {
+			kinds = append(kinds, k)
+		}
+		sort.Slice(kinds, func(i, j int) bool { return string(kinds[i]) < string(kinds[j]) })
+		fmt.Fprintf(&b, "- File types:")
+		for _, k := range kinds {
+			fmt.Fprintf(&b, " %d %s,", fileTypes[k], k)
+		}
+		// Trim trailing comma.
+		out := b.String()
+		out = strings.TrimSuffix(out, ",")
+		b.Reset()
+		b.WriteString(out)
+		b.WriteByte('\n')
+	}
+	if len(confidence) > 0 {
+		fmt.Fprintf(&b, "- Confidence:")
+		for _, c := range []schema.Confidence{schema.Extracted, schema.Inferred, schema.Ambiguous} {
+			if n := confidence[c]; n > 0 {
+				fmt.Fprintf(&b, " %d %s,", n, c)
+			}
+		}
+		out := b.String()
+		out = strings.TrimSuffix(out, ",")
+		b.Reset()
+		b.WriteString(out)
+		b.WriteByte('\n')
 	}
 	return toolResult(b.String(), false)
 }
@@ -522,6 +655,26 @@ var toolDescriptors = []map[string]any{
 				"limit": map[string]any{"type": "integer", "description": "Max matches to return (default: 25)."},
 			},
 			"required": []any{"text"},
+		},
+	},
+	{
+		"name":        ToolGetNeighbors,
+		"description": "List a node's neighbors grouped by relation and direction. Cheaper than 'explain' when only the connection list is needed.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":       map[string]any{"type": "string", "description": "Node ID or label."},
+				"relation": map[string]any{"type": "string", "description": "Optional: filter to a specific relation (e.g. 'calls', 'imports')."},
+			},
+			"required": []any{"id"},
+		},
+	},
+	{
+		"name":        ToolGraphStats,
+		"description": "Return high-level graph statistics: node count, edge count, community count, file-type breakdown, confidence breakdown. Useful as a first-look orientation before drilling in.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{},
 		},
 	},
 }

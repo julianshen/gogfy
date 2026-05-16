@@ -154,7 +154,7 @@
 ### 2.8 MCP Server
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
-| Tools | Partial | gogfy: god_nodes, explain, query, path; upstream: query_graph, get_node, get_neighbors, get_community, god_nodes, graph_stats, shortest_path |
+| Tools | Partial | gogfy: god_nodes, explain, query, path, get_neighbors, graph_stats (6/7); upstream remaining: get_community. Explain is a superset of upstream's get_node, so 6 effective vs upstream's 7. |
 | Resources | Partial | gogfy: report only; upstream: report, stats, god-nodes, surprises, audit, questions |
 | BFS/DFS traversal | Missing | Upstream has token-budgeted subgraph traversal with context filters |
 | Node scoring | Missing | Upstream scores nodes by label match relevance |
