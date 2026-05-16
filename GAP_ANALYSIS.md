@@ -131,12 +131,12 @@
 ### 2.6 Report
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
-| Report sections | Partial | gogfy has 4 sections; upstream has 10+ sections: Corpus Check, Summary, Graph Freshness, Community Hubs, God Nodes, Surprising Connections, Hyperedges, Communities, Ambiguous Edges, Knowledge Gaps, Suggested Questions |
+| Report sections | **Done (10/11)** | Added Summary, Corpus, Graph Freshness (conditional), Community Hubs, Communities (with thin-community filtering), Ambiguous Edges, Knowledge Gaps. Hyperedges omitted — gogfy doesn't model N-ary relations. `report.RenderWithOptions` carries the extended data; legacy `Render(r)` preserved as a trimmed variant. |
 | Token cost reporting | Missing | Upstream reports input/output tokens and estimated cost |
 | Git commit freshness | Missing | Upstream embeds `built_at_commit` hash |
 | Community hub navigation | Missing | Upstream has wikilink navigation to community notes |
-| Knowledge gaps section | Missing | Upstream reports isolated nodes, thin communities, high ambiguity |
-| Thin community filtering | Missing | Upstream omits communities below min size from report |
+| Knowledge gaps section | **Done** | Composite digest: isolated-node count, thin-community count, ambiguous-edge count. Each line shows only when count > 0. |
+| Thin community filtering | **Done** | `Options.ThinCommunityMin` (default 2) drops single-node \"communities\" from the Communities section and feeds the Knowledge Gaps thin-community counter. |
 
 ### 2.7 Export
 | Feature | Status | What's Missing |
