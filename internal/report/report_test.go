@@ -572,3 +572,23 @@ func TestRenderReportCorpusTinyWarningBoundary(t *testing.T) {
 		t.Fatalf("N=%d files should NOT warn (threshold is exclusive): %s", N, atOut)
 	}
 }
+
+func TestRenderReportBridgeNodesSection(t *testing.T) {
+	r := analyze.Report{
+		BridgeNodes: []schema.Node{{ID: "x", Label: "MiddleHub"}},
+	}
+	out, _ := Render(r)
+	if !contains(string(out), "## Bridge Nodes") {
+		t.Fatalf("Bridge Nodes section missing: %s", out)
+	}
+	if !contains(string(out), "MiddleHub") {
+		t.Fatalf("bridge label missing: %s", out)
+	}
+}
+
+func TestRenderReportBridgeNodesOmittedWhenEmpty(t *testing.T) {
+	out, _ := Render(analyze.Report{})
+	if contains(string(out), "## Bridge Nodes") {
+		t.Fatalf("section should be omitted when no bridges: %s", out)
+	}
+}

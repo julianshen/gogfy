@@ -728,3 +728,69 @@ func TestSurprisingLinksTieBreakIsInputOrder(t *testing.T) {
 		t.Fatalf("tie-break order broken: got %+v", r.SurprisingLinks)
 	}
 }
+
+func TestAnalyzeBridgeNodesSurfaceCrossClusterConnectors(t *testing.T) {
+	// Barbell graph: two triangles connected by a single bridge node.
+	// The bridge MUST appear in BridgeNodes; the triangle interiors
+	// MUST NOT (they sit on no cross-cluster shortest path).
+	nodes := []schema.Node{
+		{ID: "a1", Label: "A1", Community: "A"},
+		{ID: "a2", Label: "A2", Community: "A"},
+		{ID: "a3", Label: "A3", Community: "A"},
+		{ID: "bridge", Label: "Bridge", Community: "A"},
+		{ID: "b1", Label: "B1", Community: "B"},
+		{ID: "b2", Label: "B2", Community: "B"},
+		{ID: "b3", Label: "B3", Community: "B"},
+	}
+	edges := []schema.Edge{
+		{Source: "a1", Target: "a2"}, {Source: "a2", Target: "a3"}, {Source: "a3", Target: "a1"},
+		{Source: "a1", Target: "bridge"},
+		{Source: "bridge", Target: "b1"},
+		{Source: "b1", Target: "b2"}, {Source: "b2", Target: "b3"}, {Source: "b3", Target: "b1"},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if len(r.BridgeNodes) == 0 {
+		t.Fatal("expected at least one bridge node")
+	}
+	if r.BridgeNodes[0].ID != "bridge" {
+		t.Fatalf("expected 'bridge' as top BridgeNode, got %s", r.BridgeNodes[0].ID)
+	}
+}
+
+func TestAnalyzeBridgeNodesEmptyWhenNoStructuralBridges(t *testing.T) {
+	// A triangle has zero betweenness everywhere — no bridge nodes.
+	nodes := []schema.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b"},
+		{Source: "b", Target: "c"},
+		{Source: "c", Target: "a"},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if len(r.BridgeNodes) != 0 {
+		t.Fatalf("triangle has no bridges; got %+v", r.BridgeNodes)
+	}
+}
+
+func TestAnalyzeBridgeNodesCappedAtMax(t *testing.T) {
+	// Star with 10 leaves around one hub — hub gets all the betweenness;
+	// the leaves contribute 0; only 1 bridge surfaces, well under cap.
+	// Build a longer chain where every interior node bridges: 12-node
+	// line — should be capped to MaxBridgeNodes (3).
+	nodes := []schema.Node{}
+	edges := []schema.Edge{}
+	for i := 0; i < 12; i++ {
+		nodes = append(nodes, schema.Node{ID: fmt.Sprintf("n%02d", i), Label: fmt.Sprintf("N%02d", i)})
+		if i > 0 {
+			edges = append(edges, schema.Edge{
+				Source: fmt.Sprintf("n%02d", i-1), Target: fmt.Sprintf("n%02d", i),
+			})
+		}
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if len(r.BridgeNodes) > MaxBridgeNodes {
+		t.Fatalf("BridgeNodes must be capped to %d, got %d", MaxBridgeNodes, len(r.BridgeNodes))
+	}
+	if len(r.BridgeNodes) == 0 {
+		t.Fatal("line graph should produce some bridge nodes")
+	}
+}

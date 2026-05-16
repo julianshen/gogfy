@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/julianshen/gogfy/internal/centrality"
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
@@ -38,7 +39,16 @@ type Report struct {
 	// report can surface how much of the graph was directly extracted vs.
 	// inferred or guessed.
 	ConfidenceSummary map[schema.Confidence]int
+	// BridgeNodes are the top-betweenness nodes — the ones whose
+	// removal would partition the graph into otherwise-disconnected
+	// components. Distinct from GodNodes (which uses degree): a bridge
+	// can be low-degree yet sit on every cross-cluster path.
+	BridgeNodes []schema.Node
 }
+
+// MaxBridgeNodes caps the BridgeNodes list. Three is enough to spotlight
+// the cross-cutting concerns without burying the rest of the report.
+const MaxBridgeNodes = 3
 
 type nodeDegree struct {
 	node   schema.Node
@@ -108,11 +118,14 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 		questions = questions[:MaxExplorationQuestions]
 	}
 
+	bridgeNodes := pickBridgeNodes(nodes, edges, nodeMap)
+
 	return Report{
 		GodNodes:             godNodes,
 		SurprisingLinks:      surprising,
 		ExplorationQuestions: questions,
 		ConfidenceSummary:    confidence,
+		BridgeNodes:          bridgeNodes,
 	}
 }
 
@@ -436,6 +449,43 @@ func labelOrID(n schema.Node) string {
 		return n.Label
 	}
 	return n.ID
+}
+
+// pickBridgeNodes computes betweenness centrality and returns the
+// top-MaxBridgeNodes nodes that connect otherwise-distant parts of the
+// graph. Filters out endpoints (zero score) so a graph with no
+// structurally interesting bridges produces an empty list rather than
+// arbitrary fillers. Ties broken by node ID so output is deterministic.
+func pickBridgeNodes(nodes []schema.Node, edges []schema.Edge, nodeMap map[string]schema.Node) []schema.Node {
+	if len(edges) == 0 {
+		return nil
+	}
+	scores := centrality.Betweenness(nodes, edges)
+	type scored struct {
+		id    string
+		score float64
+	}
+	cands := make([]scored, 0, len(scores))
+	for id, s := range scores {
+		if s <= 0 {
+			continue
+		}
+		cands = append(cands, scored{id, s})
+	}
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].score != cands[j].score {
+			return cands[i].score > cands[j].score
+		}
+		return cands[i].id < cands[j].id
+	})
+	if len(cands) > MaxBridgeNodes {
+		cands = cands[:MaxBridgeNodes]
+	}
+	out := make([]schema.Node, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, nodeMap[c.id])
+	}
+	return out
 }
 
 func filterGodNodes(nd []nodeDegree) []schema.Node {

@@ -66,6 +66,13 @@ func RenderWithOptions(r analyze.Report, opts Options) ([]byte, error) {
 		}
 	}
 
+	if len(r.BridgeNodes) > 0 {
+		fmt.Fprintf(&b, "\n## Bridge Nodes\n")
+		for _, n := range r.BridgeNodes {
+			fmt.Fprintf(&b, "- %s\n", escapeMarkdown(n.Label))
+		}
+	}
+
 	fmt.Fprintf(&b, "\n## Surprising Links\n")
 	if len(r.SurprisingLinks) == 0 {
 		fmt.Fprintf(&b, "_None found_\n")
