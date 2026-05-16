@@ -1,9 +1,7 @@
-// Package labels derives human-readable community names from a clustered
-// graph and persists them to `.graphify_labels.json`. graphify's upstream
-// fills this file via an LLM call; gogfy ships a deterministic heuristic
-// (top-degree node label per community) so the wiki always has a stable
-// non-numeric name even without LLM access. Users can hand-edit the file
-// to override entries — the wiki CLI loads it verbatim.
+// Package labels persists per-community human-readable names to
+// `.graphify_labels.json` so the wiki layer has stable non-numeric names.
+// Heuristic-driven (no LLM), but the file is treated as user-editable —
+// re-runs preserve hand-edits unless callers opt into overwrite.
 package labels
 
 import (
@@ -16,6 +14,10 @@ import (
 	"github.com/julianshen/gogfy/internal/fsutil"
 	"github.com/julianshen/gogfy/internal/schema"
 )
+
+// DefaultFilename is the on-disk name the wiki CLI auto-loads from a
+// graph directory. Exported so callers don't drift from this literal.
+const DefaultFilename = ".graphify_labels.json"
 
 // maxLabelRunes caps stored label length. graphify upstream uses 256 chars
 // — kept identical so cross-tool consumers can rely on the bound.
