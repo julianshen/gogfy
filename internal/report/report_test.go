@@ -447,3 +447,45 @@ func TestRenderReportCommunityHubsDeterministicOrder(t *testing.T) {
 		t.Fatalf("community hubs not in sorted-ID order: alpha=%d mid=%d zeta=%d in %s", ialpha, imid, izeta, hubBody)
 	}
 }
+
+func TestRenderReportCorpusBreaksDownByFileType(t *testing.T) {
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "a", SourceFile: "src/auth.go", FileType: schema.FileTypeCode},
+			{ID: "b", SourceFile: "src/billing.go", FileType: schema.FileTypeCode},
+			// Two nodes on same source file — counted as one for file tally.
+			{ID: "c", SourceFile: "src/billing.go", FileType: schema.FileTypeCode},
+			{ID: "d", SourceFile: "README.md", FileType: schema.FileTypeDocument},
+		},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	s := string(out)
+	if !contains(s, "File types:") {
+		t.Fatalf("missing file-type breakdown: %s", s)
+	}
+	if !contains(s, "2 code") {
+		t.Fatalf("code file count wrong (should dedupe by SourceFile): %s", s)
+	}
+	if !contains(s, "1 document") {
+		t.Fatalf("document file count wrong: %s", s)
+	}
+}
+
+func TestRenderReportCorpusReclassifiesSyntheticNodes(t *testing.T) {
+	// Regression: a node with empty FileType (e.g., from resolve.Calls
+	// fan-out) used to silently drop the file from the type tally even
+	// if a later node for the same file had a populated FileType.
+	// Corpus now re-classifies from SourceFile so synthetic nodes don't
+	// poison the count.
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "syn", SourceFile: "src/auth.go"},                                // FileType empty
+			{ID: "real", SourceFile: "src/auth.go", FileType: schema.FileTypeCode}, // gets classified
+		},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	s := string(out)
+	if !contains(s, "1 code") {
+		t.Fatalf("Corpus must classify even when first-seen node has empty FileType: %s", s)
+	}
+}

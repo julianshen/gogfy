@@ -920,7 +920,14 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		if err != nil {
 			return fmt.Errorf("extract %s: %w", f, err)
 		}
+		// Tag every node with its source-file classification at the
+		// boundary so downstream packages (report, callflow, wiki)
+		// don't need to re-derive it from SourceFile.
+		ft := schema.ClassifyFile(f)
 		for _, n := range res.Nodes {
+			if n.FileType == "" {
+				n.FileType = ft
+			}
 			if err := builder.AddNode(n); err != nil {
 				return fmt.Errorf("add node: %w", err)
 			}
