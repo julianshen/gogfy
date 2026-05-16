@@ -19,13 +19,13 @@ import (
 // graph directory. Exported so callers don't drift from this literal.
 const DefaultFilename = ".graphify_labels.json"
 
-// maxLabelRunes caps stored label length. graphify upstream uses 256 chars
-// — kept identical so cross-tool consumers can rely on the bound.
+// maxLabelRunes matches the sibling tool's bound so shared consumers can
+// rely on it (Mermaid identifier length, frontend table widths, etc.).
 const maxLabelRunes = 256
 
-// Generate returns a community-ID → human-readable-label map. The label
-// for each community is the highest-degree member node's label, with ties
-// broken alphabetically. Nodes without a Community are ignored.
+// Generate picks the highest-degree member's label as the community name —
+// it tends to be the most representative anchor. Tie-break is alphabetic
+// to keep output reproducible across runs.
 func Generate(nodes []schema.Node, edges []schema.Edge) map[string]string {
 	degree := map[string]int{}
 	for _, e := range edges {

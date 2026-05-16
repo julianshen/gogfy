@@ -121,6 +121,26 @@ func TestLoadSanitizesHandEditedLabels(t *testing.T) {
 	}
 }
 
+func TestLoadMalformedJSONErrors(t *testing.T) {
+	// Callers distinguish "first-run" (errors.Is os.ErrNotExist) from
+	// "corruption" by error type. Pin that contract so a future refactor
+	// can't conflate them.
+	path := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("parse error must not wrap ErrNotExist: %v", err)
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Fatalf("error should mention parse failure: %v", err)
+	}
+}
+
 func TestSaveProducesStableJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "l.json")
