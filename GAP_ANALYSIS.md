@@ -84,7 +84,7 @@
 | File type classification | **Done (extension-based)** | `schema.ClassifyFile` maps extensions to CODE/DOCUMENT/PAPER/IMAGE/VIDEO; `schema.Node.FileType` populated at extract boundary; Corpus report section breaks down counts by type. Shebang + paper-signal heuristics deferred. |
 | Sensitive file detection | **Done** | `detect.IsSensitive` + silent skip in `CollectFiles`. 6 graphify-parity regex patterns (.env, .pem/.key, credentials/secrets/tokens, SSH keypairs, .netrc/.pgpass/.htpasswd, cloud creds). |
 | Corpus size warnings | **Done (tiny-only)** | Report Corpus section emits a tiny-corpus warning under 5 files. Upstream's "too large" warning isn't ported — gogfy's AST extraction has no per-token cost. |
-| Google Workspace conversion | Missing | Upstream converts .gdoc, .gsheet, .gslides shortcuts |
+| Google Workspace conversion | **Done (URL-only)** | `extract.GoogleWorkspaceExtractor` parses .gdoc/.gsheet/.gslides JSON shortcut files and emits a document-typed module node with the linked Drive URL in `SourceLocation`. Distinct lang tags (gdoc/gsheet/gslides) for filterability. Full content conversion via the upstream `gws` CLI deferred — gogfy doesn't currently shell out to external binaries. |
 | Office structural extraction | Partial | gogfy has extractors but upstream does deeper structural node extraction for XLSX (sheets, tables, columns) |
 | Incremental detection (manifest) | Missing | Upstream uses mtime + MD5 manifest for incremental scans; gogfy only has SHA256 cache for extraction |
 | Symlink following | Partial | gogfy resolves symlinks via RootGuard; upstream has `follow_symlinks` flag with cycle detection |

@@ -54,6 +54,12 @@ type Node struct {
 	// (callflow/wiki/report) can group/filter without re-running the
 	// classifier and so a manually-overridden value can survive.
 	FileType FileType `json:",omitempty"`
+	// ExternalURL points at the actual content for nodes whose
+	// SourceFile is just a pointer (Google Workspace shortcuts today;
+	// could later carry arXiv URLs, GitHub permalinks, etc.).
+	// SourceLocation is reserved for source-position strings like
+	// "L12" so a URL would be misleading there.
+	ExternalURL string `json:",omitempty"`
 }
 
 // Validate checks that the Node has the required fields populated.

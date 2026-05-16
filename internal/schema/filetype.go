@@ -46,6 +46,11 @@ var codeExtensions = map[string]struct{}{
 var docExtensions = map[string]struct{}{
 	".md": {}, ".mdx": {}, ".qmd": {}, ".txt": {}, ".rst": {},
 	".html": {}, ".yaml": {}, ".yml": {},
+	// Google Drive shortcut files — Drive for desktop drops these as
+	// JSON pointers into the synced folder. Content lives remotely but
+	// classifying them as documents lets reports/wiki treat them
+	// uniformly with other doc-typed nodes.
+	".gdoc": {}, ".gsheet": {}, ".gslides": {},
 }
 
 var paperExtensions = map[string]struct{}{".pdf": {}}
