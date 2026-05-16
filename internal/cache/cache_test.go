@@ -1,9 +1,12 @@
 package cache
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestCacheSkipsUnchangedFiles(t *testing.T) {
@@ -142,5 +145,132 @@ func TestCacheHashFileError(t *testing.T) {
 	_, err := hashFile("/nonexistent/path/to/file.go")
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestCacheMtimeFastPathSkipsHashing(t *testing.T) {
+	// Verify the mtime fast path: an unchanged file should NOT be
+	// re-hashed (hashing is the dominant cost on large corpora).
+	// We sniff this by making the file *unreadable* between Save and
+	// ChangedFiles — if ChangedFiles tries to hash, it'll error; if it
+	// uses the mtime fast path it'll succeed.
+	root := t.TempDir()
+	f := filepath.Join(root, "main.go")
+	if err := os.WriteFile(f, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	c := NewCache(filepath.Join(root, ".cache"))
+	if err := c.Save([]string{f}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(f, 0); err != nil {
+		t.Skipf("chmod 0 not honored: %v", err)
+	}
+	defer os.Chmod(f, 0644)
+	if data, err := os.ReadFile(f); err == nil {
+		t.Skipf("env allows reading chmod-0 file (data=%v); fast-path can't be verified", data)
+	}
+
+	changed, err := c.ChangedFiles([]string{f})
+	if err != nil {
+		t.Fatalf("mtime fast path should skip hashing (would otherwise fail to read): %v", err)
+	}
+	if len(changed) != 0 {
+		t.Fatalf("expected unchanged file via mtime, got %d changed", len(changed))
+	}
+}
+
+func TestCacheMtimeBumpedSameHashTreatedUnchanged(t *testing.T) {
+	// Sync tools (git checkout, rsync, IDE save-without-change) bump
+	// mtime without modifying content. Without the slow-path hash check
+	// we'd re-extract the file pointlessly.
+	root := t.TempDir()
+	f := filepath.Join(root, "main.go")
+	if err := os.WriteFile(f, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	c := NewCache(filepath.Join(root, ".cache"))
+	if err := c.Save([]string{f}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bump mtime without modifying content (touch).
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(f, future, future); err != nil {
+		t.Skipf("chtimes failed: %v", err)
+	}
+
+	changed, err := c.ChangedFiles([]string{f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 0 {
+		t.Fatalf("touched-but-identical file should not be flagged changed: %d", len(changed))
+	}
+}
+
+func TestCacheLegacyHashOnlyEntriesUpgradeCleanly(t *testing.T) {
+	// Existing manifests on disk store {path: hashString}. After
+	// upgrading the cache binary, those entries should still be
+	// recognized — we hash once to verify and then upgrade the entry
+	// to {mtime,hash} on the next Save.
+	root := t.TempDir()
+	f := filepath.Join(root, "main.go")
+	if err := os.WriteFile(f, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cachePath := filepath.Join(root, ".cache")
+	// Pre-populate legacy-format cache.
+	legacy := `{"` + f + `":"` + sha256OfFile(t, f) + `"}`
+	if err := os.WriteFile(cachePath, []byte(legacy), 0644); err != nil {
+		t.Fatal(err)
+	}
+	c := NewCache(cachePath)
+	changed, err := c.ChangedFiles([]string{f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 0 {
+		t.Fatalf("legacy-format hash-only entry should be honored: %d changed", len(changed))
+	}
+}
+
+func sha256OfFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func TestCacheSaveFastPathSkipsRehashing(t *testing.T) {
+	// In steady state (no file changes), a second Save should not
+	// re-hash files — otherwise callers passing the full file list
+	// to Save would pay N SHA-256 reads per run and defeat the
+	// ChangedFiles fast-path. Sniff this by making files unreadable
+	// between Save invocations: if Save re-hashes, it fails to read.
+	root := t.TempDir()
+	f := filepath.Join(root, "main.go")
+	if err := os.WriteFile(f, []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	c := NewCache(filepath.Join(root, ".cache"))
+	if err := c.Save([]string{f}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(f, 0); err != nil {
+		t.Skipf("chmod 0 not honored: %v", err)
+	}
+	defer os.Chmod(f, 0644)
+	if _, err := os.ReadFile(f); err == nil {
+		t.Skip("env allows reading chmod-0 file; can't verify fast-path")
+	}
+
+	if err := c.Save([]string{f}); err != nil {
+		t.Fatalf("Save fast-path should reuse hash when mtime unchanged: %v", err)
 	}
 }
