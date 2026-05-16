@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/julianshen/gogfy/internal/schema"
@@ -79,6 +80,12 @@ func Load(rootDir string) (*Aliases, error) {
 		}
 		a.entries = append(a.entries, e)
 	}
+	// Longest prefix first so `@app/*` outranks `@/*` when both match —
+	// otherwise tsconfig's specificity rule is broken and map iteration
+	// order in Load() makes results non-deterministic across runs.
+	sort.Slice(a.entries, func(i, j int) bool {
+		return len(a.entries[i].prefix) > len(a.entries[j].prefix)
+	})
 	return a, nil
 }
 
@@ -141,11 +148,12 @@ func (a *Aliases) Apply(nodes []schema.Node, edges []schema.Edge) ([]schema.Node
 	newEdges := make([]schema.Edge, len(edges))
 	for i, e := range edges {
 		newEdges[i] = e
+		// import nodes are only ever edge TARGETS in this schema
+		// (modules `imports` an import). Rewriting Source would only
+		// fire if some other producer violated that invariant, in
+		// which case silently rewriting would mask the bug.
 		if mapped, ok := rewrite[e.Target]; ok {
 			newEdges[i].Target = mapped
-		}
-		if mapped, ok := rewrite[e.Source]; ok {
-			newEdges[i].Source = mapped
 		}
 	}
 	return newNodes, newEdges
@@ -167,8 +175,15 @@ func (a *Aliases) Resolve(spec string) (string, bool) {
 				continue
 			}
 			tail := spec[len(e.prefix)+1:]
-			// target has its own /* that gets substituted with tail.
-			tgt := strings.Replace(e.target, "*", tail, 1)
+			tgt := e.target
+			if strings.Contains(tgt, "*") {
+				tgt = strings.Replace(tgt, "*", tail, 1)
+			} else {
+				// Target lacks `*` (legal tsconfig form like
+				// `"@app/*": ["src/app"]`) — append the tail so
+				// `@app/foo/bar` doesn't collapse to `src/app`.
+				tgt = tgt + "/" + tail
+			}
 			return filepath.Join(a.baseDir, tgt), true
 		}
 		if spec == e.pattern {

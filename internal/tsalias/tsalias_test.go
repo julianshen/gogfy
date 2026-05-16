@@ -198,3 +198,87 @@ func TestApplyNoConfigPassesThroughUnchanged(t *testing.T) {
 		t.Fatal("no-config Apply must pass edges through unchanged")
 	}
 }
+
+func TestResolveLongestPrefixWinsOnOverlap(t *testing.T) {
+	// Overlapping aliases: `@/*` and `@util/*` both match `@util/foo`.
+	// TypeScript's rule is most-specific-first. Map iteration in Load
+	// would otherwise make the winner depend on Go's map randomization.
+	root := t.TempDir()
+	cfg := `{"compilerOptions":{"baseUrl":".","paths":{"@/*":["generic/*"],"@util/*":["lib/util/*"]}}}`
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := Load(root)
+	got, ok := a.Resolve("@util/foo")
+	if !ok {
+		t.Fatal("expected match")
+	}
+	want := filepath.Join(root, "lib", "util", "foo")
+	if got != want {
+		t.Fatalf("longest-prefix rule broken: got %q want %q", got, want)
+	}
+}
+
+func TestResolveWildcardTargetWithoutStarKeepsTail(t *testing.T) {
+	// `"@app/*": ["src/app"]` (target has no `*`) — the spec's tail
+	// must still be appended; otherwise `@app/foo/bar` collapses onto
+	// `src/app` with everything else.
+	root := t.TempDir()
+	cfg := `{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["src/app"]}}}`
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := Load(root)
+	got, _ := a.Resolve("@app/users/login")
+	want := filepath.Join(root, "src", "app", "users", "login")
+	if got != want {
+		t.Fatalf("starless target: got %q want %q", got, want)
+	}
+}
+
+func TestLoadPrefersTsconfigOverJsconfig(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{"compilerOptions":{"paths":{"@ts/*":["from-ts/*"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "jsconfig.json"), []byte(`{"compilerOptions":{"paths":{"@js/*":["from-js/*"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := Load(root)
+	if _, ok := a.Resolve("@ts/x"); !ok {
+		t.Error("tsconfig alias missing — jsconfig wrongly took precedence")
+	}
+	if _, ok := a.Resolve("@js/x"); ok {
+		t.Error("jsconfig alias leaked when tsconfig was present")
+	}
+}
+
+func TestLoadNoBaseUrlFallsBackToRoot(t *testing.T) {
+	// Without baseUrl, resolution should be relative to the project root.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{"compilerOptions":{"paths":{"@/*":["src/*"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := Load(root)
+	got, _ := a.Resolve("@/main")
+	want := filepath.Join(root, "src", "main")
+	if got != want {
+		t.Fatalf("no-baseUrl fallback: got %q want %q", got, want)
+	}
+}
+
+func TestLoadFirstTargetWinsForMultiTargetAlias(t *testing.T) {
+	// Document the multi-target policy: graphify-equivalent without
+	// filesystem checks — first target wins. Test pins the contract
+	// so a future "try each" refactor consciously flips it.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{"compilerOptions":{"baseUrl":".","paths":{"@app/*":["primary/*","fallback/*"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := Load(root)
+	got, _ := a.Resolve("@app/foo")
+	want := filepath.Join(root, "primary", "foo")
+	if got != want {
+		t.Fatalf("first-target should win: got %q want %q", got, want)
+	}
+}
