@@ -2,6 +2,7 @@ package detect
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -87,5 +88,71 @@ func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIsSensitiveUnderscoreVsHyphenWordBoundary(t *testing.T) {
+	// Go regexp's `\b` boundary treats `_` as a word character, so
+	// underscore-separated source filenames stay outside the credential
+	// pattern. Hyphen and dot ARE word boundaries, so hyphen-separated
+	// names hit the pattern. Pin both so a future maintainer doesn't
+	// "tighten" the regex without realizing they're flipping common
+	// idiomatic Go/Python filenames.
+	underscoreSafe := []string{
+		"token_handler.go",
+		"password_strength.go",
+		"secret_test.go",
+	}
+	for _, p := range underscoreSafe {
+		if IsSensitive(p) {
+			t.Errorf("underscore-separated %q must NOT match (\\b doesn't break inside \\w)", p)
+		}
+	}
+	hyphenAndDotMatch := []string{
+		"token-handler.json",
+		"password-strength.txt",
+	}
+	for _, p := range hyphenAndDotMatch {
+		if !IsSensitive(p) {
+			t.Errorf("hyphen-separated %q SHOULD match (\\b fires on `-`)", p)
+		}
+	}
+}
+
+func TestCollectFilesSkipsSensitiveInSubdirectory(t *testing.T) {
+	// Sensitive files in nested dirs must also be skipped without
+	// blocking descent into benign sibling subtrees.
+	root := t.TempDir()
+	mustWrite(t, root+"/keep.py", "")
+	if err := os.MkdirAll(root+"/config", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, root+"/config/.env", "")
+	mustWrite(t, root+"/config/app.py", "")
+	if err := os.MkdirAll(root+"/lib", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, root+"/lib/secrets.yaml", "")
+	mustWrite(t, root+"/lib/server.pem", "")
+
+	got, err := CollectFiles(root, []string{".py", ".yaml", ".pem", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range got {
+		if IsSensitive(p) {
+			t.Errorf("nested sensitive path leaked: %s", p)
+		}
+	}
+	// Benign nested file must survive — the directory walk must not bail
+	// out just because a sibling was sensitive.
+	hasBenignNested := false
+	for _, p := range got {
+		if filepath.Base(p) == "app.py" {
+			hasBenignNested = true
+		}
+	}
+	if !hasBenignNested {
+		t.Fatalf("benign nested file missing — walk shouldn't bail on sensitive siblings: got %v", got)
 	}
 }

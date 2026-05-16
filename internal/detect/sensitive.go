@@ -18,7 +18,13 @@ var sensitivePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(^|[\\/])\.(env|envrc)(\..*)?$`),
 	// keys & certs
 	regexp.MustCompile(`(?i)\.(pem|key|p12|pfx|cert|crt|der|p8)$`),
-	// credentials / secrets / tokens in the basename
+	// credentials / secrets / tokens. graphify-parity. Go regexp \b
+	// treats underscore as a word char, so underscore-separated
+	// filenames (token_handler.go, password_test.go) DON'T match and
+	// stay in the corpus. Hyphen and dot ARE boundaries, so
+	// "token-handler.json" or "tokens.yaml" do match — accepted as a
+	// reasonable trade-off since hyphenated credential-bearing
+	// filenames are rare in source trees.
 	regexp.MustCompile(`(?i)\b(credential|secret|passwd|password|token|private_key)s?\b`),
 	// SSH keypairs
 	regexp.MustCompile(`(id_rsa|id_dsa|id_ecdsa|id_ed25519)(\.pub)?$`),
