@@ -489,3 +489,40 @@ func TestRenderReportCorpusReclassifiesSyntheticNodes(t *testing.T) {
 		t.Fatalf("Corpus must classify even when first-seen node has empty FileType: %s", s)
 	}
 }
+
+func TestRenderReportCorpusOmitsFileTypesLineWhenAllUnknown(t *testing.T) {
+	// Files we don't classify (lock files, go.sum, Dockerfile) shouldn't
+	// produce an empty "File types: " bullet. Section header still
+	// appears because there are tracked files.
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "a", SourceFile: "go.sum"},
+			{ID: "b", SourceFile: "Dockerfile"},
+		},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	s := string(out)
+	if !contains(s, "## Corpus") {
+		t.Fatalf("Corpus header should appear when SourceFiles exist: %s", s)
+	}
+	if contains(s, "File types:") {
+		t.Fatalf("File types bullet should be omitted when no node classifies: %s", s)
+	}
+}
+
+func TestRenderReportCorpusFileTypesDeterministicOrder(t *testing.T) {
+	// Sorting is alphabetic on the FileType string value, so
+	// "code" < "document" < "image". Pin the exact substring so
+	// reports diff cleanly across runs.
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "i", SourceFile: "logo.png"},
+			{ID: "d", SourceFile: "README.md"},
+			{ID: "c", SourceFile: "main.go"},
+		},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	if !contains(string(out), "File types: 1 code, 1 document, 1 image") {
+		t.Fatalf("file types not in expected sorted order: %s", out)
+	}
+}
