@@ -280,3 +280,95 @@ func TestCallsImportScopeFallsBackToAmbiguousWhenUnimported(t *testing.T) {
 		t.Fatalf("expected 2 AMBIGUOUS fan-out edges, got %d", count)
 	}
 }
+
+func TestCallsImportScopeStaysAmbiguousOnSameBasenameAcrossDirs(t *testing.T) {
+	// Two files at /a/auth.py and /b/auth.py both stem "auth". A call
+	// site importing "auth.login" narrows to BOTH (still 2 matches) —
+	// must remain AMBIGUOUS rather than wrongly picking one.
+	nodes := []schema.Node{
+		{ID: "py:module:/proj/main.py", Label: "main.py", SourceFile: "/proj/main.py"},
+		{ID: "py:function:/proj/main.py:module:handler", Label: "handler", SourceFile: "/proj/main.py"},
+		{ID: "py:import:auth.login", Label: "auth.login"},
+		{ID: "py:function:/proj/a/auth.py:module:login", Label: "login", SourceFile: "/proj/a/auth.py"},
+		{ID: "py:function:/proj/b/auth.py:module:login", Label: "login", SourceFile: "/proj/b/auth.py"},
+		{ID: "py:call:login", Label: "login"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:module:/proj/main.py", Target: "py:import:auth.login", Relation: "imports"},
+		{Source: "py:function:/proj/main.py:module:handler", Target: "py:call:login", Relation: "calls"},
+	}
+	_, gotE := Calls(nodes, edges)
+	callCount := 0
+	for _, e := range gotE {
+		if e.Relation == "calls" {
+			callCount++
+			if e.Confidence != schema.Ambiguous {
+				t.Errorf("same-basename collision should stay AMBIGUOUS, got %v", e.Confidence)
+			}
+		}
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 AMBIGUOUS fan-out edges, got %d", callCount)
+	}
+}
+
+func TestCallsImportScopeMethodCaller(t *testing.T) {
+	// callerFile accepts both kind=function and kind=method. Pin that
+	// a method caller (e.g., `def Handler.run(self): login()`) still
+	// gets its import scope honored.
+	nodes := []schema.Node{
+		{ID: "py:module:/proj/main.py", Label: "main.py", SourceFile: "/proj/main.py"},
+		{ID: "py:method:/proj/main.py:Handler:run", Label: "run", SourceFile: "/proj/main.py"},
+		{ID: "py:import:auth.login", Label: "auth.login"},
+		{ID: "py:function:/proj/auth.py:module:login", Label: "login", SourceFile: "/proj/auth.py"},
+		{ID: "py:function:/proj/users.py:module:login", Label: "login", SourceFile: "/proj/users.py"},
+		{ID: "py:call:login", Label: "login"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:module:/proj/main.py", Target: "py:import:auth.login", Relation: "imports"},
+		{Source: "py:method:/proj/main.py:Handler:run", Target: "py:call:login", Relation: "calls"},
+	}
+	_, gotE := Calls(nodes, edges)
+	for _, e := range gotE {
+		if e.Relation != "calls" {
+			continue
+		}
+		if e.Target != "py:function:/proj/auth.py:module:login" {
+			t.Errorf("method caller's import scope ignored: %s", e.Target)
+		}
+		if e.Confidence != schema.Inferred {
+			t.Errorf("expected INFERRED, got %v", e.Confidence)
+		}
+	}
+}
+
+func TestCallsImportScopeNonFunctionCallerFallsBack(t *testing.T) {
+	// If a call edge's Source isn't a function/method node, callerFile
+	// returns "" and narrowing is skipped — must NOT panic or mis-key
+	// the scope as scope[""]. Original AMBIGUOUS fan-out preserved.
+	nodes := []schema.Node{
+		{ID: "py:module:/proj/main.py", Label: "main.py", SourceFile: "/proj/main.py"},
+		{ID: "py:import:auth.login", Label: "auth.login"},
+		{ID: "py:function:/proj/auth.py:module:login", Label: "login", SourceFile: "/proj/auth.py"},
+		{ID: "py:function:/proj/users.py:module:login", Label: "login", SourceFile: "/proj/users.py"},
+		{ID: "py:call:login", Label: "login"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:module:/proj/main.py", Target: "py:import:auth.login", Relation: "imports"},
+		// Synthetic call from the module node itself (top-level call).
+		{Source: "py:module:/proj/main.py", Target: "py:call:login", Relation: "calls"},
+	}
+	_, gotE := Calls(nodes, edges)
+	callCount := 0
+	for _, e := range gotE {
+		if e.Relation == "calls" {
+			callCount++
+			if e.Confidence != schema.Ambiguous {
+				t.Errorf("non-function caller should fall back to AMBIGUOUS, got %v", e.Confidence)
+			}
+		}
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 fan-out edges (no narrowing), got %d", callCount)
+	}
+}

@@ -111,12 +111,16 @@ func Calls(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Ed
 }
 
 // buildImportScope returns filepath → set of bare names the file's
-// `imports` edges bring into scope. Extractors emit one import edge
-// per imported name with target shaped as either the module ("auth")
-// or "module.name" ("auth.login"); the trailing dotted segment is the
-// name a call expression would reference. The top-level dotted root is
-// also tracked so an `import auth` binding lets `auth.login(...)` calls
-// scope-match.
+// `imports` edges bring into scope. Extractors emit one import edge per
+// imported name with target shaped as either the module ("auth") or
+// "module.name" ("auth.login"); the trailing dotted segment is the name
+// a call expression would reference (extractors normalize `auth.foo()`
+// to a bare `foo` callee, so we don't track dotted forms).
+//
+// Known limitation: aliased imports (`from M import N as A; A()`) bind
+// the alias `A` at the call site, but extractors record only the
+// original name `N` in the import edge — the called name `A` therefore
+// won't match the scope, and narrowing is skipped.
 func buildImportScope(edges []schema.Edge) map[string]map[string]struct{} {
 	out := map[string]map[string]struct{}{}
 	for _, e := range edges {
@@ -127,7 +131,6 @@ func buildImportScope(edges []schema.Edge) map[string]map[string]struct{} {
 		if !ok || kind != "module" {
 			continue
 		}
-		file := key
 		_, tk, tkey, ok := schema.ParseLangID(e.Target)
 		if !ok || tk != "import" {
 			continue
@@ -139,12 +142,15 @@ func buildImportScope(edges []schema.Edge) map[string]map[string]struct{} {
 		if bare == "" {
 			continue
 		}
-		if out[file] == nil {
-			out[file] = map[string]struct{}{}
+		if out[key] == nil {
+			out[key] = map[string]struct{}{}
 		}
-		out[file][bare] = struct{}{}
-		if i := strings.IndexByte(tkey, '.'); i > 0 && tkey[:i] != bare {
-			out[file][tkey[:i]] = struct{}{}
+		// Two entries per import: the bare name gates `imports[calledName]`
+		// so call narrowing fires, and the dotted root lets the candidate
+		// file-stem match (auth.py for `from auth import login`).
+		out[key][bare] = struct{}{}
+		if i := strings.IndexByte(tkey, '.'); i > 0 {
+			out[key][tkey[:i]] = struct{}{}
 		}
 	}
 	return out
