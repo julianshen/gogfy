@@ -798,7 +798,10 @@ func runClusterOnly(out string, directed bool, opts runOptions) error {
 		return fmt.Errorf("cluster-only: cluster: %w", err)
 	}
 	reportData := analyze.NewAnalyzer().Analyze(clustered, g.Edges)
-	reportBytes, err := report.Render(reportData)
+	reportBytes, err := report.RenderWithOptions(reportData, report.Options{
+		Nodes: clustered,
+		Edges: g.Edges,
+	})
 	if err != nil {
 		return fmt.Errorf("cluster-only: report: %w", err)
 	}
@@ -959,7 +962,10 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	analyzer := analyze.NewAnalyzer()
 	reportData := analyzer.Analyze(clusteredNodes, edges)
 
-	reportBytes, err := report.Render(reportData)
+	reportBytes, err := report.RenderWithOptions(reportData, report.Options{
+		Nodes: clusteredNodes,
+		Edges: edges,
+	})
 	if err != nil {
 		return fmt.Errorf("report: %w", err)
 	}
@@ -1076,7 +1082,10 @@ func reportCommand(path string, w io.Writer) error {
 		return err
 	}
 	r := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
-	out, err := report.Render(r)
+	out, err := report.RenderWithOptions(r, report.Options{
+		Nodes: g.Nodes,
+		Edges: g.Edges,
+	})
 	if err != nil {
 		return fmt.Errorf("report: %w", err)
 	}
