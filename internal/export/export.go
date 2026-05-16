@@ -81,10 +81,16 @@ func ExportHTML(g GraphExport, opts HTMLOptions) ([]byte, error) {
 		g.Edges = []schema.Edge{}
 	}
 	maxNodes := opts.MaxNodes
-	if maxNodes <= 0 {
+	switch {
+	case maxNodes < 0:
+		// Negative is the opt-out sentinel — callers who want the full
+		// fidelity even on huge graphs (offline analysis, CI artifact
+		// captures) can pass -1 and accept the renderer slowdown.
+		maxNodes = 0
+	case maxNodes == 0:
 		maxNodes = defaultMaxNodes
 	}
-	if len(g.Nodes) > maxNodes {
+	if maxNodes > 0 && len(g.Nodes) > maxNodes {
 		g = aggregateByCommunity(g)
 	}
 	payload, err := json.Marshal(g)
@@ -103,27 +109,27 @@ func ExportHTML(g GraphExport, opts HTMLOptions) ([]byte, error) {
 // aggregateByCommunity collapses each community into a single node and
 // each pair of cross-community edges into a single weighted meta-edge.
 // Intra-community edges are dropped (they no longer have endpoints in
-// the meta-graph). Nodes without a Community fold into an "_" bucket
-// so they still appear in the viz.
+// the meta-graph) — a 1000-edge community renders as one edgeless
+// meta-node; full detail is preserved in the wiki + Obsidian artifacts.
+// Nodes without a Community keep an empty community key internally so
+// a user-defined community literally named "_" doesn't collide.
 func aggregateByCommunity(g GraphExport) GraphExport {
 	type pair struct{ a, b string }
 
 	nodeCommunity := make(map[string]string, len(g.Nodes))
 	memberCount := map[string]int{}
 	for _, n := range g.Nodes {
-		c := n.Community
-		if c == "" {
-			c = "_"
-		}
-		nodeCommunity[n.ID] = c
-		memberCount[c]++
+		nodeCommunity[n.ID] = n.Community // empty string for unassigned
+		memberCount[n.Community]++
 	}
 
 	crossCount := map[pair]int{}
 	for _, e := range g.Edges {
-		cu := nodeCommunity[e.Source]
-		cv := nodeCommunity[e.Target]
-		if cu == "" || cv == "" || cu == cv {
+		cu, oku := nodeCommunity[e.Source]
+		cv, okv := nodeCommunity[e.Target]
+		if !oku || !okv || cu == cv {
+			// Same community (including both-unassigned: cu == cv == "")
+			// is intra; dangling-ref edges (!ok) have no place to land.
 			continue
 		}
 		if cu > cv {
@@ -146,11 +152,13 @@ func aggregateByCommunity(g GraphExport) GraphExport {
 	}
 	for _, c := range cids {
 		label := "Community " + c
-		if c == "_" {
+		id := "community:" + c
+		if c == "" {
 			label = "(unassigned)"
+			id = "community:__unassigned__"
 		}
 		out.Nodes = append(out.Nodes, schema.Node{
-			ID:        "community:" + c,
+			ID:        id,
 			Label:     label,
 			Community: c,
 		})
@@ -165,12 +173,22 @@ func aggregateByCommunity(g GraphExport) GraphExport {
 		}
 		return keys[i].b < keys[j].b
 	})
+	idFor := func(c string) string {
+		if c == "" {
+			return "community:__unassigned__"
+		}
+		return "community:" + c
+	}
 	for _, k := range keys {
 		w := crossCount[k]
 		out.Edges = append(out.Edges, schema.Edge{
-			Source:     "community:" + k.a,
-			Target:     "community:" + k.b,
-			Relation:   fmt.Sprintf("%d cross-community edges", w),
+			Source: idFor(k.a),
+			Target: idFor(k.b),
+			Relation: fmt.Sprintf("%d cross-community edges", w),
+			// Meta-edges aggregate multiple primary edges — they're not
+			// observed directly in source, so INFERRED is the closest
+			// fit in the existing confidence enum (no "aggregated"
+			// value exists today).
 			Confidence: schema.Inferred,
 		})
 	}
