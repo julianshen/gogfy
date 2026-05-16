@@ -647,3 +647,84 @@ func TestSurprisingLinksPeripheralToHubBonus(t *testing.T) {
 		t.Fatalf("peripheral→hub edge should rank first, got %s->%s", first.Source, first.Target)
 	}
 }
+
+func TestSurpriseScoreSemanticallySimilarMultiplier(t *testing.T) {
+	// Test the ×1.5 multiplier directly on surpriseScore so we pin the
+	// numeric output, not just ranking. Score before multiplier: 1 (EXTRACTED)
+	// + 2 (cross-file-type) + 2 (cross-repo) = 5 → ×1.5 truncated = 7.
+	src := schema.Node{ID: "py:function:/a/x.py:m:a", FileType: schema.FileTypeCode, SourceFile: "a/x.py", Community: "X"}
+	dst := schema.Node{ID: "py:function:/b/y.py:m:b", FileType: schema.FileTypeDocument, SourceFile: "b/y.md", Community: "Y"}
+	semantic := schema.Edge{Source: src.ID, Target: dst.ID, Relation: "semantically_similar_to", Confidence: schema.Extracted}
+	other := schema.Edge{Source: src.ID, Target: dst.ID, Relation: "calls", Confidence: schema.Extracted}
+	semScore := surpriseScore(semantic, src, dst, 2, 2)
+	otherScore := surpriseScore(other, src, dst, 2, 2)
+	if semScore <= otherScore {
+		t.Fatalf("semantically_similar_to should boost score; semantic=%d, other=%d", semScore, otherScore)
+	}
+	// Pin the exact value so a regression on the truncation formula fails.
+	if semScore != 7 {
+		t.Fatalf("semantically_similar_to score: got %d, want 7 (1+2+2=5; 5*3/2=7)", semScore)
+	}
+}
+
+func TestSurpriseScoreCombinedBonusesAdditivity(t *testing.T) {
+	// One edge hitting confidence + cross-file-type + cross-repo +
+	// peripheral→hub. Pin the exact sum so a future refactor that
+	// double-counts or drops one component fails the test.
+	src := schema.Node{ID: "py:function:/a/x.py:m:leaf", FileType: schema.FileTypeCode, SourceFile: "a/x.py", Community: "X"}
+	dst := schema.Node{ID: "py:function:/b/y.py:m:hub", FileType: schema.FileTypeDocument, SourceFile: "b/y.md", Community: "Y"}
+	e := schema.Edge{Source: src.ID, Target: dst.ID, Relation: "calls", Confidence: schema.Ambiguous}
+	// du=1 (leaf), dv=10 (hub) → peripheral→hub fires
+	got := surpriseScore(e, src, dst, 1, 10)
+	// 3 (AMBIGUOUS) + 2 (cross-file-type) + 2 (cross-repo) + 1 (peripheral→hub) = 8
+	if got != 8 {
+		t.Fatalf("combined bonuses: got %d, want 8 (3+2+2+1)", got)
+	}
+}
+
+func TestSurpriseScoreNoCrossRepoBonusWhenOneSourceFileEmpty(t *testing.T) {
+	// Regression: previously topLevelDir("") == "" and topLevelDir("a/x")
+	// == "a", so the comparison `"a" != ""` wrongly fired +2 for an edge
+	// whose endpoints had asymmetric SourceFile classification.
+	src := schema.Node{ID: "x", SourceFile: "a/x.go", FileType: schema.FileTypeCode, Community: "X"}
+	dst := schema.Node{ID: "y", SourceFile: "", FileType: schema.FileTypeCode, Community: "Y"}
+	e := schema.Edge{Source: "x", Target: "y", Relation: "calls", Confidence: schema.Extracted}
+	got := surpriseScore(e, src, dst, 2, 2)
+	// 1 (EXTRACTED) + 0 (FileTypes equal so no cross-file) + 0 (no cross-repo gate) = 1
+	if got != 1 {
+		t.Fatalf("missing SourceFile must not trigger cross-repo: got %d, want 1", got)
+	}
+}
+
+func TestSurpriseScoreNoCrossFileTypeBonusWhenOneFileTypeEmpty(t *testing.T) {
+	src := schema.Node{ID: "x", FileType: schema.FileTypeCode, SourceFile: "a/x.go", Community: "X"}
+	dst := schema.Node{ID: "y", FileType: "", SourceFile: "b/y.go", Community: "Y"}
+	e := schema.Edge{Source: "x", Target: "y", Relation: "calls", Confidence: schema.Extracted}
+	// 1 (EXTRACTED) + 0 (FileType missing on dst) + 2 (cross-repo) = 3
+	if got := surpriseScore(e, src, dst, 2, 2); got != 3 {
+		t.Fatalf("missing FileType must skip cross-file-type bonus: got %d, want 3", got)
+	}
+}
+
+func TestSurprisingLinksTieBreakIsInputOrder(t *testing.T) {
+	// Two edges with identical scoring inputs: composite must be equal,
+	// tieScore must be equal, and the final tiebreaker (input idx)
+	// must preserve the original ordering for byte-stable reports.
+	nodes := []schema.Node{
+		{ID: "a", Community: "X", SourceFile: "x/1.go", FileType: schema.FileTypeCode},
+		{ID: "b", Community: "Y", SourceFile: "x/2.go", FileType: schema.FileTypeCode},
+		{ID: "c", Community: "X", SourceFile: "x/3.go", FileType: schema.FileTypeCode},
+		{ID: "d", Community: "Y", SourceFile: "x/4.go", FileType: schema.FileTypeCode},
+	}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b", Relation: "calls", Confidence: schema.Extracted},
+		{Source: "c", Target: "d", Relation: "calls", Confidence: schema.Extracted},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if len(r.SurprisingLinks) != 2 {
+		t.Fatalf("expected 2 links, got %d", len(r.SurprisingLinks))
+	}
+	if r.SurprisingLinks[0].Source != "a" || r.SurprisingLinks[1].Source != "c" {
+		t.Fatalf("tie-break order broken: got %+v", r.SurprisingLinks)
+	}
+}

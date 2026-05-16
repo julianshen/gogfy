@@ -195,7 +195,11 @@ func surpriseScore(e schema.Edge, src, dst schema.Node, du, dv int) int {
 	if src.FileType != "" && dst.FileType != "" && src.FileType != dst.FileType {
 		score += 2
 	}
-	if topLevelDir(src.SourceFile) != topLevelDir(dst.SourceFile) {
+	// Only award cross-repo when BOTH paths are known — otherwise an
+	// extractor that left SourceFile blank on one side would
+	// systematically inflate scores against nodes that happen to have
+	// classification gaps.
+	if src.SourceFile != "" && dst.SourceFile != "" && topLevelDir(src.SourceFile) != topLevelDir(dst.SourceFile) {
 		score += 2
 	}
 
