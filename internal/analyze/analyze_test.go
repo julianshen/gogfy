@@ -524,3 +524,126 @@ func TestLowCohesionMinMembersGate(t *testing.T) {
 		}
 	}
 }
+
+func TestSurprisingLinksCrossFileTypeRanksHigher(t *testing.T) {
+	// Two cross-community edges with same degree shape, but one bridges
+	// code↔document (notable) and the other stays within code↔code.
+	// Composite scoring must put the cross-file-type edge first.
+	nodes := []schema.Node{
+		{ID: "code1", Community: "A", FileType: schema.FileTypeCode, SourceFile: "a/main.go"},
+		{ID: "code2", Community: "B", FileType: schema.FileTypeCode, SourceFile: "b/util.go"},
+		{ID: "code3", Community: "A", FileType: schema.FileTypeCode, SourceFile: "a/lib.go"},
+		{ID: "doc1", Community: "B", FileType: schema.FileTypeDocument, SourceFile: "b/README.md"},
+	}
+	edges := []schema.Edge{
+		{Source: "code1", Target: "code2", Relation: "calls", Confidence: schema.Extracted}, // code↔code
+		{Source: "code3", Target: "doc1", Relation: "mentions", Confidence: schema.Extracted}, // code↔doc
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if len(r.SurprisingLinks) < 2 {
+		t.Fatalf("expected 2 surprising links, got %d", len(r.SurprisingLinks))
+	}
+	first := r.SurprisingLinks[0]
+	if !(first.Source == "code3" && first.Target == "doc1") {
+		t.Fatalf("cross file-type edge should rank first, got %s->%s", first.Source, first.Target)
+	}
+}
+
+func TestSurprisingLinksCrossRepoRanksHigher(t *testing.T) {
+	// Top-level dir is the repo proxy. Edge bridging repos a/ ↔ b/ is
+	// more surprising than one inside a/.
+	nodes := []schema.Node{
+		{ID: "a1", Community: "X", SourceFile: "a/foo.go", FileType: schema.FileTypeCode},
+		{ID: "a2", Community: "Y", SourceFile: "a/bar.go", FileType: schema.FileTypeCode},
+		{ID: "a3", Community: "X", SourceFile: "a/baz.go", FileType: schema.FileTypeCode},
+		{ID: "b1", Community: "Y", SourceFile: "b/qux.go", FileType: schema.FileTypeCode},
+	}
+	edges := []schema.Edge{
+		{Source: "a1", Target: "a2", Relation: "calls", Confidence: schema.Extracted}, // intra-repo
+		{Source: "a3", Target: "b1", Relation: "calls", Confidence: schema.Extracted}, // cross-repo
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if r.SurprisingLinks[0].Source != "a3" {
+		t.Fatalf("cross-repo edge should rank first, got %+v", r.SurprisingLinks)
+	}
+}
+
+func TestSurprisingLinksAmbiguousRanksHigherThanExtracted(t *testing.T) {
+	// Same topology, only confidence differs.
+	nodes := []schema.Node{
+		{ID: "a", Community: "X", SourceFile: "x.go", FileType: schema.FileTypeCode},
+		{ID: "b", Community: "Y", SourceFile: "y.go", FileType: schema.FileTypeCode},
+		{ID: "c", Community: "X", SourceFile: "z.go", FileType: schema.FileTypeCode},
+		{ID: "d", Community: "Y", SourceFile: "w.go", FileType: schema.FileTypeCode},
+	}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b", Relation: "calls", Confidence: schema.Extracted},
+		{Source: "c", Target: "d", Relation: "calls", Confidence: schema.Ambiguous},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	first := r.SurprisingLinks[0]
+	if !(first.Source == "c" && first.Confidence == schema.Ambiguous) {
+		t.Fatalf("AMBIGUOUS should rank first, got %+v", first)
+	}
+}
+
+func TestSurprisingLinksCrossLanguageInferredCallsDowngraded(t *testing.T) {
+	// Cross-language INFERRED `calls` edges are usually resolver
+	// pollution. The confidence bonus is zeroed so they don't dominate.
+	// LangIDs on both endpoints so the lang prefix is parsable.
+	nodes := []schema.Node{
+		{ID: "py:function:/main.py:m:f1", Community: "X", SourceFile: "main.py", FileType: schema.FileTypeCode},
+		{ID: "go:function:/main.go:m:f2", Community: "Y", SourceFile: "main.go", FileType: schema.FileTypeCode},
+		{ID: "go:function:/a.go:m:f3", Community: "X", SourceFile: "a.go", FileType: schema.FileTypeCode},
+		{ID: "go:function:/b.go:m:f4", Community: "Y", SourceFile: "b.go", FileType: schema.FileTypeCode},
+	}
+	edges := []schema.Edge{
+		{Source: "py:function:/main.py:m:f1", Target: "go:function:/main.go:m:f2", Relation: "calls", Confidence: schema.Inferred},
+		{Source: "go:function:/a.go:m:f3", Target: "go:function:/b.go:m:f4", Relation: "uses", Confidence: schema.Extracted},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if r.SurprisingLinks[0].Confidence == schema.Inferred && r.SurprisingLinks[0].Relation == "calls" {
+		t.Fatalf("cross-language INFERRED calls should be downgraded, not surfaced first: %+v", r.SurprisingLinks)
+	}
+}
+
+func TestSurprisingLinksPeripheralToHubBonus(t *testing.T) {
+	// Hub has degree 5 (4 within community + 1 cross). Leaf has degree 1
+	// (just the cross-edge). The peripheral→hub bonus fires.
+	nodes := []schema.Node{
+		{ID: "hub", Community: "X", SourceFile: "hub.go", FileType: schema.FileTypeCode},
+		{ID: "leaf", Community: "Y", SourceFile: "leaf.go", FileType: schema.FileTypeCode},
+		// fillers to inflate hub's degree
+		{ID: "f1", Community: "X", SourceFile: "f1.go", FileType: schema.FileTypeCode},
+		{ID: "f2", Community: "X", SourceFile: "f2.go", FileType: schema.FileTypeCode},
+		{ID: "f3", Community: "X", SourceFile: "f3.go", FileType: schema.FileTypeCode},
+		{ID: "f4", Community: "X", SourceFile: "f4.go", FileType: schema.FileTypeCode},
+		// neutral cross-community pair (high-degree on both sides, no peripheral)
+		{ID: "x", Community: "X", SourceFile: "x.go", FileType: schema.FileTypeCode},
+		{ID: "y", Community: "Y", SourceFile: "y.go", FileType: schema.FileTypeCode},
+		{ID: "x2", Community: "X", SourceFile: "x2.go", FileType: schema.FileTypeCode},
+		{ID: "y2", Community: "Y", SourceFile: "y2.go", FileType: schema.FileTypeCode},
+		{ID: "x3", Community: "X", SourceFile: "x3.go", FileType: schema.FileTypeCode},
+		{ID: "y3", Community: "Y", SourceFile: "y3.go", FileType: schema.FileTypeCode},
+	}
+	edges := []schema.Edge{
+		// hub's intra-community edges (degree 4 on hub)
+		{Source: "hub", Target: "f1"}, {Source: "hub", Target: "f2"},
+		{Source: "hub", Target: "f3"}, {Source: "hub", Target: "f4"},
+		// cross-community: peripheral→hub
+		{Source: "leaf", Target: "hub", Relation: "calls", Confidence: schema.Extracted},
+		// x has intra-community fillers to bring degree up
+		{Source: "x", Target: "x2"}, {Source: "x", Target: "x3"},
+		{Source: "y", Target: "y2"}, {Source: "y", Target: "y3"},
+		{Source: "x", Target: "y", Relation: "calls", Confidence: schema.Extracted},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if len(r.SurprisingLinks) < 1 {
+		t.Fatal("expected surprising links")
+	}
+	first := r.SurprisingLinks[0]
+	// The peripheral→hub edge should rank above the symmetric x↔y edge.
+	if !((first.Source == "leaf" && first.Target == "hub") || (first.Source == "hub" && first.Target == "leaf")) {
+		t.Fatalf("peripheral→hub edge should rank first, got %s->%s", first.Source, first.Target)
+	}
+}

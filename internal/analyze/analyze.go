@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/gogfy/internal/schema"
 )
@@ -116,14 +117,27 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 }
 
 // rankSurprising returns cross-community edges ordered by descending
-// "surprise score" — the inverse of the product of the endpoints' log-degrees.
-// Edges between low-degree nodes (leaves) outrank edges involving hubs, so a
-// capped section retains the most genuinely unexpected connections.
+// composite surprise score. Components (graphify-parity):
+//
+//   - Confidence bonus: AMBIGUOUS=3, INFERRED=2, EXTRACTED=1. Cross-
+//     language INFERRED `calls` is zeroed — usually resolver pollution,
+//     not real surprise.
+//   - Cross file-type: +2 (code↔doc/paper/image is non-obvious).
+//   - Cross-repo: +2 (top-level dir differs).
+//   - Cross-community: +1 (Leiden says these are structurally distant).
+//   - Semantic similarity (relation == "semantically_similar_to"):
+//     score *= 1.5 (truncated).
+//   - Peripheral→hub: +1 when min(degree) ≤ 2 and max(degree) ≥ 5.
+//
+// Ties broken by the legacy inverse-log-degree score (so within a
+// composite tier, leaf-to-leaf edges still outrank hub-touching ones)
+// then by input-edge index for byte-stable output.
 func rankSurprising(edges []schema.Edge, nodeMap map[string]schema.Node, degree map[string]int) []schema.Edge {
 	type scored struct {
-		edge  schema.Edge
-		score float64
-		idx   int
+		edge      schema.Edge
+		composite int
+		tieScore  float64
+		idx       int
 	}
 	ranked := make([]scored, 0, len(edges))
 	for i, e := range edges {
@@ -134,13 +148,21 @@ func rankSurprising(edges []schema.Edge, nodeMap map[string]schema.Node, degree 
 		}
 		ds := math.Log2(float64(degree[e.Source]) + 2)
 		dt := math.Log2(float64(degree[e.Target]) + 2)
-		ranked = append(ranked, scored{edge: e, score: 1.0 / (ds * dt), idx: i})
+		du, dv := degree[e.Source], degree[e.Target]
+		ranked = append(ranked, scored{
+			edge:      e,
+			composite: surpriseScore(e, src, dst, du, dv),
+			tieScore:  1.0 / (ds * dt),
+			idx:       i,
+		})
 	}
 	sort.Slice(ranked, func(i, j int) bool {
-		if ranked[i].score != ranked[j].score {
-			return ranked[i].score > ranked[j].score
+		if ranked[i].composite != ranked[j].composite {
+			return ranked[i].composite > ranked[j].composite
 		}
-		// Stable secondary order: original edge order, so output is deterministic.
+		if ranked[i].tieScore != ranked[j].tieScore {
+			return ranked[i].tieScore > ranked[j].tieScore
+		}
 		return ranked[i].idx < ranked[j].idx
 	})
 	out := make([]schema.Edge, len(ranked))
@@ -148,6 +170,64 @@ func rankSurprising(edges []schema.Edge, nodeMap map[string]schema.Node, degree 
 		out[i] = r.edge
 	}
 	return out
+}
+
+// surpriseScore computes the integer composite. Caller has already
+// verified src.Community != dst.Community, so a constant cross-community
+// offset isn't included — it'd shift every score equally and not affect
+// ranking.
+func surpriseScore(e schema.Edge, src, dst schema.Node, du, dv int) int {
+	score := 0
+	confBonus := 1
+	switch e.Confidence {
+	case schema.Ambiguous:
+		confBonus = 3
+	case schema.Inferred:
+		confBonus = 2
+	}
+	// Cross-language INFERRED `calls` are usually resolver pollution
+	// — don't promote likely false positives.
+	if e.Confidence == schema.Inferred && e.Relation == "calls" && crossLanguage(src.ID, dst.ID) {
+		confBonus = 0
+	}
+	score += confBonus
+
+	if src.FileType != "" && dst.FileType != "" && src.FileType != dst.FileType {
+		score += 2
+	}
+	if topLevelDir(src.SourceFile) != topLevelDir(dst.SourceFile) {
+		score += 2
+	}
+
+	if e.Relation == "semantically_similar_to" {
+		score = (score * 3) / 2
+	}
+
+	if min(du, dv) <= 2 && max(du, dv) >= 5 {
+		score++
+	}
+	return score
+}
+
+// crossLanguage compares only the colon-separated lang prefix of two
+// LangIDs. Returns false when either side isn't a LangID — external
+// nodes (no lang prefix) are conservatively not flagged.
+func crossLanguage(a, b string) bool {
+	ai := strings.IndexByte(a, ':')
+	bi := strings.IndexByte(b, ':')
+	if ai < 0 || bi < 0 {
+		return false
+	}
+	return a[:ai] != b[:bi]
+}
+
+// topLevelDir returns the first path component, used as the cross-repo
+// proxy (a monorepo with `a/` and `b/` top-levels treats those as
+// distinct subrepos). Empty inputs return "" so two nodes both lacking
+// SourceFile aren't credited a cross-repo bonus.
+func topLevelDir(path string) string {
+	head, _, _ := strings.Cut(path, "/")
+	return head
 }
 
 // buildQuestions emits up to a small per-category budget so a graph with
