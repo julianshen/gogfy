@@ -68,7 +68,10 @@ func Betweenness(nodes []schema.Node, edges []schema.Edge) map[string]float64 {
 		}
 
 		delta := make(map[string]float64, len(nodes))
-		// Reverse-BFS dependency accumulation.
+		// Reverse-BFS dependency accumulation. Each predecessor v of w
+		// inherits its share sigma[v]/sigma[w] of the through-paths
+		// reaching w, plus a +1 contribution from the pair (s, w)
+		// itself if w is the endpoint.
 		for i := len(stack) - 1; i >= 0; i-- {
 			w := stack[i]
 			for _, v := range pred[w] {

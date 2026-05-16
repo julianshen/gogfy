@@ -120,3 +120,28 @@ func TestBetweennessDanglingEdgeIgnored(t *testing.T) {
 		t.Fatalf("ghost node should not appear in result: %+v", cb)
 	}
 }
+
+func TestBetweennessLineGraphExactScores(t *testing.T) {
+	// Pin the exact (halved) scores on a known shape. A-B-C-D-E:
+	// node C is on the shortest path for {A,B}↔{D,E} pairs.
+	// Halved un-normalized: cb[C] = (2·2)/2 = 2; analytically 3 for B.
+	// Actually for a 5-node line the standard result is:
+	//   cb[A]=cb[E]=0, cb[B]=cb[D]=3.0, cb[C]=4.0 (un-halved)
+	//   halved:  cb[B]=cb[D]=1.5, cb[C]=2.0
+	// Computing on paper: paths through B: {A,C}, {A,D}, {A,E} → 3.
+	// Halved: 1.5. Pin that exactly so the /2 step can't silently drop.
+	nodes := []schema.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b"},
+		{Source: "b", Target: "c"},
+		{Source: "c", Target: "d"},
+		{Source: "d", Target: "e"},
+	}
+	cb := Betweenness(nodes, edges)
+	if math.Abs(cb["b"]-3.0) > 1e-9 {
+		t.Errorf("cb[b] = %f, want 3.0 (halved)", cb["b"])
+	}
+	if math.Abs(cb["c"]-4.0) > 1e-9 {
+		t.Errorf("cb[c] = %f, want 4.0 (halved)", cb["c"])
+	}
+}
