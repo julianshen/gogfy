@@ -97,7 +97,7 @@ func TestToolsListEnumeratesAllTools(t *testing.T) {
 	for _, tool := range tools {
 		names[tool.(map[string]any)["name"].(string)] = true
 	}
-	for _, want := range []string{"gogfy_god_nodes", "gogfy_explain", "gogfy_query", "gogfy_get_neighbors", "gogfy_graph_stats"} {
+	for _, want := range []string{"gogfy_god_nodes", "gogfy_explain", "gogfy_query", "gogfy_get_neighbors", "gogfy_graph_stats", "gogfy_get_community"} {
 		if !names[want] {
 			t.Fatalf("missing tool %q in %v", want, names)
 		}
@@ -536,5 +536,43 @@ func TestToolCallGetNeighborsMissingID(t *testing.T) {
 	result := resp[0]["result"].(map[string]any)
 	if !result["isError"].(bool) {
 		t.Fatal("missing id should be an error")
+	}
+}
+
+func TestToolCallGetCommunityByID(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_get_community",
+		"arguments": map[string]any{"id": "core"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	for _, want := range []string{"Community core", "3 members", "foo", "bar", "hub"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q in get_community output, got %q", want, text)
+		}
+	}
+}
+
+func TestToolCallGetCommunityByMemberLabel(t *testing.T) {
+	// Passing a node label/ID should also resolve to its community.
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_get_community",
+		"arguments": map[string]any{"id": "foo"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "Community core") {
+		t.Fatalf("member→community resolution failed: %s", text)
+	}
+}
+
+func TestToolCallGetCommunityNotFound(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_get_community",
+		"arguments": map[string]any{"id": "no-such-thing"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	if !result["isError"].(bool) {
+		t.Fatal("unknown community should return an error")
 	}
 }

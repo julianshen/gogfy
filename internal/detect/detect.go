@@ -127,35 +127,88 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 	return files, nil
 }
 
-// loadIgnoreMatcher parses .graphifyignore at root with full gitignore
-// semantics. Returns the matcher, whether any `!` negation patterns are
-// present (so the walker can decide whether SkipDir is safe), and any
-// I/O error. Both first returns are nil if the file is absent.
+// loadIgnoreMatcher parses .graphifyignore with gitignore semantics,
+// layering files from the VCS root (.git/.hg/.svn ancestor) down to
+// the scan root. Patterns nearer to scan root come last so gitignore's
+// last-match-wins gives them precedence — matches git's own behavior
+// where a child .gitignore overrides an ancestor's rule.
+//
+// Returns the matcher, whether any `!` negation patterns are present
+// (so the walker can decide whether SkipDir is safe), and any I/O
+// error. All three returns are zero if no files are found.
 func loadIgnoreMatcher(root string) (*gitignore.GitIgnore, bool, error) {
-	f, err := os.Open(filepath.Join(root, ".graphifyignore"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	defer f.Close()
-
+	chain := ignoreDirChain(root)
 	var lines []string
 	hasNegations := false
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	for _, dir := range chain {
+		f, err := os.Open(filepath.Join(dir, ".graphifyignore"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, false, err
 		}
-		if strings.HasPrefix(line, "!") {
-			hasNegations = true
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if strings.HasPrefix(line, "!") {
+				hasNegations = true
+			}
+			lines = append(lines, line)
 		}
-		lines = append(lines, line)
+		scanErr := scanner.Err()
+		f.Close()
+		if scanErr != nil {
+			return nil, false, scanErr
+		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, false, err
+	if len(lines) == 0 {
+		return nil, false, nil
 	}
 	return gitignore.CompileIgnoreLines(lines...), hasNegations, nil
+}
+
+// ignoreDirChain returns the ordered list of directories whose
+// .graphifyignore files contribute to the matcher: VCS root first,
+// scanRoot last. The scan root's patterns win on conflict because
+// gitignore is last-match-wins and we append in walk order.
+//
+// VCS marker recognition mirrors git/hg/svn so monorepos with nested
+// `.git/` worktrees still terminate at the right boundary.
+func ignoreDirChain(scanRoot string) []string {
+	abs, err := filepath.Abs(scanRoot)
+	if err != nil {
+		return []string{scanRoot}
+	}
+	dirs := []string{abs}
+	cur := abs
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		dirs = append(dirs, parent)
+		if isVCSRoot(parent) {
+			break
+		}
+		cur = parent
+	}
+	// Reverse so closest-to-VCS comes first; scanRoot is last so its
+	// patterns win on conflict via gitignore's last-match-wins rule.
+	for i, j := 0, len(dirs)-1; i < j; i, j = i+1, j-1 {
+		dirs[i], dirs[j] = dirs[j], dirs[i]
+	}
+	return dirs
+}
+
+func isVCSRoot(dir string) bool {
+	for _, m := range []string{".git", ".hg", ".svn"} {
+		if info, err := os.Stat(filepath.Join(dir, m)); err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
 }

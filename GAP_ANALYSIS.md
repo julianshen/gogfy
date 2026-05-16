@@ -79,7 +79,7 @@
 ### 2.1 Detection / File Discovery
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
-| `.graphifyignore` | Partial | Only root-level file read; upstream walks up to VCS root and layers per-directory ignore files with last-match-wins semantics |
+| `.graphifyignore` | **Done** | `loadIgnoreMatcher` walks up to VCS root (.git/.hg/.svn marker) and layers each ancestor's `.graphifyignore` in order; scan root's patterns come last so gitignore last-match-wins gives them precedence — matches git's own behavior. |
 | `.graphifyinclude` | Missing | Upstream has allowlist for hidden files; gogfy has no equivalent |
 | File type classification | **Done (extension-based)** | `schema.ClassifyFile` maps extensions to CODE/DOCUMENT/PAPER/IMAGE/VIDEO; `schema.Node.FileType` populated at extract boundary; Corpus report section breaks down counts by type. Shebang + paper-signal heuristics deferred. |
 | Sensitive file detection | **Done** | `detect.IsSensitive` + silent skip in `CollectFiles`. 6 graphify-parity regex patterns (.env, .pem/.key, credentials/secrets/tokens, SSH keypairs, .netrc/.pgpass/.htpasswd, cloud creds). |
@@ -154,7 +154,7 @@
 ### 2.8 MCP Server
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
-| Tools | Partial | gogfy: god_nodes, explain, query, path, get_neighbors, graph_stats (6/7); upstream remaining: get_community. Explain is a superset of upstream's get_node, so 6 effective vs upstream's 7. |
+| Tools | **Done** | gogfy: god_nodes, explain (superset of upstream get_node), query, path, get_neighbors, graph_stats, get_community — all 7 upstream tools covered. |
 | Resources | Partial | gogfy: report only; upstream: report, stats, god-nodes, surprises, audit, questions |
 | BFS/DFS traversal | Missing | Upstream has token-budgeted subgraph traversal with context filters |
 | Node scoring | Missing | Upstream scores nodes by label match relevance |
