@@ -28,7 +28,14 @@ const maxLabelRunes = 256
 // known rationale keywords. Comment markers covered: `#` (Python, sh,
 // Ruby, etc.), `//` (Go, Java, C-family, JS, etc.), `--` (SQL, Haskell,
 // Lua), `/*` (block-comment opener — single-line shapes only).
-var markerRe = regexp.MustCompile(`^\s*(#|//|--|/\*)\s*(NOTE|IMPORTANT|HACK|WHY|RATIONALE|TODO|FIXME|XXX|WARNING):`)
+//
+// Keyword may be followed by either `:` (the canonical form `// NOTE:`)
+// or whitespace (`// TODO add tests`) — both are common in real source.
+var markerRe = regexp.MustCompile(`^\s*(#|//|--|/\*)\s*(NOTE|IMPORTANT|HACK|WHY|RATIONALE|TODO|FIXME|XXX|WARNING)(:|\s)`)
+
+// blockCloseRe strips a trailing `*/` (with optional whitespace) so
+// block-comment-style rationale labels don't keep the closer.
+var blockCloseRe = regexp.MustCompile(`\s*\*/\s*$`)
 
 // Extract scans src for rationale comments and returns (nodes, edges).
 // The edges point from each rationale node to the source file's module
@@ -51,9 +58,12 @@ func Extract(path string, src []byte) ([]schema.Node, []schema.Edge) {
 		if !markerRe.MatchString(line) {
 			continue
 		}
-		label := strings.TrimSpace(line)
+		label := blockCloseRe.ReplaceAllString(strings.TrimSpace(line), "")
+		// Truncation marker tells downstream consumers the label was
+		// clipped — otherwise a "complete" comment ending mid-word looks
+		// like the author wrote it that way.
 		if rs := []rune(label); len(rs) > maxLabelRunes {
-			label = string(rs[:maxLabelRunes])
+			label = string(rs[:maxLabelRunes-1]) + "…"
 		}
 		lineOneBased := lineno + 1
 		rid := schema.LangID(lang, "rationale", fmt.Sprintf("%s:L%d", path, lineOneBased))

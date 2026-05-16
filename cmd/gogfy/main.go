@@ -941,8 +941,12 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		// the source bytes once and emit rationale_for edges into the
 		// same file's module node. Best-effort — a read failure here
 		// shouldn't fail the whole pipeline since the AST extraction
-		// just succeeded.
-		if data, rerr := os.ReadFile(f); rerr == nil {
+		// just succeeded, but a warning helps users notice when the
+		// rationale section of their graph is empty.
+		data, rerr := os.ReadFile(f)
+		if rerr != nil {
+			fmt.Fprintf(os.Stderr, "gogfy: rationale skipped for %s: %v\n", f, rerr)
+		} else {
 			rNodes, rEdges := rationale.Extract(f, data)
 			for _, n := range rNodes {
 				if err := builder.AddNode(n); err != nil {

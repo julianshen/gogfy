@@ -184,3 +184,43 @@ func TestExtractEdgeTargetsMatchExtractorLangTags(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractColonOptional(t *testing.T) {
+	// Idiomatic Go/Python: `// TODO add tests` without a colon. Skipping
+	// these was the most common false-negative.
+	src := []byte(`// TODO add tests
+# FIXME broken on windows
+// XXX rethink this
+`)
+	nodes, _ := Extract("/proj/main.go", src)
+	if len(nodes) != 3 {
+		t.Fatalf("colon-less rationale markers should match: got %d, want 3", len(nodes))
+	}
+}
+
+func TestExtractBlockCommentStripsCloser(t *testing.T) {
+	// Single-line block comment: trailing `*/` must be stripped from the
+	// label so downstream renderers don't show it.
+	src := []byte("/* NOTE: this matters */\n")
+	nodes, _ := Extract("/proj/main.go", src)
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 rationale, got %d", len(nodes))
+	}
+	if contains(nodes[0].Label, "*/") {
+		t.Fatalf("block-comment closer must be stripped: %q", nodes[0].Label)
+	}
+}
+
+func TestExtractTruncationMarker(t *testing.T) {
+	// A clipped label must signal truncation so a downstream renderer
+	// doesn't show a comment that looks like it ends mid-word.
+	long := "// NOTE: " + repeat("y", 500)
+	nodes, _ := Extract("/proj/main.go", []byte(long+"\n"))
+	if len(nodes) != 1 {
+		t.Fatal("expected 1 rationale")
+	}
+	rs := []rune(nodes[0].Label)
+	if rs[len(rs)-1] != '…' {
+		t.Fatalf("truncated label must end with …: %q", nodes[0].Label)
+	}
+}
