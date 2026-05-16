@@ -392,3 +392,16 @@ func TestExportHTMLBoundaryAtExactlyMaxNodes(t *testing.T) {
 		t.Fatal("at MaxNodes+1 aggregation must fire")
 	}
 }
+
+func TestExportHTMLContainsPhysicsToggle(t *testing.T) {
+	// The viewer exposes a physics on/off control so users can pin
+	// nodes by hand without the simulation snapping them back.
+	data, _ := ExportHTML(GraphExport{}, HTMLOptions{})
+	html := string(data)
+	if !strings.Contains(html, `id="physics"`) {
+		t.Fatal("physics toggle checkbox missing")
+	}
+	if !strings.Contains(html, `physicsOn`) {
+		t.Fatal("physics state variable missing from script")
+	}
+}

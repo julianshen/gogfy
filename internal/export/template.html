@@ -42,6 +42,8 @@
   <aside class="left">
     <h2>Search</h2>
     <input id="search" type="text" placeholder="filter by label…">
+    <h2>Physics</h2>
+    <label><input id="physics" type="checkbox" checked> Auto-layout</label>
     <h2>Communities</h2>
     <ul id="communities"></ul>
     <footer>nodes: <span id="ncount">0</span> · edges: <span id="ecount">0</span></footer>
@@ -183,8 +185,33 @@ function paint() {
   }
   for (const n of nodes) n.el.setAttribute("transform", `translate(${n.x},${n.y})`);
 }
+// Physics toggle: settle for the first 400 frames (initial layout),
+// then idle until the user toggles physics back on. This lets readers
+// rearrange nodes by hand without the simulation snapping them back,
+// while still giving fresh exports a converged layout out of the box.
 let frame = 0;
-function tick() { if (frame++ < 400) { step(); requestAnimationFrame(tick); } }
+let physicsOn = true;
+function tick() {
+  if (physicsOn) {
+    step();
+    frame++;
+    if (frame >= 400) {
+      physicsOn = false;
+      // Reflect the auto-stop in the UI so a user toggling back on
+      // doesn't see a stale checked state.
+      if (physicsToggleEl) physicsToggleEl.checked = false;
+    }
+  }
+  requestAnimationFrame(tick);
+}
+let physicsToggleEl = null;
+physicsToggleEl = document.getElementById("physics");
+physicsToggleEl.addEventListener("change", () => {
+  physicsOn = physicsToggleEl.checked;
+  // Reset the frame budget on re-enable so the user can nudge a node
+  // and watch the rest of the graph settle around it.
+  if (physicsOn) frame = 0;
+});
 tick();
 
 const svg = document.getElementById("svg");
