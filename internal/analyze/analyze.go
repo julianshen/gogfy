@@ -14,7 +14,19 @@ import (
 const (
 	MaxGodNodes             = 10
 	MaxSurprisingLinks      = 10
-	MaxExplorationQuestions = 5
+	// Bumped from 5 to 10: gogfy now generates 7 question types
+	// (god, ambiguous, verify-inferred, isolated, low-cohesion,
+	// no-signal, community-bridge). At 5 the cap silently dropped
+	// most non-god types in graphs that triggered several at once.
+	MaxExplorationQuestions = 10
+
+	// lowCohesionThreshold mirrors the cluster-splitter's threshold
+	// (internal/cluster) so the "should we split?" question only
+	// fires for communities the splitter would itself target.
+	lowCohesionThreshold = 0.05
+	// minLowCohesionMembers avoids noise for tiny communities where
+	// cohesion math is dominated by integer rounding.
+	minLowCohesionMembers = 5
 )
 
 // Report contains the findings of a graph analysis.
@@ -79,30 +91,19 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 		surprising = surprising[:MaxSurprisingLinks]
 	}
 
-	questions := []string{}
-	for _, gn := range godNodes {
-		label := gn.Label
-		if label == "" {
-			label = gn.ID
-		}
-		if label != "" {
-			questions = append(questions, "What is the role of "+label+"?")
-		}
-	}
-	communityPairs := make(map[[2]string]struct{})
-	for _, e := range surprising {
-		src := nodeMap[e.Source]
-		dst := nodeMap[e.Target]
-		pair := [2]string{src.Community, dst.Community}
-		if pair[0] > pair[1] {
-			pair[0], pair[1] = pair[1], pair[0]
-		}
-		if _, ok := communityPairs[pair]; !ok {
-			communityPairs[pair] = struct{}{}
-			questions = append(questions, "Why does "+pair[0]+" connect to "+pair[1]+"?")
+	// No-signal short-circuits: if we have nothing to talk about, the
+	// only useful prompt is "did extraction fail?". Skipping the other
+	// generators here avoids emitting questions that just look broken.
+	if len(edges) == 0 {
+		return Report{
+			GodNodes:             godNodes,
+			SurprisingLinks:      surprising,
+			ExplorationQuestions: []string{noSignalQuestion(len(nodes))},
+			ConfidenceSummary:    confidence,
 		}
 	}
 
+	questions := buildQuestions(nodes, edges, nodeMap, degree, godNodes, surprising)
 	if len(questions) > MaxExplorationQuestions {
 		questions = questions[:MaxExplorationQuestions]
 	}
@@ -148,6 +149,212 @@ func rankSurprising(edges []schema.Edge, nodeMap map[string]schema.Node, degree 
 		out[i] = r.edge
 	}
 	return out
+}
+
+// buildQuestions emits up to a small per-category budget so a graph with
+// many ambiguous edges (or one with many god nodes) can't crowd out the
+// other types. The order here is intentional: higher-signal prompts come
+// first so callers that truncate retain the most useful ones.
+func buildQuestions(
+	nodes []schema.Node,
+	edges []schema.Edge,
+	nodeMap map[string]schema.Node,
+	degree map[string]int,
+	godNodes []schema.Node,
+	surprising []schema.Edge,
+) []string {
+	const perCategoryBudget = 2
+
+	var qs []string
+
+	// God-node role questions — kept first for behavioral compatibility
+	// with the prior shape (existing wiki/report tests pin this order).
+	for i, gn := range godNodes {
+		if i >= perCategoryBudget {
+			break
+		}
+		label := labelOrID(gn)
+		if label != "" {
+			qs = append(qs, "What is the role of "+label+"?")
+		}
+	}
+
+	// Ambiguous + Inferred candidates are sorted (source,target,relation)
+	// before truncation so the chosen 2 are stable across runs — input
+	// edge order from upstream may come from non-deterministic map walks.
+	ambig := sortedEdgeQuestions(edges, nodeMap, schema.Ambiguous, perCategoryBudget,
+		func(s, t, r string) string { return "Is the ambiguous edge " + s + " " + r + " " + t + " accurate?" })
+	qs = append(qs, ambig...)
+	infer := sortedEdgeQuestions(edges, nodeMap, schema.Inferred, perCategoryBudget,
+		func(s, t, r string) string { return "Verify inferred edge: does " + s + " " + r + " " + t + "?" })
+	qs = append(qs, infer...)
+
+	// Isolated nodes — degree-0 in the parsed graph. Sorted by label so
+	// output is deterministic across runs.
+	var isolated []schema.Node
+	for _, n := range nodes {
+		if degree[n.ID] == 0 {
+			isolated = append(isolated, n)
+		}
+	}
+	sort.Slice(isolated, func(i, j int) bool {
+		return labelOrID(isolated[i]) < labelOrID(isolated[j])
+	})
+	for i, n := range isolated {
+		if i >= perCategoryBudget {
+			break
+		}
+		label := labelOrID(n)
+		if label != "" {
+			qs = append(qs, "Is the isolated node "+label+" actually unconnected, or did extraction miss its edges?")
+		}
+	}
+
+	// Low-cohesion communities — same heuristic the cluster splitter
+	// uses, so the prompt aligns with that tool's recommendation.
+	for _, cid := range lowCohesionCommunities(nodes, edges, nodeMap) {
+		if len(qs) >= MaxExplorationQuestions {
+			break
+		}
+		qs = append(qs, "Community "+cid+" has low cohesion — should it be split?")
+	}
+
+	// Community-bridge questions — least specific (label often a number),
+	// so they go last and only fill remaining slots.
+	communityPairs := make(map[[2]string]struct{})
+	for _, e := range surprising {
+		if len(qs) >= MaxExplorationQuestions {
+			break
+		}
+		src := nodeMap[e.Source]
+		dst := nodeMap[e.Target]
+		pair := [2]string{src.Community, dst.Community}
+		if pair[0] > pair[1] {
+			pair[0], pair[1] = pair[1], pair[0]
+		}
+		if _, seen := communityPairs[pair]; seen {
+			continue
+		}
+		communityPairs[pair] = struct{}{}
+		qs = append(qs, "Why does "+pair[0]+" connect to "+pair[1]+"?")
+	}
+
+	return qs
+}
+
+// sortedEdgeQuestions filters edges by confidence and emits up to budget
+// questions in (source-label, target-label, relation) order so the output
+// is independent of input edge ordering.
+func sortedEdgeQuestions(edges []schema.Edge, nodeMap map[string]schema.Node, want schema.Confidence, budget int, render func(s, t, rel string) string) []string {
+	type cand struct{ s, t, r string }
+	var cs []cand
+	for _, e := range edges {
+		if e.Confidence != want {
+			continue
+		}
+		s, t := labelOrID(nodeMap[e.Source]), labelOrID(nodeMap[e.Target])
+		if s == "" || t == "" {
+			continue
+		}
+		cs = append(cs, cand{s, t, relationOrDefault(e)})
+	}
+	sort.Slice(cs, func(i, j int) bool {
+		if cs[i].s != cs[j].s {
+			return cs[i].s < cs[j].s
+		}
+		if cs[i].t != cs[j].t {
+			return cs[i].t < cs[j].t
+		}
+		return cs[i].r < cs[j].r
+	})
+	if len(cs) > budget {
+		cs = cs[:budget]
+	}
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = render(c.s, c.t, c.r)
+	}
+	return out
+}
+
+// lowCohesionCommunities returns community IDs whose intra-edge density
+// falls below lowCohesionThreshold. Density = intra-edges / max-possible.
+// Communities under minLowCohesionMembers are skipped — at that size the
+// metric is dominated by integer rounding noise.
+func lowCohesionCommunities(nodes []schema.Node, edges []schema.Edge, nodeMap map[string]schema.Node) []string {
+	community := map[string]int{}
+	for _, n := range nodes {
+		if n.Community == "" {
+			continue
+		}
+		community[n.Community]++
+	}
+	// Dedupe by unordered endpoint pair so reciprocal extractions
+	// (A→B + B→A) and parallel edges don't inflate intra-counts past
+	// the undirected n*(n-1)/2 max, which would skew density and let
+	// genuinely sparse communities slip past the threshold.
+	type pair struct{ a, b string }
+	seen := map[pair]struct{}{}
+	intra := map[string]int{}
+	for _, e := range edges {
+		if e.Source == e.Target {
+			continue
+		}
+		sc := nodeMap[e.Source].Community
+		if sc == "" || sc != nodeMap[e.Target].Community {
+			continue
+		}
+		a, b := e.Source, e.Target
+		if a > b {
+			a, b = b, a
+		}
+		key := pair{a, b}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		intra[sc]++
+	}
+	var out []string
+	for cid, n := range community {
+		if n < minLowCohesionMembers {
+			continue
+		}
+		maxEdges := n * (n - 1) / 2
+		if maxEdges == 0 {
+			continue
+		}
+		density := float64(intra[cid]) / float64(maxEdges)
+		if density < lowCohesionThreshold {
+			out = append(out, cid)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func noSignalQuestion(nodeCount int) string {
+	if nodeCount == 0 {
+		return "No relationships detected — is the corpus indexed correctly?"
+	}
+	return "No relationships detected despite parsed nodes — did extraction fail?"
+}
+
+// relationOrDefault gives unrelated relations a stable placeholder so the
+// generated questions read naturally even when extraction left Relation
+// blank (extractors are allowed to omit it for ambiguous matches).
+func relationOrDefault(e schema.Edge) string {
+	if e.Relation != "" {
+		return e.Relation
+	}
+	return "relates_to"
+}
+
+func labelOrID(n schema.Node) string {
+	if n.Label != "" {
+		return n.Label
+	}
+	return n.ID
 }
 
 func filterGodNodes(nd []nodeDegree) []schema.Node {

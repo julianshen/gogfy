@@ -260,7 +260,267 @@ func TestAnalyzeEmpty(t *testing.T) {
 	if len(report.SurprisingLinks) != 0 {
 		t.Fatalf("expected 0 surprising links, got %d", len(report.SurprisingLinks))
 	}
-	if len(report.ExplorationQuestions) != 0 {
-		t.Fatalf("expected 0 questions, got %d", len(report.ExplorationQuestions))
+	// Empty graph now surfaces a single no-signal prompt (covered by
+	// TestQuestionsNoSignalForEmptyGraph); pin that count here so the
+	// "no other categories fire" contract stays explicit.
+	if got := len(report.ExplorationQuestions); got != 1 {
+		t.Fatalf("expected 1 (no-signal) question, got %d: %v", got, report.ExplorationQuestions)
+	}
+}
+
+func TestQuestionsAmbiguousEdge(t *testing.T) {
+	nodes := []schema.Node{
+		{ID: "a", Label: "Auth", Community: "1"},
+		{ID: "b", Label: "Billing", Community: "2"},
+	}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b", Relation: "calls", Confidence: schema.Ambiguous},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if !containsSubstr(r.ExplorationQuestions, "Auth") || !containsSubstr(r.ExplorationQuestions, "Billing") || !containsSubstr(r.ExplorationQuestions, "calls") {
+		t.Fatalf("expected ambiguous-edge question naming both endpoints + relation, got %v", r.ExplorationQuestions)
+	}
+	if !containsSubstr(r.ExplorationQuestions, "ambiguous") && !containsSubstr(r.ExplorationQuestions, "accurate") && !containsSubstr(r.ExplorationQuestions, "correct") {
+		t.Fatalf("ambiguous-edge question should flag uncertainty: %v", r.ExplorationQuestions)
+	}
+}
+
+func TestQuestionsVerifyInferred(t *testing.T) {
+	nodes := []schema.Node{
+		{ID: "a", Label: "Cache", Community: "1"},
+		{ID: "b", Label: "Worker", Community: "2"},
+	}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b", Relation: "depends_on", Confidence: schema.Inferred},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if !containsSubstr(r.ExplorationQuestions, "Verify") && !containsSubstr(r.ExplorationQuestions, "verify") {
+		t.Fatalf("verify-inferred question should ask user to verify: %v", r.ExplorationQuestions)
+	}
+	if !containsSubstr(r.ExplorationQuestions, "Cache") || !containsSubstr(r.ExplorationQuestions, "Worker") {
+		t.Fatalf("verify-inferred question should name endpoints: %v", r.ExplorationQuestions)
+	}
+}
+
+func TestQuestionsIsolatedNodes(t *testing.T) {
+	nodes := []schema.Node{
+		{ID: "a", Label: "Connected", Community: "1"},
+		{ID: "b", Label: "Other", Community: "1"},
+		{ID: "iso", Label: "OrphanThing", Community: "2"},
+	}
+	edges := []schema.Edge{{Source: "a", Target: "b"}}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if !containsSubstr(r.ExplorationQuestions, "OrphanThing") {
+		t.Fatalf("expected isolated-node question naming OrphanThing, got %v", r.ExplorationQuestions)
+	}
+	if !containsSubstr(r.ExplorationQuestions, "isolated") && !containsSubstr(r.ExplorationQuestions, "no connections") && !containsSubstr(r.ExplorationQuestions, "unconnected") {
+		t.Fatalf("isolated-node question should flag isolation: %v", r.ExplorationQuestions)
+	}
+}
+
+func TestQuestionsLowCohesion(t *testing.T) {
+	// Community "1": 10 members, 1 intra-edge → density 1/45 ≈ 0.022, below
+	// the 0.05 threshold. Community "2": 3 members, fully connected.
+	nodes := []schema.Node{}
+	for i := 0; i < 10; i++ {
+		nodes = append(nodes, schema.Node{
+			ID: fmt.Sprintf("a%d", i), Label: fmt.Sprintf("A%d", i), Community: "1",
+		})
+	}
+	nodes = append(nodes,
+		schema.Node{ID: "x", Label: "X", Community: "2"},
+		schema.Node{ID: "y", Label: "Y", Community: "2"},
+		schema.Node{ID: "z", Label: "Z", Community: "2"},
+	)
+	edges := []schema.Edge{
+		{Source: "a0", Target: "a1"},
+		{Source: "x", Target: "y"},
+		{Source: "y", Target: "z"},
+		{Source: "x", Target: "z"},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if !containsSubstr(r.ExplorationQuestions, "cohesion") && !containsSubstr(r.ExplorationQuestions, "loosely") && !containsSubstr(r.ExplorationQuestions, "split") {
+		t.Fatalf("expected low-cohesion question for community 1, got %v", r.ExplorationQuestions)
+	}
+}
+
+func TestQuestionsNoSignalForEmptyGraph(t *testing.T) {
+	r := NewAnalyzer().Analyze(nil, nil)
+	if len(r.ExplorationQuestions) == 0 {
+		t.Fatal("empty graph should still surface a no-signal question")
+	}
+	if !containsSubstr(r.ExplorationQuestions, "no relationships") && !containsSubstr(r.ExplorationQuestions, "No relationships") && !containsSubstr(r.ExplorationQuestions, "corpus") {
+		t.Fatalf("no-signal question should hint at empty corpus: %v", r.ExplorationQuestions)
+	}
+}
+
+func TestQuestionsNoSignalForEdgelessGraph(t *testing.T) {
+	// Nodes but no edges — also a no-signal case (likely a parser failure).
+	nodes := []schema.Node{
+		{ID: "a", Label: "A", Community: "1"},
+		{ID: "b", Label: "B", Community: "1"},
+	}
+	r := NewAnalyzer().Analyze(nodes, nil)
+	if !containsSubstr(r.ExplorationQuestions, "no relationships") && !containsSubstr(r.ExplorationQuestions, "No relationships") && !containsSubstr(r.ExplorationQuestions, "extraction") {
+		t.Fatalf("edgeless graph should surface a no-signal question, got %v", r.ExplorationQuestions)
+	}
+}
+
+func TestQuestionsCappedAtMax(t *testing.T) {
+	// Pin the cap: many ambiguous edges shouldn't blow past the limit.
+	nodes := make([]schema.Node, 0, 40)
+	edges := make([]schema.Edge, 0, 20)
+	for i := 0; i < 20; i++ {
+		nodes = append(nodes,
+			schema.Node{ID: fmt.Sprintf("s%d", i), Label: fmt.Sprintf("S%d", i), Community: "1"},
+			schema.Node{ID: fmt.Sprintf("t%d", i), Label: fmt.Sprintf("T%d", i), Community: "2"},
+		)
+		edges = append(edges, schema.Edge{
+			Source: fmt.Sprintf("s%d", i), Target: fmt.Sprintf("t%d", i),
+			Relation: "calls", Confidence: schema.Ambiguous,
+		})
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if len(r.ExplorationQuestions) > MaxExplorationQuestions {
+		t.Fatalf("over cap %d: got %d", MaxExplorationQuestions, len(r.ExplorationQuestions))
+	}
+}
+
+func containsSubstr(qs []string, sub string) bool {
+	for _, q := range qs {
+		if len(q) >= len(sub) && (q == sub || indexOf(q, sub) >= 0) {
+			return true
+		}
+	}
+	return false
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestQuestionsAmbiguousPerCategoryBudget(t *testing.T) {
+	// 4 ambiguous edges → exactly 2 questions (per-category budget = 2).
+	// Pins the budget against future refactors that might remove the cap.
+	nodes := []schema.Node{}
+	edges := []schema.Edge{}
+	for i := 0; i < 4; i++ {
+		nodes = append(nodes,
+			schema.Node{ID: fmt.Sprintf("s%d", i), Label: fmt.Sprintf("S%d", i), Community: "1"},
+			schema.Node{ID: fmt.Sprintf("t%d", i), Label: fmt.Sprintf("T%d", i), Community: "2"},
+		)
+		edges = append(edges, schema.Edge{
+			Source: fmt.Sprintf("s%d", i), Target: fmt.Sprintf("t%d", i),
+			Relation: "calls", Confidence: schema.Ambiguous,
+		})
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	count := 0
+	for _, q := range r.ExplorationQuestions {
+		if indexOf(q, "ambiguous edge") >= 0 {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("per-category budget broken: got %d ambiguous questions, want 2; full: %v", count, r.ExplorationQuestions)
+	}
+}
+
+func TestQuestionsBlankRelationFallback(t *testing.T) {
+	// Extractor left Relation blank — output must still read naturally
+	// (no "Foo  Bar" double-space) by substituting "relates_to".
+	nodes := []schema.Node{
+		{ID: "a", Label: "Foo", Community: "1"},
+		{ID: "b", Label: "Bar", Community: "2"},
+	}
+	edges := []schema.Edge{{Source: "a", Target: "b", Confidence: schema.Inferred}}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if !containsSubstr(r.ExplorationQuestions, "relates_to") {
+		t.Fatalf("blank Relation should fall back to relates_to: %v", r.ExplorationQuestions)
+	}
+	for _, q := range r.ExplorationQuestions {
+		if indexOf(q, "Foo  Bar") >= 0 || indexOf(q, "does Foo  ") >= 0 {
+			t.Fatalf("double-space artifact from blank Relation: %q", q)
+		}
+	}
+}
+
+func TestQuestionsDeterministicAmbiguousOrder(t *testing.T) {
+	// Same input run twice must produce identical question lists, even
+	// when the candidate count exceeds the budget so truncation kicks in.
+	nodes := []schema.Node{}
+	edges := []schema.Edge{}
+	for i := 0; i < 5; i++ {
+		nodes = append(nodes,
+			schema.Node{ID: fmt.Sprintf("s%d", i), Label: fmt.Sprintf("S%d", i), Community: "1"},
+			schema.Node{ID: fmt.Sprintf("t%d", i), Label: fmt.Sprintf("T%d", i), Community: "2"},
+		)
+		edges = append(edges, schema.Edge{
+			Source: fmt.Sprintf("s%d", i), Target: fmt.Sprintf("t%d", i),
+			Relation: "calls", Confidence: schema.Ambiguous,
+		})
+	}
+	a := NewAnalyzer()
+	first := a.Analyze(nodes, edges).ExplorationQuestions
+	for i := 0; i < 5; i++ {
+		got := a.Analyze(nodes, edges).ExplorationQuestions
+		if len(got) != len(first) {
+			t.Fatalf("run %d length drift: %d vs %d", i, len(got), len(first))
+		}
+		for j := range got {
+			if got[j] != first[j] {
+				t.Fatalf("run %d differs at %d: %q vs %q", i, j, got[j], first[j])
+			}
+		}
+	}
+}
+
+func TestLowCohesionUndirectedDedup(t *testing.T) {
+	// Reciprocal extraction (A→B + B→A) must not double-count toward
+	// intra-density, which would mask a genuinely sparse community.
+	nodes := []schema.Node{}
+	for i := 0; i < 10; i++ {
+		nodes = append(nodes, schema.Node{
+			ID: fmt.Sprintf("a%d", i), Label: fmt.Sprintf("A%d", i), Community: "1",
+		})
+	}
+	// 1 unique intra-edge represented twice (forward + reverse).
+	// Without dedup, intra=2/45=0.044 still below 0.05 → false negative.
+	// With reciprocal pair counted once, intra=1/45=0.022 → low cohesion.
+	// Sharpen the case: 2 unique pairs each represented twice → without
+	// dedup intra=4/45=0.088 (above threshold, would miss); with dedup
+	// intra=2/45=0.044 (below).
+	edges := []schema.Edge{
+		{Source: "a0", Target: "a1"},
+		{Source: "a1", Target: "a0"},
+		{Source: "a2", Target: "a3"},
+		{Source: "a3", Target: "a2"},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	if !containsSubstr(r.ExplorationQuestions, "low cohesion") {
+		t.Fatalf("reciprocal-edge dedup broken: low-cohesion question missing for community with density 2/45: %v", r.ExplorationQuestions)
+	}
+}
+
+func TestLowCohesionMinMembersGate(t *testing.T) {
+	// 4-member community is below minLowCohesionMembers (5) — must
+	// NOT fire even with zero intra-edges, because the density math is
+	// dominated by integer rounding at that size.
+	nodes := []schema.Node{
+		{ID: "a", Label: "A", Community: "1"},
+		{ID: "b", Label: "B", Community: "1"},
+		{ID: "c", Label: "C", Community: "1"},
+		{ID: "d", Label: "D", Community: "1"},
+	}
+	r := NewAnalyzer().Analyze(nodes, []schema.Edge{{Source: "a", Target: "b"}})
+	for _, q := range r.ExplorationQuestions {
+		if indexOf(q, "low cohesion") >= 0 {
+			t.Fatalf("community below minLowCohesionMembers should be skipped: %v", r.ExplorationQuestions)
+		}
 	}
 }
