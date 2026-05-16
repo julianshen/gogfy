@@ -122,7 +122,7 @@
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
 | God node filtering | Partial | gogfy filters by degree; upstream excludes file nodes, method stubs, and concept nodes via `_is_file_node` / `_is_concept_node` |
-| Surprising connections scoring | Partial | gogfy uses inverse log-degree product; upstream has composite score with confidence weight, cross-file-type bonus, cross-repo bonus, cross-community bonus, peripheral→hub bonus, semantic similarity bonus |
+| Surprising connections scoring | **Done** | Composite integer score: confidence bonus (AMBIGUOUS=3, INFERRED=2, EXTRACTED=1, zeroed for cross-lang INFERRED `calls`), +2 cross-file-type, +2 cross-repo (top-level dir differs), +1 cross-community baseline, ×1.5 for `semantically_similar_to`, +1 peripheral→hub. Tie-break: legacy inverse-log-degree, then input order. |
 | Cross-file vs single-source modes | Missing | Upstream switches between `_cross_file_surprises` and `_cross_community_surprises` based on corpus size |
 | Suggested questions | **Done** | All 7 upstream types covered: god-node role, ambiguous_edge, verify_inferred, isolated_nodes, low_cohesion (threshold-aligned with cluster splitter), no_signal (empty/edgeless graph short-circuit), community-bridge. Per-category budget prevents one type from crowding out others. |
 | Graph diff | Missing | Upstream can compare two graph snapshots |
