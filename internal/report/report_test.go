@@ -526,3 +526,27 @@ func TestRenderReportCorpusFileTypesDeterministicOrder(t *testing.T) {
 		t.Fatalf("file types not in expected sorted order: %s", out)
 	}
 }
+
+func TestRenderReportCorpusTinyWarning(t *testing.T) {
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "a", SourceFile: "a.go"},
+			{ID: "b", SourceFile: "b.go"},
+		},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	if !contains(string(out), "Tiny corpus") {
+		t.Fatalf("expected tiny-corpus warning for 2 files: %s", out)
+	}
+}
+
+func TestRenderReportCorpusNoWarningForReasonableCorpus(t *testing.T) {
+	nodes := []schema.Node{}
+	for i := 0; i < 10; i++ {
+		nodes = append(nodes, schema.Node{ID: fmt.Sprintf("n%d", i), SourceFile: fmt.Sprintf("f%d.go", i)})
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, Options{Nodes: nodes})
+	if contains(string(out), "Tiny corpus") {
+		t.Fatalf("tiny-corpus warning should not fire at 10 files: %s", out)
+	}
+}

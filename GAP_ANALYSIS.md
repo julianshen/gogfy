@@ -82,8 +82,8 @@
 | `.graphifyignore` | Partial | Only root-level file read; upstream walks up to VCS root and layers per-directory ignore files with last-match-wins semantics |
 | `.graphifyinclude` | Missing | Upstream has allowlist for hidden files; gogfy has no equivalent |
 | File type classification | **Done (extension-based)** | `schema.ClassifyFile` maps extensions to CODE/DOCUMENT/PAPER/IMAGE/VIDEO; `schema.Node.FileType` populated at extract boundary; Corpus report section breaks down counts by type. Shebang + paper-signal heuristics deferred. |
-| Sensitive file detection | Missing | Upstream skips .env, .pem, credentials, etc. via regex patterns |
-| Corpus size warnings | Missing | Upstream warns at 50K words (too small) and 500K words (too large) |
+| Sensitive file detection | **Done** | `detect.IsSensitive` + silent skip in `CollectFiles`. 6 graphify-parity regex patterns (.env, .pem/.key, credentials/secrets/tokens, SSH keypairs, .netrc/.pgpass/.htpasswd, cloud creds). |
+| Corpus size warnings | **Done (tiny-only)** | Report Corpus section emits a tiny-corpus warning under 5 files. Upstream's "too large" warning isn't ported — gogfy's AST extraction has no per-token cost. |
 | Google Workspace conversion | Missing | Upstream converts .gdoc, .gsheet, .gslides shortcuts |
 | Office structural extraction | Partial | gogfy has extractors but upstream does deeper structural node extraction for XLSX (sheets, tables, columns) |
 | Incremental detection (manifest) | Missing | Upstream uses mtime + MD5 manifest for incremental scans; gogfy only has SHA256 cache for extraction |
