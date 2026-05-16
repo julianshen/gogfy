@@ -206,7 +206,7 @@
 | Chunk packing by token budget | `llm.py` | Group files by directory for efficient packing |
 | Parallel semantic extraction | `llm.py` | ThreadPoolExecutor for concurrent LLM calls |
 | Cost estimation | `llm.py` | Per-backend pricing calculation |
-| Incremental manifest (mtime + MD5) | `detect.py` | Fast-path mtime check, slow-path MD5 verification |
+| Incremental manifest (mtime + MD5) | **Done (SHA-256)** | `internal/cache` now stores `{mtime,hash}` per file; mtime-match short-circuits the hash, mtime-bumped-but-hash-match treated as unchanged (sync-tool touch). Legacy hash-only manifests auto-upgrade on next Save. |
 | Deleted file pruning | `build.py` | Remove nodes for files no longer in corpus |
 | Hyperedge generation | `llm.py` / `extract.py` | Group relationships from semantic extraction |
 | Cross-language call detection | `analyze.py` | Detect calls between language families |
