@@ -34,6 +34,7 @@ import (
 	"github.com/julianshen/gogfy/internal/report"
 	"github.com/julianshen/gogfy/internal/rationale"
 	"github.com/julianshen/gogfy/internal/resolve"
+	"github.com/julianshen/gogfy/internal/tsalias"
 	"github.com/julianshen/gogfy/internal/schema"
 	"github.com/julianshen/gogfy/internal/serve"
 	"github.com/julianshen/gogfy/internal/tree"
@@ -967,11 +968,19 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	}
 
 	g := builder.Build()
+	// JS/TS path-alias rewrite: tsconfig.json paths like "@app/*" → "src/*"
+	// turn `ts:import:@app/foo` into `ts:import:<rootDir>/src/foo` so
+	// downstream resolution / merge sees the resolved local module
+	// instead of an external-looking specifier.
+	aliasNodes, aliasEdges := g.Nodes(), g.Edges()
+	if aliases, aerr := tsalias.Load(root); aerr == nil {
+		aliasNodes, aliasEdges = aliases.Apply(aliasNodes, aliasEdges)
+	}
 	// Resolve `<lang>:call:<name>` synthetic targets into INFERRED edges
 	// pointing at real function nodes (or AMBIGUOUS edges fanned out across
 	// multiple candidates). Cross-file calls otherwise stay EXTRACTED with
 	// the synthetic target preserved.
-	nodes, edges := resolve.Calls(g.Nodes(), g.Edges())
+	nodes, edges := resolve.Calls(aliasNodes, aliasEdges)
 
 	// Entity deduplication (three-pass: exact → fuzzy → LLM tiebreaker)
 	if !opts.NoDedup {
