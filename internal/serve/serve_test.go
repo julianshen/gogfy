@@ -97,7 +97,7 @@ func TestToolsListEnumeratesAllTools(t *testing.T) {
 	for _, tool := range tools {
 		names[tool.(map[string]any)["name"].(string)] = true
 	}
-	for _, want := range []string{"gogfy_god_nodes", "gogfy_explain", "gogfy_query"} {
+	for _, want := range []string{"gogfy_god_nodes", "gogfy_explain", "gogfy_query", "gogfy_get_neighbors", "gogfy_graph_stats"} {
 		if !names[want] {
 			t.Fatalf("missing tool %q in %v", want, names)
 		}
@@ -478,5 +478,63 @@ func TestNotificationInitializedProducesNoResponse(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("notification produced output: %q", out.String())
+	}
+}
+
+func TestToolCallGetNeighbors(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_get_neighbors",
+		"arguments": map[string]any{"id": "hub"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "neighbors") {
+		t.Fatalf("expected neighbors output, got %q", text)
+	}
+}
+
+func TestToolCallGetNeighborsRelationFilter(t *testing.T) {
+	// Filter to a relation that exists vs one that doesn't.
+	respCalls := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_get_neighbors",
+		"arguments": map[string]any{"id": "hub", "relation": "calls"},
+	}))
+	textCalls := respCalls[0]["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+
+	respNonsense := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_get_neighbors",
+		"arguments": map[string]any{"id": "hub", "relation": "doesNotExist"},
+	}))
+	textNonsense := respNonsense[0]["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(textNonsense, "no neighbors") {
+		t.Fatalf("expected 'no neighbors' for nonexistent relation, got %q", textNonsense)
+	}
+	if textCalls == textNonsense {
+		t.Fatal("relation filter must change output")
+	}
+}
+
+func TestToolCallGraphStats(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_graph_stats",
+		"arguments": map[string]any{},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	for _, want := range []string{"nodes", "edges", "communities"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("graph_stats missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestToolCallGetNeighborsMissingID(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_get_neighbors",
+		"arguments": map[string]any{},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	if !result["isError"].(bool) {
+		t.Fatal("missing id should be an error")
 	}
 }
