@@ -18,7 +18,9 @@
 package resolve
 
 import (
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/julianshen/gogfy/internal/schema"
 )
@@ -40,6 +42,10 @@ import (
 // pruned from the node list.
 func Calls(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Edge) {
 	idx := buildFunctionIndex(nodes)
+	importScope := buildImportScope(edges)
+	// Precomputed once: per-edge narrowing would otherwise rebuild this
+	// map O(G) times for a G-edge graph.
+	fileByID := buildFileByID(nodes)
 
 	out := make([]schema.Edge, 0, len(edges))
 	referenced := make(map[string]bool, len(nodes))
@@ -56,6 +62,15 @@ func Calls(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Ed
 			continue
 		}
 		candidates := idx[langLabel{lang, name}]
+		// Narrow by import scope: if the caller's file imports a module
+		// matching one (and only one) of the candidates' source files,
+		// prefer that candidate. Avoids fanning out to every module that
+		// happens to define a same-named function.
+		if len(candidates) > 1 {
+			if narrowed := narrowByImportScope(candidates, fileByID, importScope, callerFile(e.Source), name); len(narrowed) > 0 {
+				candidates = narrowed
+			}
+		}
 		switch len(candidates) {
 		case 0:
 			out = append(out, e)
@@ -93,6 +108,114 @@ func Calls(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Ed
 		prunedNodes = append(prunedNodes, n)
 	}
 	return prunedNodes, out
+}
+
+// buildImportScope returns filepath → set of bare names the file's
+// `imports` edges bring into scope. Extractors emit one import edge per
+// imported name with target shaped as either the module ("auth") or
+// "module.name" ("auth.login"); the trailing dotted segment is the name
+// a call expression would reference (extractors normalize `auth.foo()`
+// to a bare `foo` callee, so we don't track dotted forms).
+//
+// Known limitation: aliased imports (`from M import N as A; A()`) bind
+// the alias `A` at the call site, but extractors record only the
+// original name `N` in the import edge — the called name `A` therefore
+// won't match the scope, and narrowing is skipped.
+func buildImportScope(edges []schema.Edge) map[string]map[string]struct{} {
+	out := map[string]map[string]struct{}{}
+	for _, e := range edges {
+		if e.Relation != "imports" {
+			continue
+		}
+		_, kind, key, ok := schema.ParseLangID(e.Source)
+		if !ok || kind != "module" {
+			continue
+		}
+		_, tk, tkey, ok := schema.ParseLangID(e.Target)
+		if !ok || tk != "import" {
+			continue
+		}
+		bare := tkey
+		if i := strings.LastIndexByte(bare, '.'); i >= 0 {
+			bare = bare[i+1:]
+		}
+		if bare == "" {
+			continue
+		}
+		if out[key] == nil {
+			out[key] = map[string]struct{}{}
+		}
+		// Two entries per import: the bare name gates `imports[calledName]`
+		// so call narrowing fires, and the dotted root lets the candidate
+		// file-stem match (auth.py for `from auth import login`).
+		out[key][bare] = struct{}{}
+		if i := strings.IndexByte(tkey, '.'); i > 0 {
+			out[key][tkey[:i]] = struct{}{}
+		}
+	}
+	return out
+}
+
+// callerFile extracts the source file path from a function/method node
+// ID of the form `<lang>:<kind>:<filepath>:<scope>:<name>`. Returns "" if
+// the ID isn't shaped that way.
+func callerFile(id string) string {
+	_, kind, key, ok := schema.ParseLangID(id)
+	if !ok {
+		return ""
+	}
+	if kind != "function" && kind != "method" {
+		return ""
+	}
+	// key is `<filepath>:<scope>:<name>` — first colon splits the file.
+	i := strings.IndexByte(key, ':')
+	if i < 0 {
+		return key
+	}
+	return key[:i]
+}
+
+// buildFileByID indexes nodes that carry a SourceFile so narrowByImportScope
+// can resolve a candidate function node's source file in O(1). Pulled
+// out of the inner loop — the per-edge rebuild was O(G·N).
+func buildFileByID(nodes []schema.Node) map[string]string {
+	out := make(map[string]string, len(nodes))
+	for _, n := range nodes {
+		if n.SourceFile != "" {
+			out[n.ID] = n.SourceFile
+		}
+	}
+	return out
+}
+
+// narrowByImportScope returns the subset of candidates whose source file
+// stem matches an import bound at callerPath. Conservative: returns nil
+// (deferring to outer AMBIGUOUS behavior) whenever the caller has no
+// import scope or the called name isn't itself imported — we never
+// invent INFERRED edges from missing data.
+func narrowByImportScope(candidates []string, fileByID map[string]string, scope map[string]map[string]struct{}, callerPath, calledName string) []string {
+	if callerPath == "" {
+		return nil
+	}
+	imports, ok := scope[callerPath]
+	if !ok || len(imports) == 0 {
+		return nil
+	}
+	if _, named := imports[calledName]; !named {
+		return nil
+	}
+	var narrowed []string
+	for _, cand := range candidates {
+		path := fileByID[cand]
+		if path == "" {
+			continue
+		}
+		stem := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		if _, hit := imports[stem]; hit {
+			narrowed = append(narrowed, cand)
+		}
+	}
+	return narrowed
 }
 
 type langLabel struct{ lang, label string }

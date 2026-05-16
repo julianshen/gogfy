@@ -169,3 +169,206 @@ func TestCallsLeavesNonCallEdgesAlone(t *testing.T) {
 		t.Fatalf("non-synthetic nodes pruned: %d", len(gotN))
 	}
 }
+
+func TestCallsImportScopeNarrowsAmbiguous(t *testing.T) {
+	// Two files both define `login`. Calling file imports from auth.py
+	// — the resolver must narrow the AMBIGUOUS fan-out to the imported
+	// definition, upgrading to INFERRED.
+	nodes := []schema.Node{
+		// caller
+		{ID: "py:module:/proj/main.py", Label: "main.py", SourceFile: "/proj/main.py"},
+		{ID: "py:function:/proj/main.py:module:handler", Label: "handler", SourceFile: "/proj/main.py"},
+		// imported target
+		{ID: "py:import:auth.login", Label: "auth.login"},
+		// candidate functions
+		{ID: "py:function:/proj/auth.py:module:login", Label: "login", SourceFile: "/proj/auth.py"},
+		{ID: "py:function:/proj/users.py:module:login", Label: "login", SourceFile: "/proj/users.py"},
+		// the synthetic call target
+		{ID: "py:call:login", Label: "login"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:module:/proj/main.py", Target: "py:import:auth.login", Relation: "imports", Confidence: schema.Extracted},
+		{Source: "py:function:/proj/main.py:module:handler", Target: "py:call:login", Relation: "calls", Confidence: schema.Extracted},
+	}
+	_, gotE := Calls(nodes, edges)
+
+	var callEdges []schema.Edge
+	for _, e := range gotE {
+		if e.Relation == "calls" {
+			callEdges = append(callEdges, e)
+		}
+	}
+	if len(callEdges) != 1 {
+		t.Fatalf("import scope should narrow to 1 candidate, got %d: %+v", len(callEdges), callEdges)
+	}
+	if callEdges[0].Target != "py:function:/proj/auth.py:module:login" {
+		t.Fatalf("wrong target: %s", callEdges[0].Target)
+	}
+	if callEdges[0].Confidence != schema.Inferred {
+		t.Fatalf("import-scoped match should be INFERRED, got %v", callEdges[0].Confidence)
+	}
+}
+
+func TestCallsImportScopeDifferentFileStaysAmbiguous(t *testing.T) {
+	// /proj/main.py imports from auth; /proj/other.py imports from users.
+	// A call from main.py should resolve to auth.login, but a call from
+	// other.py (with the same name) should resolve to users.login.
+	nodes := []schema.Node{
+		{ID: "py:module:/proj/main.py", Label: "main.py", SourceFile: "/proj/main.py"},
+		{ID: "py:module:/proj/other.py", Label: "other.py", SourceFile: "/proj/other.py"},
+		{ID: "py:function:/proj/main.py:module:handler", Label: "handler", SourceFile: "/proj/main.py"},
+		{ID: "py:function:/proj/other.py:module:handler", Label: "handler", SourceFile: "/proj/other.py"},
+		{ID: "py:import:auth.login", Label: "auth.login"},
+		{ID: "py:import:users.login", Label: "users.login"},
+		{ID: "py:function:/proj/auth.py:module:login", Label: "login", SourceFile: "/proj/auth.py"},
+		{ID: "py:function:/proj/users.py:module:login", Label: "login", SourceFile: "/proj/users.py"},
+		{ID: "py:call:login", Label: "login"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:module:/proj/main.py", Target: "py:import:auth.login", Relation: "imports"},
+		{Source: "py:module:/proj/other.py", Target: "py:import:users.login", Relation: "imports"},
+		{Source: "py:function:/proj/main.py:module:handler", Target: "py:call:login", Relation: "calls"},
+		{Source: "py:function:/proj/other.py:module:handler", Target: "py:call:login", Relation: "calls"},
+	}
+	_, gotE := Calls(nodes, edges)
+
+	mainCall, otherCall := "", ""
+	for _, e := range gotE {
+		if e.Relation != "calls" {
+			continue
+		}
+		switch e.Source {
+		case "py:function:/proj/main.py:module:handler":
+			mainCall = e.Target
+		case "py:function:/proj/other.py:module:handler":
+			otherCall = e.Target
+		}
+	}
+	if mainCall != "py:function:/proj/auth.py:module:login" {
+		t.Errorf("main.py should resolve to auth.login, got %s", mainCall)
+	}
+	if otherCall != "py:function:/proj/users.py:module:login" {
+		t.Errorf("other.py should resolve to users.login, got %s", otherCall)
+	}
+}
+
+func TestCallsImportScopeFallsBackToAmbiguousWhenUnimported(t *testing.T) {
+	// Caller's file doesn't import `login` from anywhere. With no scope
+	// hint, the resolver must keep the original AMBIGUOUS fan-out — we
+	// must not invent INFERRED edges from thin air.
+	nodes := []schema.Node{
+		{ID: "py:module:/proj/main.py", Label: "main.py", SourceFile: "/proj/main.py"},
+		{ID: "py:function:/proj/main.py:module:handler", Label: "handler", SourceFile: "/proj/main.py"},
+		{ID: "py:function:/proj/auth.py:module:login", Label: "login", SourceFile: "/proj/auth.py"},
+		{ID: "py:function:/proj/users.py:module:login", Label: "login", SourceFile: "/proj/users.py"},
+		{ID: "py:call:login", Label: "login"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:function:/proj/main.py:module:handler", Target: "py:call:login", Relation: "calls"},
+	}
+	_, gotE := Calls(nodes, edges)
+	count := 0
+	for _, e := range gotE {
+		if e.Relation == "calls" {
+			count++
+			if e.Confidence != schema.Ambiguous {
+				t.Errorf("expected AMBIGUOUS, got %v for %s", e.Confidence, e.Target)
+			}
+		}
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 AMBIGUOUS fan-out edges, got %d", count)
+	}
+}
+
+func TestCallsImportScopeStaysAmbiguousOnSameBasenameAcrossDirs(t *testing.T) {
+	// Two files at /a/auth.py and /b/auth.py both stem "auth". A call
+	// site importing "auth.login" narrows to BOTH (still 2 matches) —
+	// must remain AMBIGUOUS rather than wrongly picking one.
+	nodes := []schema.Node{
+		{ID: "py:module:/proj/main.py", Label: "main.py", SourceFile: "/proj/main.py"},
+		{ID: "py:function:/proj/main.py:module:handler", Label: "handler", SourceFile: "/proj/main.py"},
+		{ID: "py:import:auth.login", Label: "auth.login"},
+		{ID: "py:function:/proj/a/auth.py:module:login", Label: "login", SourceFile: "/proj/a/auth.py"},
+		{ID: "py:function:/proj/b/auth.py:module:login", Label: "login", SourceFile: "/proj/b/auth.py"},
+		{ID: "py:call:login", Label: "login"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:module:/proj/main.py", Target: "py:import:auth.login", Relation: "imports"},
+		{Source: "py:function:/proj/main.py:module:handler", Target: "py:call:login", Relation: "calls"},
+	}
+	_, gotE := Calls(nodes, edges)
+	callCount := 0
+	for _, e := range gotE {
+		if e.Relation == "calls" {
+			callCount++
+			if e.Confidence != schema.Ambiguous {
+				t.Errorf("same-basename collision should stay AMBIGUOUS, got %v", e.Confidence)
+			}
+		}
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 AMBIGUOUS fan-out edges, got %d", callCount)
+	}
+}
+
+func TestCallsImportScopeMethodCaller(t *testing.T) {
+	// callerFile accepts both kind=function and kind=method. Pin that
+	// a method caller (e.g., `def Handler.run(self): login()`) still
+	// gets its import scope honored.
+	nodes := []schema.Node{
+		{ID: "py:module:/proj/main.py", Label: "main.py", SourceFile: "/proj/main.py"},
+		{ID: "py:method:/proj/main.py:Handler:run", Label: "run", SourceFile: "/proj/main.py"},
+		{ID: "py:import:auth.login", Label: "auth.login"},
+		{ID: "py:function:/proj/auth.py:module:login", Label: "login", SourceFile: "/proj/auth.py"},
+		{ID: "py:function:/proj/users.py:module:login", Label: "login", SourceFile: "/proj/users.py"},
+		{ID: "py:call:login", Label: "login"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:module:/proj/main.py", Target: "py:import:auth.login", Relation: "imports"},
+		{Source: "py:method:/proj/main.py:Handler:run", Target: "py:call:login", Relation: "calls"},
+	}
+	_, gotE := Calls(nodes, edges)
+	for _, e := range gotE {
+		if e.Relation != "calls" {
+			continue
+		}
+		if e.Target != "py:function:/proj/auth.py:module:login" {
+			t.Errorf("method caller's import scope ignored: %s", e.Target)
+		}
+		if e.Confidence != schema.Inferred {
+			t.Errorf("expected INFERRED, got %v", e.Confidence)
+		}
+	}
+}
+
+func TestCallsImportScopeNonFunctionCallerFallsBack(t *testing.T) {
+	// If a call edge's Source isn't a function/method node, callerFile
+	// returns "" and narrowing is skipped — must NOT panic or mis-key
+	// the scope as scope[""]. Original AMBIGUOUS fan-out preserved.
+	nodes := []schema.Node{
+		{ID: "py:module:/proj/main.py", Label: "main.py", SourceFile: "/proj/main.py"},
+		{ID: "py:import:auth.login", Label: "auth.login"},
+		{ID: "py:function:/proj/auth.py:module:login", Label: "login", SourceFile: "/proj/auth.py"},
+		{ID: "py:function:/proj/users.py:module:login", Label: "login", SourceFile: "/proj/users.py"},
+		{ID: "py:call:login", Label: "login"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:module:/proj/main.py", Target: "py:import:auth.login", Relation: "imports"},
+		// Synthetic call from the module node itself (top-level call).
+		{Source: "py:module:/proj/main.py", Target: "py:call:login", Relation: "calls"},
+	}
+	_, gotE := Calls(nodes, edges)
+	callCount := 0
+	for _, e := range gotE {
+		if e.Relation == "calls" {
+			callCount++
+			if e.Confidence != schema.Ambiguous {
+				t.Errorf("non-function caller should fall back to AMBIGUOUS, got %v", e.Confidence)
+			}
+		}
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 fan-out edges (no narrowing), got %d", callCount)
+	}
+}
