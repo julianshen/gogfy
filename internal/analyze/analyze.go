@@ -2,6 +2,7 @@
 package analyze
 
 import (
+	"fmt"
 	"math"
 	"sort"
 
@@ -14,10 +15,8 @@ import (
 const (
 	MaxGodNodes             = 10
 	MaxSurprisingLinks      = 10
-	// Bumped from 5 to 10: gogfy now generates 7 question types
-	// (god, ambiguous, verify-inferred, isolated, low-cohesion,
-	// no-signal, community-bridge). At 5 the cap silently dropped
-	// most non-god types in graphs that triggered several at once.
+	// Sized for 7 question categories with a per-category budget; a
+	// tighter cap silently starves non-god types when several fire.
 	MaxExplorationQuestions = 10
 
 	// lowCohesionThreshold mirrors the cluster-splitter's threshold
@@ -167,8 +166,7 @@ func buildQuestions(
 
 	var qs []string
 
-	// God-node role questions — kept first for behavioral compatibility
-	// with the prior shape (existing wiki/report tests pin this order).
+	// God-node questions first: wiki/report tests assert this position.
 	for i, gn := range godNodes {
 		if i >= perCategoryBudget {
 			break
@@ -179,9 +177,8 @@ func buildQuestions(
 		}
 	}
 
-	// Ambiguous + Inferred candidates are sorted (source,target,relation)
-	// before truncation so the chosen 2 are stable across runs — input
-	// edge order from upstream may come from non-deterministic map walks.
+	// Sort before truncation: input edges may arrive in non-deterministic
+	// map-iteration order, so the picked-2 would otherwise drift run-to-run.
 	ambig := sortedEdgeQuestions(edges, nodeMap, schema.Ambiguous, perCategoryBudget,
 		func(s, t, r string) string { return "Is the ambiguous edge " + s + " " + r + " " + t + " accurate?" })
 	qs = append(qs, ambig...)
@@ -337,7 +334,7 @@ func noSignalQuestion(nodeCount int) string {
 	if nodeCount == 0 {
 		return "No relationships detected — is the corpus indexed correctly?"
 	}
-	return "No relationships detected despite parsed nodes — did extraction fail?"
+	return fmt.Sprintf("No relationships detected despite %d parsed nodes — did extraction fail?", nodeCount)
 }
 
 // relationOrDefault gives unrelated relations a stable placeholder so the
