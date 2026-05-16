@@ -1,12 +1,22 @@
 package report
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
 	"github.com/julianshen/gogfy/internal/analyze"
 	"github.com/julianshen/gogfy/internal/schema"
 )
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}
 
 func TestRenderReport(t *testing.T) {
 	r := analyze.Report{
@@ -305,5 +315,135 @@ func TestRenderWithOptionsBackwardCompat(t *testing.T) {
 		if contains(string(out), s) {
 			t.Fatalf("section %q should be omitted when Render called without options: %s", s, out)
 		}
+	}
+}
+
+func TestRenderReportAmbiguousEdgesCapped(t *testing.T) {
+	// 27 ambiguous edges should produce at most 25 listed + 1 overflow line.
+	nodes := []schema.Node{}
+	edges := []schema.Edge{}
+	for i := 0; i < 27; i++ {
+		nodes = append(nodes,
+			schema.Node{ID: fmt.Sprintf("s%02d", i), Label: fmt.Sprintf("S%02d", i)},
+			schema.Node{ID: fmt.Sprintf("t%02d", i), Label: fmt.Sprintf("T%02d", i)},
+		)
+		edges = append(edges, schema.Edge{
+			Source: fmt.Sprintf("s%02d", i), Target: fmt.Sprintf("t%02d", i),
+			Relation: "calls", Confidence: schema.Ambiguous,
+		})
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, Options{Nodes: nodes, Edges: edges})
+	s := string(out)
+	if !contains(s, "_… 2 more_") {
+		t.Fatalf("overflow line should report 2 hidden edges: %s", s)
+	}
+	// Count "- S" lines under the Ambiguous Edges section as a proxy.
+	count := 0
+	idx := indexOf(s, "## Ambiguous Edges")
+	if idx < 0 {
+		t.Fatal("section missing")
+	}
+	for i := idx; i+3 < len(s); i++ {
+		if s[i] == '\n' && s[i+1] == '-' && s[i+2] == ' ' && s[i+3] == 'S' {
+			count++
+		}
+	}
+	if count != 25 {
+		t.Fatalf("expected 25 listed ambiguous edges (cap), got %d", count)
+	}
+}
+
+func TestRenderReportCommunityLabelsOverride(t *testing.T) {
+	// Populated CommunityLabels must replace "Community <id>" in both
+	// Communities and Community Hubs section headings.
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "a", Label: "A", Community: "1"},
+			{ID: "b", Label: "B", Community: "1"},
+			{ID: "c", Label: "C", Community: "2"},
+			{ID: "d", Label: "D", Community: "2"},
+		},
+		Edges:           []schema.Edge{{Source: "a", Target: "b"}, {Source: "c", Target: "d"}},
+		CommunityLabels: map[string]string{"1": "Auth Layer", "2": "Storage Layer"},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	s := string(out)
+	if !contains(s, "Auth Layer") || !contains(s, "Storage Layer") {
+		t.Fatalf("custom labels not applied: %s", s)
+	}
+	if contains(s, "Community 1") || contains(s, "Community 2") {
+		t.Fatalf("default community names leaked despite override: %s", s)
+	}
+}
+
+func TestRenderReportKnowledgeGapsOmittedWhenClean(t *testing.T) {
+	// All-zero state: section should not appear.
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "a", Label: "A", Community: "1"},
+			{ID: "b", Label: "B", Community: "1"},
+		},
+		Edges: []schema.Edge{{Source: "a", Target: "b", Confidence: schema.Extracted}},
+	}
+	out, _ := RenderWithOptions(analyze.Report{
+		ConfidenceSummary: map[schema.Confidence]int{schema.Extracted: 1},
+	}, opts)
+	if contains(string(out), "## Knowledge Gaps") {
+		t.Fatalf("section should be omitted when isolated=0 thin=0 ambiguous=0: %s", out)
+	}
+}
+
+func TestRenderReportThinCommunityMinCustom(t *testing.T) {
+	// ThinCommunityMin=3 should filter out a 2-member community.
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "a", Label: "A", Community: "small"},
+			{ID: "b", Label: "B", Community: "small"},
+			{ID: "x", Label: "X", Community: "big"},
+			{ID: "y", Label: "Y", Community: "big"},
+			{ID: "z", Label: "Z", Community: "big"},
+		},
+		ThinCommunityMin: 3,
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	s := string(out)
+	if !contains(s, "Community big") {
+		t.Fatalf("3-member community missing: %s", s)
+	}
+	if contains(s, "Community small") {
+		t.Fatalf("2-member community should be filtered when ThinCommunityMin=3: %s", s)
+	}
+}
+
+func TestRenderReportCommunityHubsDeterministicOrder(t *testing.T) {
+	// Multiple communities — must appear in sorted-ID order so report
+	// diffs stay clean across runs.
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "a1", Label: "A1", Community: "zeta"},
+			{ID: "a2", Label: "A2", Community: "zeta"},
+			{ID: "b1", Label: "B1", Community: "alpha"},
+			{ID: "b2", Label: "B2", Community: "alpha"},
+			{ID: "c1", Label: "C1", Community: "mid"},
+			{ID: "c2", Label: "C2", Community: "mid"},
+		},
+		Edges: []schema.Edge{
+			{Source: "a1", Target: "a2"},
+			{Source: "b1", Target: "b2"},
+			{Source: "c1", Target: "c2"},
+		},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	s := string(out)
+	hubStart := indexOf(s, "## Community Hubs")
+	if hubStart < 0 {
+		t.Fatal("Community Hubs section missing")
+	}
+	hubBody := s[hubStart:]
+	ialpha := indexOf(hubBody, "Community alpha")
+	imid := indexOf(hubBody, "Community mid")
+	izeta := indexOf(hubBody, "Community zeta")
+	if !(ialpha < imid && imid < izeta) {
+		t.Fatalf("community hubs not in sorted-ID order: alpha=%d mid=%d zeta=%d in %s", ialpha, imid, izeta, hubBody)
 	}
 }

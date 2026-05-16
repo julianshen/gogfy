@@ -308,8 +308,13 @@ func writeKnowledgeGaps(b *bytes.Buffer, r analyze.Report, opts Options, degree 
 			thinCount++
 		}
 	}
-	ambiguous := r.ConfidenceSummary[schema.Ambiguous]
-	if ambiguous == 0 {
+	// Trust the analyze.Report summary when it's populated — a present
+	// map with Ambiguous=0 is an authoritative "no ambiguous edges",
+	// not missing data. Only re-scan when the summary wasn't computed.
+	ambiguous := 0
+	if len(r.ConfidenceSummary) > 0 {
+		ambiguous = r.ConfidenceSummary[schema.Ambiguous]
+	} else {
 		for _, e := range opts.Edges {
 			if e.Confidence == schema.Ambiguous {
 				ambiguous++
