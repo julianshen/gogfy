@@ -50,8 +50,11 @@ func (c *Cache) ChangedFiles(files []string) ([]string, error) {
 		entry, hasEntry := prev[f]
 		if hasEntry {
 			info, statErr := os.Stat(f)
+			// The `MTime != 0` guard rejects legacy-upgraded entries from
+			// the fast path. A real file with mtime == epoch (Unix 0)
+			// will pay the hash cost on every run; vanishingly rare in
+			// practice, and ambiguous with "no trustworthy mtime."
 			if statErr == nil && info.ModTime().UnixNano() == entry.MTime && entry.MTime != 0 {
-				// Fast path: mtime unchanged → no hash needed.
 				continue
 			}
 		}
