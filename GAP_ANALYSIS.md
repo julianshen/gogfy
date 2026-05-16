@@ -96,7 +96,7 @@
 | Java cross-file import resolution | **Done (scope-aware)** | Same resolver — applies to any extractor emitting `<lang>:module:<filepath>` + `imports` edges. |
 | JS/TS path alias resolution | Missing | Upstream resolves tsconfig path aliases |
 | Call graph depth | Partial | gogfy extracts calls as synthetic targets; upstream has richer call-graph with package-qualified vs receiver distinction in some languages |
-| Docstring/rationale extraction | Missing | Upstream extracts `# NOTE:`, `# IMPORTANT:`, `# HACK:` etc. as rationale edges |
+| Docstring/rationale extraction | **Done (comments only)** | `internal/rationale.Extract` post-pass surfaces NOTE/IMPORTANT/HACK/WHY/RATIONALE/TODO/FIXME/XXX/WARNING comments across `#`, `//`, `--`, `/*` markers as `rationale_for` edges to the file's module node. Language-agnostic regex scan; per-function docstring attribution deferred. |
 | Semantic extraction (LLM) | Missing | Upstream has full LLM pipeline for docs/papers/images; gogfy is AST-only |
 | Hyperedges | Missing | Upstream generates hyperedges from semantic extraction |
 | Token tracking | Missing | Upstream tracks input/output tokens per extraction |
