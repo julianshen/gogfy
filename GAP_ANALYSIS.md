@@ -92,8 +92,8 @@
 ### 2.2 Extraction
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
-| Python cross-file import resolution | Partial | gogfy emits `py:call:<name>` synthetic targets; upstream does two-pass resolution for `from .X import Name` → INFERRED `uses` edges |
-| Java cross-file import resolution | Partial | Same gap — upstream has two-pass for `import a.b.C` → EXTRACTED edges |
+| Python cross-file import resolution | **Done (scope-aware)** | `resolve.Calls` builds per-file import scope (bare-name + dotted-root) and narrows AMBIGUOUS fan-outs to candidates whose source-file stem matches an imported module. Multi-candidate calls upgrade to INFERRED only when the narrowing yields exactly one match. |
+| Java cross-file import resolution | **Done (scope-aware)** | Same resolver — applies to any extractor emitting `<lang>:module:<filepath>` + `imports` edges. |
 | JS/TS path alias resolution | Missing | Upstream resolves tsconfig path aliases |
 | Call graph depth | Partial | gogfy extracts calls as synthetic targets; upstream has richer call-graph with package-qualified vs receiver distinction in some languages |
 | Docstring/rationale extraction | Missing | Upstream extracts `# NOTE:`, `# IMPORTANT:`, `# HACK:` etc. as rationale edges |
