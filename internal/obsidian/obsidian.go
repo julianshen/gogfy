@@ -88,6 +88,12 @@ func Generate(nodes []schema.Node, edges []schema.Edge, opts Options) (int, erro
 // buildFilenames assigns each node a vault-safe, unique filename. Same
 // label → suffix `_1`, `_2`, … in node-iteration order. Falls back to
 // "unnamed" if sanitization strips everything.
+//
+// The collision check is case-insensitive so two labels that differ only
+// in case (Foo vs foo) don't both produce "Foo.md"/"foo.md" — on
+// case-insensitive filesystems (macOS APFS, Windows NTFS) WriteFileAtomic
+// would otherwise silently clobber one of them and leave a dangling
+// wikilink in every note that referenced the loser.
 func buildFilenames(nodes []schema.Node) map[string]string {
 	out := make(map[string]string, len(nodes))
 	seen := map[string]int{}
@@ -96,15 +102,36 @@ func buildFilenames(nodes []schema.Node) map[string]string {
 		if base == "" {
 			base = "unnamed"
 		}
-		if _, dup := seen[base]; dup {
-			seen[base]++
-			out[n.ID] = fmt.Sprintf("%s_%d", base, seen[base])
+		base = escapeReservedBasename(base)
+		key := strings.ToLower(base)
+		if _, dup := seen[key]; dup {
+			seen[key]++
+			out[n.ID] = fmt.Sprintf("%s_%d", base, seen[key])
 		} else {
-			seen[base] = 0
+			seen[key] = 0
 			out[n.ID] = base
 		}
 	}
 	return out
+}
+
+// windowsReserved are basenames Windows refuses to open regardless of
+// extension. A node labeled "CON" or "aux" would silently fail the
+// atomic write on Windows; suffix with "_" so the name is taken
+// off the reserved list while staying readable.
+var windowsReserved = map[string]struct{}{
+	"con": {}, "prn": {}, "aux": {}, "nul": {},
+	"com1": {}, "com2": {}, "com3": {}, "com4": {}, "com5": {},
+	"com6": {}, "com7": {}, "com8": {}, "com9": {},
+	"lpt1": {}, "lpt2": {}, "lpt3": {}, "lpt4": {}, "lpt5": {},
+	"lpt6": {}, "lpt7": {}, "lpt8": {}, "lpt9": {},
+}
+
+func escapeReservedBasename(s string) string {
+	if _, ok := windowsReserved[strings.ToLower(s)]; ok {
+		return s + "_"
+	}
+	return s
 }
 
 // unsafeChars matches characters that are illegal in Obsidian filenames

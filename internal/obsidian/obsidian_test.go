@@ -160,3 +160,153 @@ func TestGenerateUsesCommunityLabels(t *testing.T) {
 		t.Fatalf("expected _COMMUNITY_Auth Layer.md (custom label), got %v", matches)
 	}
 }
+
+func TestGenerateEmptyInputNoOps(t *testing.T) {
+	dir := t.TempDir()
+	count, err := Generate(nil, nil, Options{OutDir: dir})
+	if err != nil {
+		t.Fatalf("empty input should not error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("empty input should write 0 notes, got %d", count)
+	}
+}
+
+func TestGenerateCaseInsensitiveCollision(t *testing.T) {
+	// Foo / foo must produce distinct files even on case-insensitive
+	// filesystems (macOS APFS, Windows NTFS) — otherwise WriteFileAtomic
+	// silently clobbers one and leaves dangling wikilinks.
+	dir := t.TempDir()
+	nodes := []schema.Node{
+		{ID: "a", Label: "Foo", Community: "1"},
+		{ID: "b", Label: "foo", Community: "1"},
+	}
+	if _, err := Generate(nodes, nil, Options{OutDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(dir)
+	got := 0
+	for _, e := range entries {
+		if strings.EqualFold(e.Name(), "foo.md") || strings.HasPrefix(strings.ToLower(e.Name()), "foo_") {
+			got++
+		}
+	}
+	if got < 2 {
+		t.Fatalf("expected 2 distinct files for case-only collision, got %d (entries=%v)", got, entries)
+	}
+}
+
+func TestGenerateWindowsReservedBasename(t *testing.T) {
+	// Labels matching Windows reserved basenames (CON, AUX, NUL, …) must
+	// be suffixed so the atomic write can succeed cross-platform.
+	dir := t.TempDir()
+	nodes := []schema.Node{
+		{ID: "a", Label: "CON", Community: "1"},
+	}
+	if _, err := Generate(nodes, nil, Options{OutDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "CON_.md")); err != nil {
+		t.Fatalf("reserved basename should be suffixed with _: %v", err)
+	}
+}
+
+func TestGenerateThreeWayCollisionDedup(t *testing.T) {
+	dir := t.TempDir()
+	nodes := []schema.Node{
+		{ID: "a", Label: "Helper", Community: "1"},
+		{ID: "b", Label: "Helper", Community: "1"},
+		{ID: "c", Label: "Helper", Community: "1"},
+	}
+	if _, err := Generate(nodes, nil, Options{OutDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Helper.md", "Helper_1.md", "Helper_2.md"} {
+		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
+			t.Errorf("expected %s: %v", want, err)
+		}
+	}
+}
+
+func TestGenerateDominantConfidenceTieBreak(t *testing.T) {
+	// Auth has 2 Inferred + 2 Extracted edges. Tie-break is alphabetic
+	// on the string ("AMBIGUOUS" < "EXTRACTED" < "INFERRED"), so the
+	// dominant confidence is "EXTRACTED" — visible as graphify/EXTRACTED.
+	dir := t.TempDir()
+	nodes := []schema.Node{
+		{ID: "a", Label: "Auth", Community: "1"},
+		{ID: "b", Label: "B", Community: "1"},
+		{ID: "c", Label: "C", Community: "1"},
+		{ID: "d", Label: "D", Community: "1"},
+		{ID: "e", Label: "E", Community: "1"},
+	}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b", Confidence: schema.Extracted},
+		{Source: "a", Target: "c", Confidence: schema.Extracted},
+		{Source: "a", Target: "d", Confidence: schema.Inferred},
+		{Source: "a", Target: "e", Confidence: schema.Inferred},
+	}
+	if _, err := Generate(nodes, edges, Options{OutDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	auth, _ := os.ReadFile(filepath.Join(dir, "Auth.md"))
+	if !strings.Contains(string(auth), "graphify/EXTRACTED") {
+		t.Fatalf("tie-break should yield alphabetically smallest confidence (EXTRACTED): %s", auth)
+	}
+}
+
+func TestGenerateObsidianTagFoldsSpacesInLabels(t *testing.T) {
+	// Community names with spaces must be foldable to Obsidian tag
+	// syntax (no spaces). Both the inline tag and the Dataview block
+	// must use the underscore form.
+	dir := t.TempDir()
+	nodes := []schema.Node{
+		{ID: "a", Label: "A", Community: "1"},
+		{ID: "b", Label: "B", Community: "1"},
+	}
+	if _, err := Generate(nodes, nil, Options{
+		OutDir:          dir,
+		CommunityLabels: map[string]string{"1": "Auth Layer"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := os.ReadFile(filepath.Join(dir, "A.md"))
+	if !strings.Contains(string(a), "#community/Auth_Layer") {
+		t.Fatalf("space in community name must fold to underscore in inline tag: %s", a)
+	}
+	overview, _ := os.ReadFile(filepath.Join(dir, "_COMMUNITY_Auth Layer.md"))
+	if !strings.Contains(string(overview), "#community/Auth_Layer") {
+		t.Fatalf("Dataview FROM clause must use underscore-form tag: %s", overview)
+	}
+}
+
+func TestGenerateCrossCommunityEdgeCountOrdering(t *testing.T) {
+	// Community 1 has more edges to community 3 than to community 2.
+	// Output must order Connections-to-other by count desc.
+	dir := t.TempDir()
+	nodes := []schema.Node{
+		{ID: "a1", Label: "A1", Community: "1"},
+		{ID: "a2", Label: "A2", Community: "1"},
+		{ID: "b1", Label: "B1", Community: "2"},
+		{ID: "b2", Label: "B2", Community: "2"},
+		{ID: "c1", Label: "C1", Community: "3"},
+		{ID: "c2", Label: "C2", Community: "3"},
+	}
+	edges := []schema.Edge{
+		{Source: "a1", Target: "b1"},                                  // 1→2: 1 edge
+		{Source: "a1", Target: "c1"}, {Source: "a2", Target: "c2"},    // 1→3: 2 edges
+	}
+	if _, err := Generate(nodes, edges, Options{OutDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(filepath.Join(dir, "_COMMUNITY_Community 1.md"))
+	s := string(body)
+	c3Idx := strings.Index(s, "[[_COMMUNITY_Community 3]]")
+	c2Idx := strings.Index(s, "[[_COMMUNITY_Community 2]]")
+	if c3Idx < 0 || c2Idx < 0 {
+		t.Fatalf("cross-community links missing: %s", s)
+	}
+	if c3Idx > c2Idx {
+		t.Fatalf("community 3 (2 edges) must appear before community 2 (1 edge) in count-desc order: %s", s)
+	}
+}
