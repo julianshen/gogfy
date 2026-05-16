@@ -1417,11 +1417,8 @@ func wikiCommand(args []string, stderr io.Writer) error {
 		dir = filepath.Join(filepath.Dir(graphPath), "wiki")
 	}
 	r := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
-	// Auto-load .graphify_labels.json from the graph directory if
-	// present, so wiki articles get human-readable community names
-	// without an extra CLI flag. Missing file is non-fatal — the wiki
-	// falls back to "Community <N>" naming.
-	labelsPath := filepath.Join(filepath.Dir(graphPath), ".graphify_labels.json")
+	// Missing labels file is non-fatal: wiki falls back to "Community <N>".
+	labelsPath := filepath.Join(filepath.Dir(graphPath), labels.DefaultFilename)
 	communityLabels, err := labels.Load(labelsPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -1437,10 +1434,8 @@ func wikiCommand(args []string, stderr io.Writer) error {
 	return nil
 }
 
-// labelsCommand derives human-readable community labels from a clustered
-// graph.json and writes them to `.graphify_labels.json` next to the graph
-// (or to --out). Existing file is preserved unless --force is set, so
-// hand-edited labels survive re-runs.
+// labelsCommand refuses to overwrite an existing file without --force so
+// hand-edited community names survive re-runs.
 func labelsCommand(args []string, stderr io.Writer) error {
 	ordered, err := reorderFlags(args, []string{"out"}, []string{"force"})
 	if err != nil {
@@ -1448,7 +1443,7 @@ func labelsCommand(args []string, stderr io.Writer) error {
 	}
 	fs := flag.NewFlagSet("labels", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	outPath := fs.String("out", "", ".graphify_labels.json output path (defaults to <graph-dir>/.graphify_labels.json)")
+	outPath := fs.String("out", "", labels.DefaultFilename+" output path (defaults to <graph-dir>/"+labels.DefaultFilename+")")
 	force := fs.Bool("force", false, "overwrite an existing labels file (default: refuse so hand-edits survive)")
 	if err := fs.Parse(ordered); err != nil {
 		return err
@@ -1463,7 +1458,7 @@ func labelsCommand(args []string, stderr io.Writer) error {
 	}
 	path := *outPath
 	if path == "" {
-		path = filepath.Join(filepath.Dir(graphPath), ".graphify_labels.json")
+		path = filepath.Join(filepath.Dir(graphPath), labels.DefaultFilename)
 	}
 	if !*force {
 		if _, statErr := os.Stat(path); statErr == nil {
