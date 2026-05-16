@@ -126,7 +126,7 @@
 | Cross-file vs single-source modes | Missing | Upstream switches between `_cross_file_surprises` and `_cross_community_surprises` based on corpus size |
 | Suggested questions | **Done** | All 7 upstream types covered: god-node role, ambiguous_edge, verify_inferred, isolated_nodes, low_cohesion (threshold-aligned with cluster splitter), no_signal (empty/edgeless graph short-circuit), community-bridge. Per-category budget prevents one type from crowding out others. |
 | Graph diff | Missing | Upstream can compare two graph snapshots |
-| Betweenness centrality | Missing | Upstream uses bridge node detection via betweenness |
+| Betweenness centrality | **Done** | `internal/centrality.Betweenness` ports Brandes' O(V·E) algorithm (undirected, dedup self-loops/parallels, dangling-ref-safe). `analyze.Report.BridgeNodes` surfaces top-3 by score with deterministic tie-break; report writes a `## Bridge Nodes` section when non-empty. |
 
 ### 2.6 Report
 | Feature | Status | What's Missing |
