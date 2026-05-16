@@ -143,7 +143,7 @@
 |---------|--------|----------------|
 | HTML viewer | Partial | gogfy has SVG force-directed with search, click-to-inspect, community filter, AND aggregated community view above 1000 nodes (renders meta-graph with weighted cross-community edges so big repos stay navigable). Still missing: vis.js physics, hyperedge rendering (hyperedges not modeled). |
 | Obsidian vault export | **Done (v1)** | `gogfy obsidian` writes per-node .md with YAML frontmatter + [[wikilinks]] + tags (graphify/{type,confidence}, community/{name}); per-community `_COMMUNITY_<name>.md` with Members + Dataview query + cross-community connections. Auto-loads `.graphify_labels.json`. v1 omits: cohesion-strength descriptor, top-bridge-nodes block, `.obsidian/graph.json` color config, canvas export. |
-| Obsidian Canvas | Missing | Upstream generates .canvas file with community groups |
+| Obsidian Canvas | **Done** | `obsidian.Canvas` writes `graph.canvas` alongside the vault: communities as colored groups in a √N×√N grid, member nodes as 180×60 file cards (3 per row), capped at 200 edges with relation+confidence labels. Opens in Obsidian as an infinite canvas. |
 | SVG static export | Missing | Upstream has matplotlib-based static SVG |
 | Neo4j direct push | Missing | Upstream can push directly to Neo4j via Python driver |
 | Callflow HTML | **Done (v1)** | gogfy `callflow` subcommand: section-level overview + per-section Mermaid LR. v1 omits bilingual/labels-file/GRAPH_REPORT integration. |
