@@ -142,7 +142,7 @@
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
 | HTML viewer | Partial | gogfy has SVG force-directed; upstream has vis.js with search, click-to-inspect, community filter, physics, hyperedge rendering, aggregated community view for large graphs |
-| Obsidian vault export | Missing | Upstream generates full vault with .md per node, wikilinks, YAML frontmatter, tags, Dataview queries, community overviews, .obsidian/graph.json config |
+| Obsidian vault export | **Done (v1)** | `gogfy obsidian` writes per-node .md with YAML frontmatter + [[wikilinks]] + tags (graphify/{type,confidence}, community/{name}); per-community `_COMMUNITY_<name>.md` with Members + Dataview query + cross-community connections. Auto-loads `.graphify_labels.json`. v1 omits: cohesion-strength descriptor, top-bridge-nodes block, `.obsidian/graph.json` color config, canvas export. |
 | Obsidian Canvas | Missing | Upstream generates .canvas file with community groups |
 | SVG static export | Missing | Upstream has matplotlib-based static SVG |
 | Neo4j direct push | Missing | Upstream can push directly to Neo4j via Python driver |
