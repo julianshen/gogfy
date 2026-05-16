@@ -94,7 +94,7 @@
 |---------|--------|----------------|
 | Python cross-file import resolution | **Done (scope-aware)** | `resolve.Calls` builds per-file import scope (bare-name + dotted-root) and narrows AMBIGUOUS fan-outs to candidates whose source-file stem matches an imported module. Multi-candidate calls upgrade to INFERRED only when the narrowing yields exactly one match. |
 | Java cross-file import resolution | **Done (scope-aware)** | Same resolver — applies to any extractor emitting `<lang>:module:<filepath>` + `imports` edges. |
-| JS/TS path alias resolution | Missing | Upstream resolves tsconfig path aliases |
+| JS/TS path alias resolution | **Done** | `internal/tsalias.Load` reads `tsconfig.json` / `jsconfig.json` `compilerOptions.paths` + `baseUrl`; `Apply` rewrites `js:import:` / `ts:import:` node IDs (and edges that target them) to resolved filesystem paths. Missing config is non-fatal. Wired into runPipeline after Build and before resolve.Calls. |
 | Call graph depth | Partial | gogfy extracts calls as synthetic targets; upstream has richer call-graph with package-qualified vs receiver distinction in some languages |
 | Docstring/rationale extraction | **Done (comments only)** | `internal/rationale.Extract` post-pass surfaces NOTE/IMPORTANT/HACK/WHY/RATIONALE/TODO/FIXME/XXX/WARNING comments across `#`, `//`, `--`, `/*` markers as `rationale_for` edges to the file's module node. Language-agnostic regex scan; per-function docstring attribution deferred. |
 | Semantic extraction (LLM) | Missing | Upstream has full LLM pipeline for docs/papers/images; gogfy is AST-only |
