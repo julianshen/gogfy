@@ -1560,14 +1560,26 @@ func obsidianCommand(args []string, stderr io.Writer) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	count, err := obsidian.Generate(g.Nodes, g.Edges, obsidian.Options{
+	opts := obsidian.Options{
 		OutDir:          dir,
 		CommunityLabels: communityLabels,
-	})
+	}
+	count, err := obsidian.Generate(g.Nodes, g.Edges, opts)
 	if err != nil {
 		return fmt.Errorf("obsidian: %w", err)
 	}
-	fmt.Fprintf(stderr, "obsidian: wrote %d notes to %s\n", count, dir)
+	// Companion .canvas file: opens in Obsidian as an infinite canvas
+	// with community-colored groups. Written alongside the vault so a
+	// single `obsidian` invocation produces both artifacts.
+	canvas, err := obsidian.Canvas(g.Nodes, g.Edges, opts)
+	if err != nil {
+		return fmt.Errorf("obsidian canvas: %w", err)
+	}
+	canvasPath := filepath.Join(dir, "graph.canvas")
+	if err := fsutil.WriteFileAtomic(canvasPath, canvas, 0644); err != nil {
+		return fmt.Errorf("obsidian canvas write: %w", err)
+	}
+	fmt.Fprintf(stderr, "obsidian: wrote %d notes + graph.canvas to %s\n", count, dir)
 	return nil
 }
 
