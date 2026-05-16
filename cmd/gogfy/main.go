@@ -1434,8 +1434,6 @@ func wikiCommand(args []string, stderr io.Writer) error {
 	return nil
 }
 
-// labelsCommand refuses to overwrite an existing file without --force so
-// hand-edited community names survive re-runs.
 func labelsCommand(args []string, stderr io.Writer) error {
 	ordered, err := reorderFlags(args, []string{"out"}, []string{"force"})
 	if err != nil {

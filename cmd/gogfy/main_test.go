@@ -1427,3 +1427,26 @@ func TestDispatchLabelsAndWikiAutoload(t *testing.T) {
 		t.Fatalf("none of the labels %+v appeared in index.md", m)
 	}
 }
+
+func TestDispatchLabelsCustomOutPath(t *testing.T) {
+	// Pins the --out flag against silent default-path regressions
+	// (groupWikiFlags-style reordering refactors could break this).
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(out, "graph.json")
+	custom := filepath.Join(t.TempDir(), "elsewhere", "names.json")
+
+	var stdout, stderr bytes.Buffer
+	if err := dispatchTo(t, []string{"labels", graphPath, "--out", custom}, &stdout, &stderr); err != nil {
+		t.Fatalf("labels --out: %v\nstderr: %s", err, stderr.String())
+	}
+	if _, err := os.Stat(custom); err != nil {
+		t.Fatalf("--out file not written at %s: %v", custom, err)
+	}
+	// Must not have also written the default location.
+	if _, err := os.Stat(filepath.Join(out, ".graphify_labels.json")); err == nil {
+		t.Fatal("default labels file should not exist when --out was provided")
+	}
+}
