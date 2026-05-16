@@ -3,6 +3,7 @@ package export
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,4 +206,70 @@ func TestExportHTMLEscapesPayloadSafely(t *testing.T) {
 	if strings.Contains(string(data), "</script><script>alert(1)</script>") {
 		t.Fatal("hostile label appeared verbatim — JSON encoder must escape `</script>` sequences")
 	}
+}
+
+func TestExportHTMLAggregatesLargeGraphIntoCommunityMetaGraph(t *testing.T) {
+	// Above the node-count limit, the viewer collapses each community
+	// into a single meta-node so the visualization stays navigable on
+	// big repos. Edge counts between communities aggregate as weights.
+	g := GraphExport{}
+	for i := 0; i < 10; i++ {
+		g.Nodes = append(g.Nodes, schema.Node{
+			ID: fmt.Sprintf("a%d", i), Label: fmt.Sprintf("A%d", i), Community: "A",
+		})
+		g.Nodes = append(g.Nodes, schema.Node{
+			ID: fmt.Sprintf("b%d", i), Label: fmt.Sprintf("B%d", i), Community: "B",
+		})
+	}
+	// Two cross-community edges between A and B.
+	g.Edges = []schema.Edge{
+		{Source: "a0", Target: "b0", Relation: "calls"},
+		{Source: "a1", Target: "b1", Relation: "calls"},
+	}
+	data, err := ExportHTML(g, HTMLOptions{MaxNodes: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(data)
+	// Aggregated meta-graph should have ~2 community nodes, not 20.
+	// Pin via the embedded JSON: the payload should NOT contain
+	// every "A%d"/"B%d" label, since they're collapsed.
+	if strings.Contains(html, `"A5"`) {
+		t.Fatalf("aggregation didn't kick in — original labels still present")
+	}
+	if !strings.Contains(html, "Community A") || !strings.Contains(html, "Community B") {
+		t.Fatalf("aggregated meta-nodes should be labeled by community: %s", excerpt(html, 200))
+	}
+}
+
+func TestExportHTMLBelowLimitRendersFullGraph(t *testing.T) {
+	g := GraphExport{
+		Nodes: []schema.Node{{ID: "a", Label: "AliceLabel", Community: "1"}},
+	}
+	data, _ := ExportHTML(g, HTMLOptions{MaxNodes: 100})
+	if !strings.Contains(string(data), "AliceLabel") {
+		t.Fatal("small graph must render with original labels (no aggregation)")
+	}
+}
+
+func TestExportHTMLDefaultMaxNodesDoesNotAggregateModerateGraphs(t *testing.T) {
+	// Zero MaxNodes → default. A graph of 50 nodes is small enough
+	// that no aggregation should fire.
+	g := GraphExport{}
+	for i := 0; i < 50; i++ {
+		g.Nodes = append(g.Nodes, schema.Node{
+			ID: fmt.Sprintf("n%d", i), Label: fmt.Sprintf("N%d", i), Community: "X",
+		})
+	}
+	data, _ := ExportHTML(g, HTMLOptions{})
+	if !strings.Contains(string(data), `"N25"`) {
+		t.Fatal("default limit should accommodate 50-node graphs without aggregation")
+	}
+}
+
+func excerpt(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
 }

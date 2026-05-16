@@ -141,7 +141,7 @@
 ### 2.7 Export
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
-| HTML viewer | Partial | gogfy has SVG force-directed; upstream has vis.js with search, click-to-inspect, community filter, physics, hyperedge rendering, aggregated community view for large graphs |
+| HTML viewer | Partial | gogfy has SVG force-directed with search, click-to-inspect, community filter, AND aggregated community view above 1000 nodes (renders meta-graph with weighted cross-community edges so big repos stay navigable). Still missing: vis.js physics, hyperedge rendering (hyperedges not modeled). |
 | Obsidian vault export | **Done (v1)** | `gogfy obsidian` writes per-node .md with YAML frontmatter + [[wikilinks]] + tags (graphify/{type,confidence}, community/{name}); per-community `_COMMUNITY_<name>.md` with Members + Dataview query + cross-community connections. Auto-loads `.graphify_labels.json`. v1 omits: cohesion-strength descriptor, top-bridge-nodes block, `.obsidian/graph.json` color config, canvas export. |
 | Obsidian Canvas | Missing | Upstream generates .canvas file with community groups |
 | SVG static export | Missing | Upstream has matplotlib-based static SVG |
