@@ -1450,3 +1450,36 @@ func TestDispatchLabelsCustomOutPath(t *testing.T) {
 		t.Fatal("default labels file should not exist when --out was provided")
 	}
 }
+
+func TestDispatchObsidian(t *testing.T) {
+	out := t.TempDir()
+	if err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	graphPath := filepath.Join(out, "graph.json")
+	vault := filepath.Join(t.TempDir(), "vault")
+
+	var stdout, stderr bytes.Buffer
+	if err := dispatchTo(t, []string{"obsidian", graphPath, "--out", vault}, &stdout, &stderr); err != nil {
+		t.Fatalf("obsidian: %v\nstderr: %s", err, stderr.String())
+	}
+	// At least one per-node .md and one community overview must exist.
+	entries, err := os.ReadDir(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasNode, hasCommunity := false, false
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "_COMMUNITY_") {
+			hasCommunity = true
+		} else if strings.HasSuffix(e.Name(), ".md") {
+			hasNode = true
+		}
+	}
+	if !hasNode {
+		t.Fatalf("vault has no per-node notes: %v", entries)
+	}
+	if !hasCommunity {
+		t.Fatalf("vault has no _COMMUNITY_*.md notes: %v", entries)
+	}
+}

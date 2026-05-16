@@ -40,6 +40,7 @@ import (
 	"errors"
 
 	"github.com/julianshen/gogfy/internal/labels"
+	"github.com/julianshen/gogfy/internal/obsidian"
 	"github.com/julianshen/gogfy/internal/wiki"
 )
 
@@ -129,6 +130,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return wikiCommand(rest, stderr)
 	case "labels":
 		return labelsCommand(rest, stderr)
+	case "obsidian":
+		return obsidianCommand(rest, stderr)
 	case "tree":
 		return treeCommand(rest, stderr)
 	case "benchmark":
@@ -293,6 +296,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy labels <graph.json> [--out <path>] [--force]")
+	fmt.Fprintln(w, "       gogfy obsidian <graph.json> [--out <vault-dir>]")
 	fmt.Fprintln(w, "       gogfy tree <graph.json> [--out <html-path>]")
 	fmt.Fprintln(w, "       gogfy benchmark <graph.json> [--corpus-words N] [--depth D] [--json]")
 	fmt.Fprintln(w, "       gogfy callflow <graph.json> [--out <html-path>] [--max-sections N] [--max-nodes M] [--max-edges E] [--project NAME]")
@@ -1490,6 +1494,48 @@ func labelsCommand(args []string, stderr io.Writer) error {
 // groupWikiFlags reorders `gogfy wiki <graph.json> [--out <dir>]` args
 // so the positional graph path can appear before --out without losing
 // the flag to Go's stop-at-first-positional parser.
+// obsidianCommand turns a clustered graph.json into an Obsidian vault.
+// Auto-loads `.graphify_labels.json` adjacent to the graph so community
+// notes use the same names as the wiki.
+func obsidianCommand(args []string, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"out"}, nil)
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("obsidian", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outDir := fs.String("out", "", "vault output directory (defaults to <graph-dir>/obsidian/)")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("obsidian: expected <graph.json>, got %d positional argument(s)", fs.NArg())
+	}
+	graphPath := fs.Arg(0)
+	g, err := loadGraph(graphPath)
+	if err != nil {
+		return err
+	}
+	dir := *outDir
+	if dir == "" {
+		dir = filepath.Join(filepath.Dir(graphPath), "obsidian")
+	}
+	// Missing labels file is non-fatal: vault falls back to "Community N".
+	communityLabels, err := labels.Load(filepath.Join(filepath.Dir(graphPath), labels.DefaultFilename))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	count, err := obsidian.Generate(g.Nodes, g.Edges, obsidian.Options{
+		OutDir:          dir,
+		CommunityLabels: communityLabels,
+	})
+	if err != nil {
+		return fmt.Errorf("obsidian: %w", err)
+	}
+	fmt.Fprintf(stderr, "obsidian: wrote %d notes to %s\n", count, dir)
+	return nil
+}
+
 func groupWikiFlags(args []string) ([]string, error) {
 	return reorderFlags(args, []string{"out"}, nil)
 }
