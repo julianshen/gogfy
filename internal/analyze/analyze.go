@@ -179,31 +179,15 @@ func buildQuestions(
 		}
 	}
 
-	// Ambiguous (pinned uncertainty) and Inferred (verify) edges share
-	// the same lookup; one pass with two counters keeps them separable
-	// but avoids walking the edge list twice.
-	var ambigCount, inferCount int
-	for _, e := range edges {
-		if ambigCount >= perCategoryBudget && inferCount >= perCategoryBudget {
-			break
-		}
-		s, t := labelOrID(nodeMap[e.Source]), labelOrID(nodeMap[e.Target])
-		if s == "" || t == "" {
-			continue
-		}
-		switch e.Confidence {
-		case schema.Ambiguous:
-			if ambigCount < perCategoryBudget {
-				qs = append(qs, "Is the ambiguous edge "+s+" "+relationOrDefault(e)+" "+t+" accurate?")
-				ambigCount++
-			}
-		case schema.Inferred:
-			if inferCount < perCategoryBudget {
-				qs = append(qs, "Verify inferred edge: does "+s+" "+relationOrDefault(e)+" "+t+"?")
-				inferCount++
-			}
-		}
-	}
+	// Ambiguous + Inferred candidates are sorted (source,target,relation)
+	// before truncation so the chosen 2 are stable across runs — input
+	// edge order from upstream may come from non-deterministic map walks.
+	ambig := sortedEdgeQuestions(edges, nodeMap, schema.Ambiguous, perCategoryBudget,
+		func(s, t, r string) string { return "Is the ambiguous edge " + s + " " + r + " " + t + " accurate?" })
+	qs = append(qs, ambig...)
+	infer := sortedEdgeQuestions(edges, nodeMap, schema.Inferred, perCategoryBudget,
+		func(s, t, r string) string { return "Verify inferred edge: does " + s + " " + r + " " + t + "?" })
+	qs = append(qs, infer...)
 
 	// Isolated nodes — degree-0 in the parsed graph. Sorted by label so
 	// output is deterministic across runs.
@@ -258,6 +242,41 @@ func buildQuestions(
 	return qs
 }
 
+// sortedEdgeQuestions filters edges by confidence and emits up to budget
+// questions in (source-label, target-label, relation) order so the output
+// is independent of input edge ordering.
+func sortedEdgeQuestions(edges []schema.Edge, nodeMap map[string]schema.Node, want schema.Confidence, budget int, render func(s, t, rel string) string) []string {
+	type cand struct{ s, t, r string }
+	var cs []cand
+	for _, e := range edges {
+		if e.Confidence != want {
+			continue
+		}
+		s, t := labelOrID(nodeMap[e.Source]), labelOrID(nodeMap[e.Target])
+		if s == "" || t == "" {
+			continue
+		}
+		cs = append(cs, cand{s, t, relationOrDefault(e)})
+	}
+	sort.Slice(cs, func(i, j int) bool {
+		if cs[i].s != cs[j].s {
+			return cs[i].s < cs[j].s
+		}
+		if cs[i].t != cs[j].t {
+			return cs[i].t < cs[j].t
+		}
+		return cs[i].r < cs[j].r
+	})
+	if len(cs) > budget {
+		cs = cs[:budget]
+	}
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = render(c.s, c.t, c.r)
+	}
+	return out
+}
+
 // lowCohesionCommunities returns community IDs whose intra-edge density
 // falls below lowCohesionThreshold. Density = intra-edges / max-possible.
 // Communities under minLowCohesionMembers are skipped — at that size the
@@ -270,15 +289,31 @@ func lowCohesionCommunities(nodes []schema.Node, edges []schema.Edge, nodeMap ma
 		}
 		community[n.Community]++
 	}
+	// Dedupe by unordered endpoint pair so reciprocal extractions
+	// (A→B + B→A) and parallel edges don't inflate intra-counts past
+	// the undirected n*(n-1)/2 max, which would skew density and let
+	// genuinely sparse communities slip past the threshold.
+	type pair struct{ a, b string }
+	seen := map[pair]struct{}{}
 	intra := map[string]int{}
 	for _, e := range edges {
 		if e.Source == e.Target {
 			continue
 		}
 		sc := nodeMap[e.Source].Community
-		if sc != "" && sc == nodeMap[e.Target].Community {
-			intra[sc]++
+		if sc == "" || sc != nodeMap[e.Target].Community {
+			continue
 		}
+		a, b := e.Source, e.Target
+		if a > b {
+			a, b = b, a
+		}
+		key := pair{a, b}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		intra[sc]++
 	}
 	var out []string
 	for cid, n := range community {
