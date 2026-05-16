@@ -755,6 +755,9 @@ var supportedExtensions = map[string]extract.Extractor{
 	".xlsx":     extract.XlsxExtractor{},
 	".pdf":      extract.PDFExtractor{},
 	".pptx":     extract.PPTXExtractor{},
+	".gdoc":     extract.GoogleWorkspaceExtractor{},
+	".gsheet":   extract.GoogleWorkspaceExtractor{},
+	".gslides":  extract.GoogleWorkspaceExtractor{},
 }
 
 func supportedExtensionsList() []string {
