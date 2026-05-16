@@ -526,3 +526,49 @@ func TestRenderReportCorpusFileTypesDeterministicOrder(t *testing.T) {
 		t.Fatalf("file types not in expected sorted order: %s", out)
 	}
 }
+
+func TestRenderReportCorpusTinyWarning(t *testing.T) {
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "a", SourceFile: "a.go"},
+			{ID: "b", SourceFile: "b.go"},
+		},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	if !contains(string(out), "Tiny corpus") {
+		t.Fatalf("expected tiny-corpus warning for 2 files: %s", out)
+	}
+}
+
+func TestRenderReportCorpusNoWarningForReasonableCorpus(t *testing.T) {
+	nodes := []schema.Node{}
+	for i := 0; i < 10; i++ {
+		nodes = append(nodes, schema.Node{ID: fmt.Sprintf("n%d", i), SourceFile: fmt.Sprintf("f%d.go", i)})
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, Options{Nodes: nodes})
+	if contains(string(out), "Tiny corpus") {
+		t.Fatalf("tiny-corpus warning should not fire at 10 files: %s", out)
+	}
+}
+
+func TestRenderReportCorpusTinyWarningBoundary(t *testing.T) {
+	// Pin the boundary: threshold is "< N", so N-1 warns and N doesn't.
+	// Avoids a future refactor flipping < to <= and silently shifting
+	// the warning by one file.
+	const N = 3 // mirror the const in report.go (kept in sync via this pin)
+	mk := func(count int) Options {
+		nodes := make([]schema.Node, 0, count)
+		for i := 0; i < count; i++ {
+			nodes = append(nodes, schema.Node{ID: fmt.Sprintf("n%d", i), SourceFile: fmt.Sprintf("f%d.go", i)})
+		}
+		return Options{Nodes: nodes}
+	}
+	belowOut, _ := RenderWithOptions(analyze.Report{}, mk(N-1))
+	if !contains(string(belowOut), "Tiny corpus") {
+		t.Fatalf("N-1=%d files should warn: %s", N-1, belowOut)
+	}
+	atOut, _ := RenderWithOptions(analyze.Report{}, mk(N))
+	if contains(string(atOut), "Tiny corpus") {
+		t.Fatalf("N=%d files should NOT warn (threshold is exclusive): %s", N, atOut)
+	}
+}

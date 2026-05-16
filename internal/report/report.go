@@ -148,6 +148,13 @@ func writeCorpus(b *bytes.Buffer, opts Options) {
 	if len(files) == 0 {
 		return
 	}
+	// Tiny-corpus warning: at this size, the source clearly fits in a
+	// single context window and a graph adds more friction than value.
+	// graphify uses a 50K-word threshold; gogfy can't cheaply count
+	// words at render time, so a small file-count proxy is the
+	// pragmatic substitute. Tuned conservative — false positives here
+	// just annoy the user with an italic line.
+	const tinyCorpusFileThreshold = 3
 	fmt.Fprintf(b, "## Corpus\n- %d files", len(files))
 	if len(exts) > 0 {
 		es := make([]string, 0, len(exts))
@@ -169,6 +176,9 @@ func writeCorpus(b *bytes.Buffer, opts Options) {
 			parts = append(parts, fmt.Sprintf("%d %s", types[k], k))
 		}
 		fmt.Fprintf(b, "- File types: %s\n", strings.Join(parts, ", "))
+	}
+	if len(files) < tinyCorpusFileThreshold {
+		fmt.Fprintf(b, "- _Tiny corpus (%d files) — likely fits in a single context window; a graph may add more friction than value._\n", len(files))
 	}
 	b.WriteString("\n")
 }

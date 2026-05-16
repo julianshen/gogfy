@@ -86,6 +86,13 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 			if _, ok := extSet[ext]; !ok {
 				return nil
 			}
+			// Silent skip for credential / secret-bearing files.
+			// graphify's policy: surfacing the existence of `.env.prod`
+			// in a public report is itself a leak — drop without
+			// logging the filename to stderr.
+			if IsSensitive(path) {
+				return nil
+			}
 			// Resolve through the guard so a hostile symlink can't redirect
 			// the eventual extractor read; on success, append the resolved
 			// path so the read goes directly to the real file (closing a
