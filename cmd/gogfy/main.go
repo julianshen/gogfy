@@ -32,6 +32,7 @@ import (
 	"github.com/julianshen/gogfy/internal/installer"
 	"github.com/julianshen/gogfy/internal/merge"
 	"github.com/julianshen/gogfy/internal/report"
+	"github.com/julianshen/gogfy/internal/rationale"
 	"github.com/julianshen/gogfy/internal/resolve"
 	"github.com/julianshen/gogfy/internal/schema"
 	"github.com/julianshen/gogfy/internal/serve"
@@ -934,6 +935,24 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 			}
 			if err := builder.AddNode(n); err != nil {
 				return fmt.Errorf("add node: %w", err)
+			}
+		}
+		// Rationale comments (NOTE/HACK/IMPORTANT/etc.) post-pass: read
+		// the source bytes once and emit rationale_for edges into the
+		// same file's module node. Best-effort — a read failure here
+		// shouldn't fail the whole pipeline since the AST extraction
+		// just succeeded.
+		if data, rerr := os.ReadFile(f); rerr == nil {
+			rNodes, rEdges := rationale.Extract(f, data)
+			for _, n := range rNodes {
+				if err := builder.AddNode(n); err != nil {
+					return fmt.Errorf("add rationale node: %w", err)
+				}
+			}
+			for _, e := range rEdges {
+				if err := builder.AddEdge(e); err != nil {
+					return fmt.Errorf("add rationale edge: %w", err)
+				}
 			}
 		}
 		for _, e := range res.Edges {
