@@ -125,9 +125,20 @@ func writeSummary(b *bytes.Buffer, r analyze.Report, opts Options) {
 func writeCorpus(b *bytes.Buffer, opts Options) {
 	files := map[string]struct{}{}
 	exts := map[string]struct{}{}
+	types := map[schema.FileType]int{}
 	for _, n := range opts.Nodes {
 		if n.SourceFile == "" {
 			continue
+		}
+		if _, dup := files[n.SourceFile]; !dup {
+			// Classify from SourceFile rather than n.FileType so the
+			// tally still works for synthetic nodes whose FileType was
+			// never populated (resolve.Calls fan-outs, dedup merges).
+			// Counts unique files, not nodes — otherwise a file with
+			// many functions would dominate the breakdown.
+			if t := schema.ClassifyFile(n.SourceFile); t != "" {
+				types[t]++
+			}
 		}
 		files[n.SourceFile] = struct{}{}
 		if e := filepath.Ext(n.SourceFile); e != "" {
@@ -146,7 +157,20 @@ func writeCorpus(b *bytes.Buffer, opts Options) {
 		sort.Strings(es)
 		fmt.Fprintf(b, " across %d language(s): %s", len(exts), strings.Join(es, ", "))
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	if len(types) > 0 {
+		kinds := make([]schema.FileType, 0, len(types))
+		for k := range types {
+			kinds = append(kinds, k)
+		}
+		sort.Slice(kinds, func(i, j int) bool { return string(kinds[i]) < string(kinds[j]) })
+		parts := make([]string, 0, len(kinds))
+		for _, k := range kinds {
+			parts = append(parts, fmt.Sprintf("%d %s", types[k], k))
+		}
+		fmt.Fprintf(b, "- File types: %s\n", strings.Join(parts, ", "))
+	}
+	b.WriteString("\n")
 }
 
 func writeGraphFreshness(b *bytes.Buffer, opts Options) {

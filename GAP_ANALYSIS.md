@@ -81,7 +81,7 @@
 |---------|--------|----------------|
 | `.graphifyignore` | Partial | Only root-level file read; upstream walks up to VCS root and layers per-directory ignore files with last-match-wins semantics |
 | `.graphifyinclude` | Missing | Upstream has allowlist for hidden files; gogfy has no equivalent |
-| File type classification | Partial | gogfy uses extension map only; upstream classifies into CODE/DOCUMENT/PAPER/IMAGE/VIDEO with heuristics (shebang, paper signals, asset dir detection) |
+| File type classification | **Done (extension-based)** | `schema.ClassifyFile` maps extensions to CODE/DOCUMENT/PAPER/IMAGE/VIDEO; `schema.Node.FileType` populated at extract boundary; Corpus report section breaks down counts by type. Shebang + paper-signal heuristics deferred. |
 | Sensitive file detection | Missing | Upstream skips .env, .pem, credentials, etc. via regex patterns |
 | Corpus size warnings | Missing | Upstream warns at 50K words (too small) and 500K words (too large) |
 | Google Workspace conversion | Missing | Upstream converts .gdoc, .gsheet, .gslides shortcuts |

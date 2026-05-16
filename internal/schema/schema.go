@@ -49,6 +49,11 @@ type Node struct {
 	SourceFile     string
 	SourceLocation string
 	Community      string
+	// FileType, when set, is derived from SourceFile's extension via
+	// ClassifyFile. Stored on the node so cross-tool consumers
+	// (callflow/wiki/report) can group/filter without re-running the
+	// classifier and so a manually-overridden value can survive.
+	FileType FileType `json:",omitempty"`
 }
 
 // Validate checks that the Node has the required fields populated.
