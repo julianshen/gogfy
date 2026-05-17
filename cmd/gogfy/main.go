@@ -34,7 +34,12 @@ import (
 	"github.com/julianshen/gogfy/internal/report"
 	"github.com/julianshen/gogfy/internal/gitmeta"
 	"github.com/julianshen/gogfy/internal/graphdiff"
+	"sync"
+
+	"github.com/julianshen/gogfy/internal/llm"
+	"github.com/julianshen/gogfy/internal/llm/anthropic"
 	"github.com/julianshen/gogfy/internal/rationale"
+	"github.com/julianshen/gogfy/internal/semantic"
 	"github.com/julianshen/gogfy/internal/resolve"
 	"github.com/julianshen/gogfy/internal/tsalias"
 	"github.com/julianshen/gogfy/internal/schema"
@@ -82,6 +87,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		emitWiki := fs.Bool("wiki", false, "also emit <out>/wiki/ (index + per-community + per-god-node markdown)")
 		emitTree := fs.Bool("tree", false, "also emit <out>/tree.html (D3 collapsible filesystem-tree view)")
 		noDedup := fs.Bool("no-dedup", false, "skip entity deduplication (faster, may produce duplicate nodes)")
+		semantic := fs.Bool("semantic", false, "extract entities from document files via LLM (requires ANTHROPIC_API_KEY)")
+		semanticBackend := fs.String("backend", "", "LLM backend when --semantic is set (default: anthropic)")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
@@ -94,13 +101,15 @@ func dispatch(args []string, stderr io.Writer) error {
 			root = fs.Arg(0)
 		}
 		return runPipeline(root, *out, *update, *directed, runOptions{
-			GraphML:     *graphml,
-			Cypher:      *cypher,
-			ClusterOnly: *clusterOnly,
-			NoViz:       *noViz,
-			Wiki:        *emitWiki,
-			Tree:        *emitTree,
-			NoDedup:     *noDedup,
+			GraphML:         *graphml,
+			Cypher:          *cypher,
+			ClusterOnly:     *clusterOnly,
+			NoViz:           *noViz,
+			Wiki:            *emitWiki,
+			Tree:            *emitTree,
+			NoDedup:         *noDedup,
+			Semantic:        *semantic,
+			SemanticBackend: *semanticBackend,
 		})
 	case "validate":
 		if len(rest) < 1 {
@@ -494,6 +503,62 @@ func renderDiff(w io.Writer, d graphdiff.Diff) {
 	}
 }
 
+// semanticJob bundles the file path + already-read bytes so the
+// parallel pass doesn't re-read source from disk.
+type semanticJob struct {
+	path string
+	src  []byte
+}
+
+// semanticConcurrency caps in-flight LLM requests. Anthropic's free
+// tier rate-limit is loose enough at 4 concurrent that this won't
+// 429 a typical run, while still giving ~3-4× throughput vs serial.
+const semanticConcurrency = 4
+
+// runSemanticJobs fans out semantic extraction with bounded concurrency.
+// Returns results in input order so downstream merge produces
+// deterministic graph IDs regardless of how Go scheduled workers.
+// Errors are logged per-file (best-effort policy) so a single
+// rate-limit hiccup doesn't fail the whole pipeline.
+func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob, limit int) ([]semantic.Result, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+	out := make([]semantic.Result, len(jobs))
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for i, j := range jobs {
+		wg.Add(1)
+		go func(i int, j semanticJob) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			r, err := semantic.Extract(ctx, client, j.path, j.src)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "gogfy: semantic skipped for %s: %v\n", j.path, err)
+				return
+			}
+			out[i] = r
+		}(i, j)
+	}
+	wg.Wait()
+	return out, nil
+}
+
+// buildLLMClient picks an LLM backend by name. Empty string defaults
+// to anthropic. Future backends (openai, gemini, ollama) plug in here
+// without touching the pipeline.
+func buildLLMClient(backend string) (llm.Client, error) {
+	if backend == "" {
+		backend = "anthropic"
+	}
+	switch backend {
+	case "anthropic":
+		return anthropic.New()
+	}
+	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic)", backend)
+}
+
 // hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The
 // hook structure (subcommand + verb) mirrors graphify's `graphify hook
 // install` shape and keeps the top-level help readable.
@@ -865,6 +930,15 @@ type runOptions struct {
 	// NoDedup skips entity deduplication. Faster but may produce
 	// duplicate nodes for the same real-world concept.
 	NoDedup bool
+	// Semantic, when true, routes document files (.md/.txt/.rst) through
+	// an LLM extractor in addition to the AST pass. Requires
+	// ANTHROPIC_API_KEY (or another backend's env var when more
+	// providers ship). Off by default — gogfy stays free + offline
+	// unless the user explicitly opts in to LLM-token spend.
+	Semantic bool
+	// SemanticBackend names the LLM provider when Semantic is on.
+	// Empty defaults to "anthropic". Future: openai, gemini, ollama.
+	SemanticBackend string
 }
 
 // runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
@@ -1003,6 +1077,23 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 
 	builder := graph.NewBuilder()
 
+	// Build the optional LLM client once, before the extract loop —
+	// surfaces auth errors up front rather than per-file deep in the
+	// loop. nil client = AST-only mode.
+	var llmClient llm.Client
+	if opts.Semantic {
+		client, err := buildLLMClient(opts.SemanticBackend)
+		if err != nil {
+			return fmt.Errorf("semantic: %w", err)
+		}
+		llmClient = client
+	}
+	var semanticJobs []semanticJob
+	semCost := struct {
+		inputTokens, outputTokens int
+		usd                       float64
+	}{}
+
 	for _, f := range files {
 		ex, ok := supportedExtensions[filepath.Ext(f)]
 		if !ok {
@@ -1046,6 +1137,13 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 				}
 			}
 		}
+		// Semantic extraction is deferred to a parallel pass below.
+		// LLM calls are I/O-bound and dominate runtime; serializing
+		// them here would turn a 100-file vault into a ~5-minute
+		// wall-clock blocker.
+		if llmClient != nil && schema.ClassifyFile(f) == schema.FileTypeDocument && data != nil {
+			semanticJobs = append(semanticJobs, semanticJob{path: f, src: data})
+		}
 		for _, e := range res.Edges {
 			if err := builder.AddEdge(e); err != nil {
 				return fmt.Errorf("add edge: %w", err)
@@ -1053,6 +1151,32 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		}
 	}
 
+	if llmClient != nil && len(semanticJobs) > 0 {
+		results, err := runSemanticJobs(context.Background(), llmClient, semanticJobs, semanticConcurrency)
+		if err != nil {
+			return fmt.Errorf("semantic: %w", err)
+		}
+		// Merge sequentially — builder isn't goroutine-safe.
+		for _, r := range results {
+			semCost.inputTokens += r.InputTokens
+			semCost.outputTokens += r.OutputTokens
+			semCost.usd += r.EstimatedUSDCost
+			for _, n := range r.Nodes {
+				if err := builder.AddNode(n); err != nil {
+					return fmt.Errorf("add semantic node: %w", err)
+				}
+			}
+			for _, e := range r.Edges {
+				if err := builder.AddEdge(e); err != nil {
+					return fmt.Errorf("add semantic edge: %w", err)
+				}
+			}
+		}
+	}
+	if llmClient != nil && (semCost.inputTokens+semCost.outputTokens) > 0 {
+		fmt.Fprintf(os.Stderr, "gogfy: semantic extraction used %d input + %d output tokens (~$%.4f)\n",
+			semCost.inputTokens, semCost.outputTokens, semCost.usd)
+	}
 	g := builder.Build()
 	// JS/TS path-alias rewrite: tsconfig.json paths like "@app/*" → "src/*"
 	// turn `ts:import:@app/foo` into `ts:import:<rootDir>/src/foo` so

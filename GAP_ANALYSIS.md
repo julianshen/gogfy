@@ -97,9 +97,9 @@
 | JS/TS path alias resolution | **Done** | `internal/tsalias.Load` reads `tsconfig.json` / `jsconfig.json` `compilerOptions.paths` + `baseUrl`; `Apply` rewrites `js:import:` / `ts:import:` node IDs (and edges that target them) to resolved filesystem paths. Missing config is non-fatal. Wired into runPipeline after Build and before resolve.Calls. |
 | Call graph depth | Partial | gogfy extracts calls as synthetic targets; upstream has richer call-graph with package-qualified vs receiver distinction in some languages |
 | Docstring/rationale extraction | **Done (comments only)** | `internal/rationale.Extract` post-pass surfaces NOTE/IMPORTANT/HACK/WHY/RATIONALE/TODO/FIXME/XXX/WARNING comments across `#`, `//`, `--`, `/*` markers as `rationale_for` edges to the file's module node. Language-agnostic regex scan; per-function docstring attribution deferred. |
-| Semantic extraction (LLM) | Missing | Upstream has full LLM pipeline for docs/papers/images; gogfy is AST-only |
+| Semantic extraction (LLM) | **Done (v1, markdown)** | New `internal/llm` provider-agnostic interface + `internal/llm/anthropic` Claude backend (env-based key). `internal/semantic.Extract` prompts the model for entities + relations, returns schema-shaped nodes/edges (Confidence=INFERRED). Wired behind `--semantic --backend anthropic`; processes only document-typed files in v1 (PDFs/images deferred). Token usage + USD cost summarized on stderr after the run. Pluggable from day 1 — adding openai/gemini/ollama is a new sub-package. |
 | Hyperedges | Missing | Upstream generates hyperedges from semantic extraction |
-| Token tracking | Missing | Upstream tracks input/output tokens per extraction |
+| Token tracking | **Done** | `llm.Response` carries `InputTokens` / `OutputTokens` / `EstimatedUSDCost`; runPipeline sums across all semantic-extract calls and emits a one-line stderr summary. |
 
 ### 2.3 Graph Build
 | Feature | Status | What's Missing |
