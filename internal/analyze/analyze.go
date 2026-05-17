@@ -276,7 +276,7 @@ func buildQuestions(
 		if i >= perCategoryBudget {
 			break
 		}
-		label := labelOrID(gn)
+		label := gn.DisplayLabel()
 		if label != "" {
 			qs = append(qs, "What is the role of "+label+"?")
 		}
@@ -300,13 +300,13 @@ func buildQuestions(
 		}
 	}
 	sort.Slice(isolated, func(i, j int) bool {
-		return labelOrID(isolated[i]) < labelOrID(isolated[j])
+		return isolated[i].DisplayLabel() < isolated[j].DisplayLabel()
 	})
 	for i, n := range isolated {
 		if i >= perCategoryBudget {
 			break
 		}
-		label := labelOrID(n)
+		label := n.DisplayLabel()
 		if label != "" {
 			qs = append(qs, "Is the isolated node "+label+" actually unconnected, or did extraction miss its edges?")
 		}
@@ -354,7 +354,7 @@ func sortedEdgeQuestions(edges []schema.Edge, nodeMap map[string]schema.Node, wa
 		if e.Confidence != want {
 			continue
 		}
-		s, t := labelOrID(nodeMap[e.Source]), labelOrID(nodeMap[e.Target])
+		s, t := nodeMap[e.Source].DisplayLabel(), nodeMap[e.Target].DisplayLabel()
 		if s == "" || t == "" {
 			continue
 		}
@@ -452,12 +452,6 @@ func relationOrDefault(e schema.Edge) string {
 	return "relates_to"
 }
 
-func labelOrID(n schema.Node) string {
-	if n.Label != "" {
-		return n.Label
-	}
-	return n.ID
-}
 
 // isFileHubOrStub reports whether n is a structural artifact that
 // shouldn't dominate the god-node ranking.

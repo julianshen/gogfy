@@ -217,7 +217,7 @@ func writeCommunityHubs(b *bytes.Buffer, opts Options, degree map[string]int) {
 		d := degree[n.ID]
 		cur, seen := bestPer[n.Community]
 		if !seen || d > cur.degree || (d == cur.degree && n.Label < cur.label) {
-			bestPer[n.Community] = hub{cid: n.Community, label: labelOrID(n), degree: d}
+			bestPer[n.Community] = hub{cid: n.Community, label: n.DisplayLabel(), degree: d}
 		}
 	}
 	if len(bestPer) == 0 {
@@ -266,7 +266,7 @@ func writeCommunities(b *bytes.Buffer, opts Options) {
 	for _, r := range rs {
 		// Sort members by label so the digest is reproducible.
 		ms := append([]schema.Node(nil), r.nodes...)
-		sort.Slice(ms, func(i, j int) bool { return labelOrID(ms[i]) < labelOrID(ms[j]) })
+		sort.Slice(ms, func(i, j int) bool { return ms[i].DisplayLabel() < ms[j].DisplayLabel() })
 		fmt.Fprintf(b, "### %s (%d members)\n", communityName(r.cid, opts.CommunityLabels), len(ms))
 		const sample = 5
 		for i, n := range ms {
@@ -274,22 +274,22 @@ func writeCommunities(b *bytes.Buffer, opts Options) {
 				fmt.Fprintf(b, "- _… %d more_\n", len(ms)-sample)
 				break
 			}
-			fmt.Fprintf(b, "- %s\n", escapeMarkdown(labelOrID(n)))
+			fmt.Fprintf(b, "- %s\n", escapeMarkdown(n.DisplayLabel()))
 		}
 	}
 	b.WriteString("\n")
 }
 
 func writeAmbiguousEdges(b *bytes.Buffer, opts Options) {
-	nodeMap := indexNodes(opts.Nodes)
+	nodeMap := schema.IndexNodes(opts.Nodes)
 	type amb struct{ s, t, r string }
 	var ambs []amb
 	for _, e := range opts.Edges {
 		if e.Confidence != schema.Ambiguous {
 			continue
 		}
-		s := labelOrID(nodeMap[e.Source])
-		t := labelOrID(nodeMap[e.Target])
+		s := nodeMap[e.Source].DisplayLabel()
+		t := nodeMap[e.Target].DisplayLabel()
 		if s == "" {
 			s = e.Source
 		}
@@ -394,20 +394,7 @@ func buildDegree(edges []schema.Edge) map[string]int {
 	return d
 }
 
-func indexNodes(ns []schema.Node) map[string]schema.Node {
-	m := make(map[string]schema.Node, len(ns))
-	for _, n := range ns {
-		m[n.ID] = n
-	}
-	return m
-}
 
-func labelOrID(n schema.Node) string {
-	if n.Label != "" {
-		return n.Label
-	}
-	return n.ID
-}
 
 func escapeMarkdown(s string) string {
 	s = strings.ReplaceAll(s, "*", "\\*")

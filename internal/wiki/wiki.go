@@ -69,7 +69,7 @@ func Generate(nodes []schema.Node, edges []schema.Edge, outDir string, opts Opti
 		}
 	}
 
-	nodeMap := indexNodes(nodes)
+	nodeMap := schema.IndexNodes(nodes)
 	adj := buildAdjacency(nodes, edges)
 	degree := buildDegree(edges)
 	auditByCommunity := buildCommunityAudit(edges, nodeMap)
@@ -141,14 +141,6 @@ func groupByCommunity(nodes []schema.Node) map[string][]schema.Node {
 			continue
 		}
 		out[n.Community] = append(out[n.Community], n)
-	}
-	return out
-}
-
-func indexNodes(nodes []schema.Node) map[string]schema.Node {
-	out := make(map[string]schema.Node, len(nodes))
-	for _, n := range nodes {
-		out[n.ID] = n
 	}
 	return out
 }

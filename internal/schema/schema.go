@@ -67,6 +67,29 @@ type Node struct {
 	ExternalURL string `json:",omitempty"`
 }
 
+// IndexNodes returns a node-id → node map for O(1) lookups. The
+// pattern was duplicated across multiple packages; centralized here
+// so callers don't reinvent the same 5-line loop.
+func IndexNodes(nodes []Node) map[string]Node {
+	m := make(map[string]Node, len(nodes))
+	for _, n := range nodes {
+		m[n.ID] = n
+	}
+	return m
+}
+
+// DisplayLabel returns the user-facing name for a node — Label when
+// populated, ID as a fallback. Use this instead of n.Label whenever
+// rendering to a human-facing surface (reports, wiki articles,
+// canvas cards, MCP tool output) so a label-stripped node (synthetic
+// fan-out, dedup merge) still produces a non-empty string.
+func (n Node) DisplayLabel() string {
+	if n.Label != "" {
+		return n.Label
+	}
+	return n.ID
+}
+
 // Validate checks that the Node has the required fields populated.
 func (n Node) Validate() error {
 	if n.ID == "" {
