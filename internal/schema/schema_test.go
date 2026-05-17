@@ -157,3 +157,25 @@ func TestEdgeJSONRoundTripPreservesConfidence(t *testing.T) {
 		t.Fatalf("round-trip: got %v, want Ambiguous", decoded.Confidence)
 	}
 }
+
+func TestIndexNodesReturnsAllNodes(t *testing.T) {
+	nodes := []Node{
+		{ID: "a", Label: "A"},
+		{ID: "b", Label: "B"},
+	}
+	got := IndexNodes(nodes)
+	if len(got) != 2 || got["a"].Label != "A" || got["b"].Label != "B" {
+		t.Fatalf("IndexNodes: got %+v", got)
+	}
+}
+
+func TestNodeDisplayLabelFallsBackToID(t *testing.T) {
+	withLabel := Node{ID: "x", Label: "Pretty"}
+	withoutLabel := Node{ID: "raw-id"}
+	if withLabel.DisplayLabel() != "Pretty" {
+		t.Errorf("with-label: got %q want Pretty", withLabel.DisplayLabel())
+	}
+	if withoutLabel.DisplayLabel() != "raw-id" {
+		t.Errorf("without-label: got %q want raw-id", withoutLabel.DisplayLabel())
+	}
+}

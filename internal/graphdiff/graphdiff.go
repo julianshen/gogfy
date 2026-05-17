@@ -34,8 +34,8 @@ type NodeChange struct {
 // sense that swapping arguments swaps Added↔Removed and reverses the
 // order of Old/New inside NodeChange.
 func Compute(oldNodes, newNodes []schema.Node, oldEdges, newEdges []schema.Edge) Diff {
-	oldNodeByID := indexNodes(oldNodes)
-	newNodeByID := indexNodes(newNodes)
+	oldNodeByID := schema.IndexNodes(oldNodes)
+	newNodeByID := schema.IndexNodes(newNodes)
 
 	var d Diff
 	for _, n := range newNodes {
@@ -73,14 +73,6 @@ func Compute(oldNodes, newNodes []schema.Node, oldEdges, newEdges []schema.Edge)
 	sortEdges(d.EdgesAdded)
 	sortEdges(d.EdgesRemoved)
 	return d
-}
-
-func indexNodes(ns []schema.Node) map[string]schema.Node {
-	m := make(map[string]schema.Node, len(ns))
-	for _, n := range ns {
-		m[n.ID] = n
-	}
-	return m
 }
 
 // edgeKey identifies an edge by (source, target, relation). Two edges

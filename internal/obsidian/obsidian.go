@@ -98,7 +98,7 @@ func buildFilenames(nodes []schema.Node) map[string]string {
 	out := make(map[string]string, len(nodes))
 	seen := map[string]int{}
 	for _, n := range nodes {
-		base := safeFilename(labelOrID(n))
+		base := safeFilename(n.DisplayLabel())
 		if base == "" {
 			base = "unnamed"
 		}
@@ -151,13 +151,6 @@ func safeFilename(s string) string {
 	s = strings.TrimSpace(s)
 	s = trailingMdSuffix.ReplaceAllString(s, "")
 	return s
-}
-
-func labelOrID(n schema.Node) string {
-	if n.Label != "" {
-		return n.Label
-	}
-	return n.ID
 }
 
 // obsidianTagRe restricts to chars Obsidian's tag parser accepts
@@ -252,7 +245,7 @@ func nodeNote(n schema.Node, filenames map[string]string, neighbors []string, ed
 	}
 	fmt.Fprintln(&b, "---")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "# %s\n\n", labelOrID(n))
+	fmt.Fprintf(&b, "# %s\n\n", n.DisplayLabel())
 
 	if len(neighbors) > 0 {
 		// Sort by neighbor's label so ordering is stable across runs.

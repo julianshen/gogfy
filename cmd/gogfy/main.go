@@ -455,13 +455,13 @@ func renderDiff(w io.Writer, d graphdiff.Diff) {
 	if len(d.NodesAdded) > 0 {
 		fmt.Fprintln(w, "\n## Nodes added")
 		for _, n := range d.NodesAdded {
-			fmt.Fprintf(w, "- %s (%s)\n", labelOrIDDiff(n), n.ID)
+			fmt.Fprintf(w, "- %s (%s)\n", n.DisplayLabel(), n.ID)
 		}
 	}
 	if len(d.NodesRemoved) > 0 {
 		fmt.Fprintln(w, "\n## Nodes removed")
 		for _, n := range d.NodesRemoved {
-			fmt.Fprintf(w, "- %s (%s)\n", labelOrIDDiff(n), n.ID)
+			fmt.Fprintf(w, "- %s (%s)\n", n.DisplayLabel(), n.ID)
 		}
 	}
 	if len(d.NodesChanged) > 0 {
@@ -492,13 +492,6 @@ func renderDiff(w io.Writer, d graphdiff.Diff) {
 			fmt.Fprintf(w, "- %s --%s--> %s\n", e.Source, e.Relation, e.Target)
 		}
 	}
-}
-
-func labelOrIDDiff(n schema.Node) string {
-	if n.Label != "" {
-		return n.Label
-	}
-	return n.ID
 }
 
 // hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The
