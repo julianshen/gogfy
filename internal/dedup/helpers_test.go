@@ -96,16 +96,23 @@ func TestPickWinner(t *testing.T) {
 }
 
 func TestScoreLess(t *testing.T) {
-	// no suffix < suffix
-	s1 := score{0, 10}
-	s2 := score{1, 5}
-	if !s1.less(s2) {
-		t.Fatal("no suffix should be better than suffix")
+	// FileType-rank dominates. (rank, suffix, idLen)
+	// Code (0) beats Document (2) regardless of suffix/length.
+	codeWin := score{fileTypeRank: 0, hasSuffix: 1, idLen: 100}
+	docLose := score{fileTypeRank: 2, hasSuffix: 0, idLen: 5}
+	if !codeWin.less(docLose) {
+		t.Fatal("code FileType should outrank document regardless of suffix/length")
 	}
-	// shorter < longer when same suffix status
-	s3 := score{0, 5}
-	s4 := score{0, 10}
+	// Within same FileType: no suffix < suffix
+	s1 := score{fileTypeRank: 0, hasSuffix: 0, idLen: 10}
+	s2 := score{fileTypeRank: 0, hasSuffix: 1, idLen: 5}
+	if !s1.less(s2) {
+		t.Fatal("no suffix should be better than suffix within same FileType")
+	}
+	// Same FileType + same suffix: shorter ID wins
+	s3 := score{fileTypeRank: 0, hasSuffix: 0, idLen: 5}
+	s4 := score{fileTypeRank: 0, hasSuffix: 0, idLen: 10}
 	if !s3.less(s4) {
-		t.Fatal("shorter should be better")
+		t.Fatal("shorter should be better when FileType + suffix match")
 	}
 }
