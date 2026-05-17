@@ -576,3 +576,45 @@ func TestToolCallGetCommunityNotFound(t *testing.T) {
 		t.Fatal("unknown community should return an error")
 	}
 }
+
+func TestToolCallTraverseBFSReturnsHops(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_traverse",
+		"arguments": map[string]any{"id": "foo", "depth": 2},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "Hop 0") {
+		t.Errorf("missing hop-0 source label: %s", text)
+	}
+	if !strings.Contains(text, "Hop 1") {
+		t.Errorf("expected hop-1 layer (foo → hub): %s", text)
+	}
+	// foo → hub → bar should make bar reachable at hop 2.
+	if !strings.Contains(text, "bar") {
+		t.Errorf("expected 'bar' at hop 2 via hub: %s", text)
+	}
+}
+
+func TestToolCallTraverseRespectsLimit(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_traverse",
+		"arguments": map[string]any{"id": "foo", "depth": 5, "limit": 2},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "2 nodes within") {
+		t.Fatalf("limit not honored, expected 2-node cap in summary: %s", text)
+	}
+}
+
+func TestToolCallTraverseMissingID(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_traverse",
+		"arguments": map[string]any{},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	if !result["isError"].(bool) {
+		t.Fatal("missing id should error")
+	}
+}
