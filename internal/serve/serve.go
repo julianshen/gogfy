@@ -41,6 +41,7 @@ const (
 	ToolGetNeighbors = "gogfy_get_neighbors"
 	ToolGraphStats   = "gogfy_graph_stats"
 	ToolGetCommunity = "gogfy_get_community"
+	ToolTraverse     = "gogfy_traverse"
 )
 
 // Server holds the in-memory graph + report bytes the MCP tools read from.
@@ -215,6 +216,8 @@ func (s *Server) toolsCall(req rpcRequest) []byte {
 		return jsonRPCResult(req.ID, s.callGraphStats(p.Arguments))
 	case ToolGetCommunity:
 		return jsonRPCResult(req.ID, s.callGetCommunity(p.Arguments))
+	case ToolTraverse:
+		return jsonRPCResult(req.ID, s.callTraverse(p.Arguments))
 	default:
 		return jsonRPCError(req.ID, -32602, "unknown tool: "+p.Name)
 	}
@@ -514,6 +517,103 @@ func (s *Server) callGetCommunity(args json.RawMessage) map[string]any {
 	return toolResult(b.String(), false)
 }
 
+// callTraverse runs a BFS from the named source up to `depth` hops or
+// `limit` total nodes, whichever runs out first. Returns the visited
+// subgraph grouped by hop distance so an agent can read "things 1 hop
+// out, things 2 hops out, …" without separately querying each
+// neighbor. Treats edges as undirected — direction is an extractor
+// implementation detail and the user wants local context regardless.
+func (s *Server) callTraverse(args json.RawMessage) map[string]any {
+	var p struct {
+		ID    string `json:"id"`
+		Depth int    `json:"depth"`
+		Limit int    `json:"limit"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil || p.ID == "" {
+		return toolResult("traverse requires an `id` argument (node ID or label)", true)
+	}
+	if p.Depth <= 0 {
+		p.Depth = 2
+	}
+	if p.Limit <= 0 {
+		p.Limit = 50
+	}
+	source, _, ok := s.findNode(p.ID)
+	if !ok {
+		return toolResult(fmt.Sprintf("no node matched %q", p.ID), true)
+	}
+
+	// Distance-keyed visit set. dist[source]=0; other entries assigned
+	// on first visit. Capped at `limit` total so a query against a hub
+	// node can't blow up the response.
+	dist := map[string]int{source.ID: 0}
+	queue := []string{source.ID}
+	for len(queue) > 0 && len(dist) < p.Limit {
+		cur := queue[0]
+		queue = queue[1:]
+		d := dist[cur]
+		if d >= p.Depth {
+			continue
+		}
+		// Undirected: walk both out- and in-edges.
+		for _, e := range s.outEdges[cur] {
+			if _, seen := dist[e.Target]; seen {
+				continue
+			}
+			dist[e.Target] = d + 1
+			queue = append(queue, e.Target)
+			if len(dist) >= p.Limit {
+				break
+			}
+		}
+		for _, e := range s.inEdges[cur] {
+			if _, seen := dist[e.Source]; seen {
+				continue
+			}
+			dist[e.Source] = d + 1
+			queue = append(queue, e.Source)
+			if len(dist) >= p.Limit {
+				break
+			}
+		}
+	}
+
+	// Group results by hop distance, sort within each layer by label.
+	byHop := map[int][]string{}
+	for id, d := range dist {
+		byHop[d] = append(byHop[d], id)
+	}
+	for d := range byHop {
+		layer := byHop[d]
+		sort.Slice(layer, func(i, j int) bool {
+			return s.labelFor(layer[i]) < s.labelFor(layer[j])
+		})
+		byHop[d] = layer
+	}
+	hops := make([]int, 0, len(byHop))
+	for d := range byHop {
+		hops = append(hops, d)
+	}
+	sort.Ints(hops)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Traverse from %s\n", source.Label)
+	fmt.Fprintf(&b, "- %d nodes within %d hops (limit: %d)\n", len(dist), p.Depth, p.Limit)
+	for _, d := range hops {
+		layer := byHop[d]
+		switch d {
+		case 0:
+			fmt.Fprintf(&b, "\n### Hop 0 (source)\n")
+		default:
+			fmt.Fprintf(&b, "\n### Hop %d (%d nodes)\n", d, len(layer))
+		}
+		for _, id := range layer {
+			fmt.Fprintf(&b, "- %s\n", s.labelFor(id))
+		}
+	}
+	return toolResult(b.String(), false)
+}
+
 // callGraphStats surfaces orientation-level numbers an agent can use
 // to decide where to drill in: node/edge/community counts plus
 // file-type and confidence breakdowns.
@@ -807,6 +907,19 @@ var toolDescriptors = []map[string]any{
 			"properties": map[string]any{
 				"id":    map[string]any{"type": "string", "description": "Community ID, or a node ID/label whose community to inspect."},
 				"limit": map[string]any{"type": "integer", "description": "Max members to list (default: 50). Cross-community link list isn't capped."},
+			},
+			"required": []any{"id"},
+		},
+	},
+	{
+		"name":        ToolTraverse,
+		"description": "BFS from a starting node up to N hops, returning the visited subgraph grouped by hop distance. Use when you need a node's local context (callers + callees, n levels deep) without pulling in the whole graph. The node-budget caps the result so you can constrain context size.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":     map[string]any{"type": "string", "description": "Starting node ID or label."},
+				"depth":  map[string]any{"type": "integer", "description": "Max BFS hops from the source (default: 2). Each hop adds a layer of neighbors."},
+				"limit":  map[string]any{"type": "integer", "description": "Max nodes total in the result (default: 50). BFS stops when reached so you stay within a context budget."},
 			},
 			"required": []any{"id"},
 		},

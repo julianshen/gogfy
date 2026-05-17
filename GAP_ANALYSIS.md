@@ -134,7 +134,7 @@
 | Report sections | **Done (10/11)** | Added Summary, Corpus, Graph Freshness (conditional), Community Hubs, Communities (with thin-community filtering), Ambiguous Edges, Knowledge Gaps. Hyperedges omitted — gogfy doesn't model N-ary relations. `report.RenderWithOptions` carries the extended data; legacy `Render(r)` preserved as a trimmed variant. |
 | Token cost reporting | Missing | Upstream reports input/output tokens and estimated cost |
 | Git commit freshness | **Done** | `internal/gitmeta.HeadShortSHA` reads `.git/HEAD` + the referenced ref file (or `packed-refs` fallback) — no shell-out. Auto-populated in runPipeline, runClusterOnly, reportCommand so the Graph Freshness section appears on every report inside a repo. Worktree `.git`-file pointers resolved. |
-| Community hub navigation | Missing | Upstream has wikilink navigation to community notes |
+| Community hub navigation | **Done** | `index.md` lists every community as `[label](slug.md)` link sorted by member count; per-community articles' Relationships section cross-references other communities as `[label](slug.md)` links. Markdown link syntax (not Obsidian `[[wikilinks]]`) so navigation works in any viewer; the Obsidian vault export uses `[[...]]` separately. |
 | Knowledge gaps section | **Done** | Composite digest: isolated-node count, thin-community count, ambiguous-edge count. Each line shows only when count > 0. |
 | Thin community filtering | **Done** | `Options.ThinCommunityMin` (default 2) drops single-node \"communities\" from the Communities section and feeds the Knowledge Gaps thin-community counter. |
 
@@ -156,7 +156,7 @@
 |---------|--------|----------------|
 | Tools | **Done** | gogfy: god_nodes, explain (superset of upstream get_node), query, path, get_neighbors, graph_stats, get_community — all 7 upstream tools covered. |
 | Resources | Partial | gogfy: report only; upstream: report, stats, god-nodes, surprises, audit, questions |
-| BFS/DFS traversal | Missing | Upstream has token-budgeted subgraph traversal with context filters |
+| BFS/DFS traversal | **Done (BFS)** | New `gogfy_traverse` MCP tool: BFS from a starting node up to `depth` hops, capped at `limit` total nodes, returns the visited subgraph grouped by hop distance. Treats edges as undirected (direction is extractor implementation detail; agents want local context). |
 | Node scoring | Missing | Upstream scores nodes by label match relevance |
 
 ### 2.9 Cache
