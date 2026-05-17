@@ -105,7 +105,7 @@
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
 | Entity deduplication | Partial | gogfy dedupes by (source, target, relation) on edges; upstream has three-pass dedup: exact normalization → MinHash/LSH + Jaro-Winkler → optional LLM tiebreaker |
-| Normalized ID reconciliation | Missing | Upstream uses Jaro-Winkler-ish normalization to reconcile LLM-generated IDs with AST extractor IDs |
+| Normalized ID reconciliation | **Done** | The three-pass dedup already runs Jaro-Winkler across all nodes regardless of source. The missing piece was tie-break direction: `pickWinner` now ranks by FileType (code < paper < document < image < video < rationale) so when a fuzzy-merged pair includes both an AST-extracted code node and an LLM-emitted document node, the AST-grounded ID survives. |
 | Direction preservation | Partial | gogfy preserves direction in schema; upstream stashes `_src`/`_tgt` on undirected NetworkX graphs |
 | Incremental merge (`build_merge`) | Missing | Upstream can merge new extractions into existing graph.json with prune for deleted files |
 | Multi-repo prefixing | **Done** | `internal/globalgraph` prefixes node IDs with `<tag>::` and dedupes external-library nodes by label. CLI: `gogfy global add/remove/list/path` ✅ |

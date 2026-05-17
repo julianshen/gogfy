@@ -74,24 +74,54 @@ func pickWinner(nodes []schema.Node) schema.Node {
 	return winner
 }
 
+// fileTypeRank biases pickWinner toward AST-grounded nodes when a
+// fuzzy merge pulls in a semantic-extracted one. The authoritative
+// IDs are code-derived (gogfy_<lang>:function:...) — they're stable
+// across runs and grounded in real source positions, so they should
+// outlive an LLM-emitted "doc:entity:..." duplicate when the labels
+// fuzzy-match. Lower rank wins.
+var fileTypeRank = map[schema.FileType]int{
+	schema.FileTypeCode:     0,
+	schema.FileTypePaper:    1,
+	schema.FileTypeDocument: 2,
+	schema.FileTypeImage:    3,
+	schema.FileTypeVideo:    4,
+	"rationale":             5,
+}
+
+const fileTypeRankUnknown = 6
+
 // winnerScore returns a tuple-like score where lower is better.
-// (hasChunkSuffix, len(ID)) — no suffix < suffix, shorter < longer.
+// Ordering: (fileTypeRank, hasChunkSuffix, len(ID)).
+// FileType-rank dominates so code beats document on a fuzzy merge;
+// within the same FileType the chunk-suffix and ID-length rules
+// preserve the prior tie-break shape.
 func winnerScore(n schema.Node) score {
+	rank, ok := fileTypeRank[n.FileType]
+	if !ok {
+		rank = fileTypeRankUnknown
+	}
 	hasSuffix := 0
 	if chunkSuffix.MatchString(n.ID) {
 		hasSuffix = 1
 	}
-	return score{hasSuffix, len(n.ID)}
+	return score{rank, hasSuffix, len(n.ID)}
 }
 
 // score is a tuple for lexicographic comparison.
 type score struct {
-	hasSuffix int
+	fileTypeRank int
+	hasSuffix    int
 	idLen     int
 }
 
 // less returns true if s is better (lower) than other.
+// Ordering: FileType-rank first so AST-grounded nodes (Code) outrank
+// LLM-emitted ones (Document); then chunk-suffix; then ID length.
 func (s score) less(other score) bool {
+	if s.fileTypeRank != other.fileTypeRank {
+		return s.fileTypeRank < other.fileTypeRank
+	}
 	if s.hasSuffix != other.hasSuffix {
 		return s.hasSuffix < other.hasSuffix
 	}

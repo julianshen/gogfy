@@ -165,3 +165,42 @@ func TestDeduplicateWithLLM(t *testing.T) {
 		t.Fatalf("expected 1 remap entry, got %v", remap)
 	}
 }
+
+func TestDeduplicatePicksASTNodeOverSemanticOnFuzzyMerge(t *testing.T) {
+	// AST extraction yields a code node "Service" with FileType=Code.
+	// Semantic extraction yields a doc node "Service" with FileType=Document.
+	// Pass-2 fuzzy dedup will find them similar enough to merge; the
+	// AST-grounded ID must survive since it's the authoritative anchor
+	// for downstream resolution (callflow, wiki, etc.).
+	nodes := []schema.Node{
+		{ID: "doc:entity:/x.md:service", Label: "Service", FileType: schema.FileTypeDocument},
+		{ID: "go:function:/auth.go:m:Service", Label: "Service", FileType: schema.FileTypeCode},
+	}
+	out, _, _, err := NewDeduplicator().Deduplicate(nodes, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected merge to 1 node, got %d", len(out))
+	}
+	if out[0].FileType != schema.FileTypeCode {
+		t.Fatalf("AST node (FileType=Code) must win over semantic, got %+v", out[0])
+	}
+}
+
+func TestDeduplicatePrefersCodeOverPaperOverDocument(t *testing.T) {
+	// Three-way pile-up: code, paper, document all label-equal.
+	// Priority: code > paper > document.
+	nodes := []schema.Node{
+		{ID: "doc:entity:doc1", Label: "Auth", FileType: schema.FileTypeDocument},
+		{ID: "paper:entity:p1", Label: "Auth", FileType: schema.FileTypePaper},
+		{ID: "go:function:/x.go:m:Auth", Label: "Auth", FileType: schema.FileTypeCode},
+	}
+	out, _, _, err := NewDeduplicator().Deduplicate(nodes, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].FileType != schema.FileTypeCode {
+		t.Fatalf("code must win 3-way: %+v", out)
+	}
+}
