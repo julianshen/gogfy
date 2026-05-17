@@ -32,6 +32,8 @@ import (
 	"github.com/julianshen/gogfy/internal/installer"
 	"github.com/julianshen/gogfy/internal/merge"
 	"github.com/julianshen/gogfy/internal/report"
+	"github.com/julianshen/gogfy/internal/gitmeta"
+	"github.com/julianshen/gogfy/internal/graphdiff"
 	"github.com/julianshen/gogfy/internal/rationale"
 	"github.com/julianshen/gogfy/internal/resolve"
 	"github.com/julianshen/gogfy/internal/tsalias"
@@ -128,6 +130,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return pathCommand(rest, os.Stdout, stderr)
 	case "merge-graphs":
 		return mergeGraphsCommand(rest, os.Stdout, stderr)
+	case "diff":
+		return diffCommand(rest, os.Stdout, stderr)
 	case "wiki":
 		return wikiCommand(rest, stderr)
 	case "labels":
@@ -296,6 +300,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy hook uninstall-merge-driver [--repo <dir>]")
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
+	fmt.Fprintln(w, "       gogfy diff <old.json> <new.json>")
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy labels <graph.json> [--out <path>] [--force]")
 	fmt.Fprintln(w, "       gogfy obsidian <graph.json> [--out <vault-dir>]")
@@ -418,6 +423,82 @@ func reorderMergeGraphFlags(args []string) ([]string, error) {
 		}
 	}
 	return append(flags, positional...), nil
+}
+
+// diffCommand backs `gogfy diff <old.json> <new.json>`. Loads two
+// graph snapshots and prints a markdown summary of added / removed /
+// changed nodes and added / removed edges. Useful for spotting what
+// changed between two pipeline runs without diffing raw graph.json.
+func diffCommand(args []string, stdout, stderr io.Writer) error {
+	if len(args) != 2 {
+		return fmt.Errorf("diff: expected <old.json> <new.json>, got %d args", len(args))
+	}
+	oldGraph, err := loadGraph(args[0])
+	if err != nil {
+		return fmt.Errorf("diff: load old: %w", err)
+	}
+	newGraph, err := loadGraph(args[1])
+	if err != nil {
+		return fmt.Errorf("diff: load new: %w", err)
+	}
+	d := graphdiff.Compute(oldGraph.Nodes, newGraph.Nodes, oldGraph.Edges, newGraph.Edges)
+	renderDiff(stdout, d)
+	return nil
+}
+
+// renderDiff writes the diff as a compact markdown summary. Empty
+// sections are elided so a no-change diff produces just a header.
+func renderDiff(w io.Writer, d graphdiff.Diff) {
+	fmt.Fprintln(w, "# Graph diff")
+	fmt.Fprintf(w, "\n- %d nodes added, %d removed, %d changed\n", len(d.NodesAdded), len(d.NodesRemoved), len(d.NodesChanged))
+	fmt.Fprintf(w, "- %d edges added, %d removed\n", len(d.EdgesAdded), len(d.EdgesRemoved))
+	if len(d.NodesAdded) > 0 {
+		fmt.Fprintln(w, "\n## Nodes added")
+		for _, n := range d.NodesAdded {
+			fmt.Fprintf(w, "- %s (%s)\n", labelOrIDDiff(n), n.ID)
+		}
+	}
+	if len(d.NodesRemoved) > 0 {
+		fmt.Fprintln(w, "\n## Nodes removed")
+		for _, n := range d.NodesRemoved {
+			fmt.Fprintf(w, "- %s (%s)\n", labelOrIDDiff(n), n.ID)
+		}
+	}
+	if len(d.NodesChanged) > 0 {
+		fmt.Fprintln(w, "\n## Nodes changed")
+		for _, c := range d.NodesChanged {
+			fmt.Fprintf(w, "- %s: ", c.New.ID)
+			if c.Old.Label != c.New.Label {
+				fmt.Fprintf(w, "label %q→%q ", c.Old.Label, c.New.Label)
+			}
+			if c.Old.Community != c.New.Community {
+				fmt.Fprintf(w, "community %q→%q ", c.Old.Community, c.New.Community)
+			}
+			if c.Old.FileType != c.New.FileType {
+				fmt.Fprintf(w, "type %q→%q ", c.Old.FileType, c.New.FileType)
+			}
+			fmt.Fprintln(w)
+		}
+	}
+	if len(d.EdgesAdded) > 0 {
+		fmt.Fprintln(w, "\n## Edges added")
+		for _, e := range d.EdgesAdded {
+			fmt.Fprintf(w, "- %s --%s--> %s\n", e.Source, e.Relation, e.Target)
+		}
+	}
+	if len(d.EdgesRemoved) > 0 {
+		fmt.Fprintln(w, "\n## Edges removed")
+		for _, e := range d.EdgesRemoved {
+			fmt.Fprintf(w, "- %s --%s--> %s\n", e.Source, e.Relation, e.Target)
+		}
+	}
+}
+
+func labelOrIDDiff(n schema.Node) string {
+	if n.Label != "" {
+		return n.Label
+	}
+	return n.ID
 }
 
 // hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The
@@ -807,9 +888,14 @@ func runClusterOnly(out string, directed bool, opts runOptions) error {
 		return fmt.Errorf("cluster-only: cluster: %w", err)
 	}
 	reportData := analyze.NewAnalyzer().Analyze(clustered, g.Edges)
+	// The graph.json under <out>/ doesn't directly tell us the corpus
+	// root — walk up from <out>'s parent (the corpus dir gogfy was
+	// invoked against) to find .git/.
+	commit, _ := gitmeta.HeadShortSHA(filepath.Dir(out))
 	reportBytes, err := report.RenderWithOptions(reportData, report.Options{
-		Nodes: clustered,
-		Edges: g.Edges,
+		Nodes:         clustered,
+		Edges:         g.Edges,
+		BuiltAtCommit: commit,
 	})
 	if err != nil {
 		return fmt.Errorf("cluster-only: report: %w", err)
@@ -1008,9 +1094,14 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	analyzer := analyze.NewAnalyzer()
 	reportData := analyzer.Analyze(clusteredNodes, edges)
 
+	// Stamp the report with the corpus's HEAD SHA so a stale artifact
+	// is visibly out-of-date next to a fresh repo. Missing-data is
+	// non-fatal — the report just omits the freshness section.
+	commit, _ := gitmeta.HeadShortSHA(root)
 	reportBytes, err := report.RenderWithOptions(reportData, report.Options{
-		Nodes: clusteredNodes,
-		Edges: edges,
+		Nodes:         clusteredNodes,
+		Edges:         edges,
+		BuiltAtCommit: commit,
 	})
 	if err != nil {
 		return fmt.Errorf("report: %w", err)
@@ -1128,9 +1219,11 @@ func reportCommand(path string, w io.Writer) error {
 		return err
 	}
 	r := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
+	commit, _ := gitmeta.HeadShortSHA(filepath.Dir(path))
 	out, err := report.RenderWithOptions(r, report.Options{
-		Nodes: g.Nodes,
-		Edges: g.Edges,
+		Nodes:         g.Nodes,
+		Edges:         g.Edges,
+		BuiltAtCommit: commit,
 	})
 	if err != nil {
 		return fmt.Errorf("report: %w", err)
