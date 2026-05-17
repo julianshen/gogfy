@@ -2,9 +2,14 @@
 package schema
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 )
+
+// jsonMarshalEdge is a package-local indirection so Edge.MarshalJSON
+// can encode the shadow struct without recursing into itself.
+var jsonMarshalEdge = func(e edgeJSON) ([]byte, error) { return json.Marshal(e) }
 
 // Confidence indicates how a relationship was determined.
 type Confidence int
@@ -79,6 +84,51 @@ type Edge struct {
 	Target     string
 	Relation   string
 	Confidence Confidence
+}
+
+// Score returns a normalized [0..1] weight derived from the confidence
+// tier. Mirrors graphify's `confidence_score` so cross-tool consumers
+// reading graph.json can sort edges numerically without having to
+// translate the enum themselves.
+func (c Confidence) Score() float64 {
+	switch c {
+	case Extracted:
+		return 1.0
+	case Inferred:
+		return 0.5
+	case Ambiguous:
+		return 0.25
+	}
+	return 0
+}
+
+// MarshalJSON adds a derived `confidence_score` field next to the
+// existing `Confidence` int so external consumers get the numeric
+// weight without re-implementing the tier→score map. Unmarshaling
+// stays unchanged — the field is informational, the int is canonical.
+//
+// edgeJSON is a separate type to avoid infinite recursion through
+// MarshalJSON when Go encodes the struct.
+type edgeJSON struct {
+	Source          string     `json:"Source"`
+	Target          string     `json:"Target"`
+	Relation        string     `json:"Relation"`
+	Confidence      Confidence `json:"Confidence"`
+	ConfidenceScore float64    `json:"confidence_score"`
+}
+
+// MarshalJSON implements json.Marshaler. The shadow `edgeJSON` carries
+// the same fields plus the derived score; Edge's own JSON shape stays
+// stable for existing readers (the original int Confidence is still
+// present and authoritative).
+func (e Edge) MarshalJSON() ([]byte, error) {
+	return jsonMarshalEdge(edgeJSON{
+		Source:          e.Source,
+		Target:          e.Target,
+		Relation:        e.Relation,
+		Confidence:      e.Confidence,
+		ConfidenceScore: e.Confidence.Score(),
+	})
 }
 
 // Validate checks that the Edge has the required fields populated and valid confidence.

@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -111,5 +112,48 @@ func TestEdgeValidation(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestEdgeMarshalJSONIncludesConfidenceScore(t *testing.T) {
+	cases := map[Confidence]float64{
+		Extracted: 1.0,
+		Inferred:  0.5,
+		Ambiguous: 0.25,
+	}
+	for c, want := range cases {
+		e := Edge{Source: "a", Target: "b", Relation: "calls", Confidence: c}
+		data, err := json.Marshal(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded struct {
+			ConfidenceScore float64 `json:"confidence_score"`
+			Confidence      int     `json:"Confidence"`
+		}
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded.ConfidenceScore != want {
+			t.Errorf("%v: confidence_score = %v, want %v (raw: %s)", c, decoded.ConfidenceScore, want, data)
+		}
+		if Confidence(decoded.Confidence) != c {
+			t.Errorf("%v: Confidence int field lost: %d", c, decoded.Confidence)
+		}
+	}
+}
+
+func TestEdgeJSONRoundTripPreservesConfidence(t *testing.T) {
+	// Marshal then unmarshal must still produce the original enum
+	// value — the new confidence_score field is additive metadata, the
+	// int Confidence stays authoritative.
+	original := Edge{Source: "a", Target: "b", Relation: "calls", Confidence: Ambiguous}
+	data, _ := json.Marshal(original)
+	var decoded Edge
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Confidence != Ambiguous {
+		t.Fatalf("round-trip: got %v, want Ambiguous", decoded.Confidence)
 	}
 }

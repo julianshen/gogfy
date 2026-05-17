@@ -618,3 +618,80 @@ func TestToolCallTraverseMissingID(t *testing.T) {
 		t.Fatal("missing id should error")
 	}
 }
+
+func TestToolCallQueryRanksExactLabelMatchFirst(t *testing.T) {
+	// Three nodes whose labels all contain "foo" in some form. Exact
+	// match must rank above prefix; prefix above contains.
+	srv := New(export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "n1", Label: "foobar"},   // prefix match
+			{ID: "n2", Label: "foo"},      // exact match — should win
+			{ID: "n3", Label: "myfoo"},    // contains-only match
+		},
+	}, nil)
+	resp := runOnce(t, srv, jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_query",
+		"arguments": map[string]any{"text": "foo"},
+	}))
+	result := resp[0]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	// Exact match "foo" must appear before "foobar" must appear before "myfoo".
+	exactIdx := strings.Index(text, "foo (n2)")
+	prefixIdx := strings.Index(text, "foobar")
+	containsIdx := strings.Index(text, "myfoo")
+	if exactIdx < 0 || prefixIdx < 0 || containsIdx < 0 {
+		t.Fatalf("missing one of the matches: %s", text)
+	}
+	if !(exactIdx < prefixIdx && prefixIdx < containsIdx) {
+		t.Fatalf("ranking broken: exact=%d prefix=%d contains=%d\n%s", exactIdx, prefixIdx, containsIdx, text)
+	}
+}
+
+func TestToolCallQueryDegreeTiebreaker(t *testing.T) {
+	// Two nodes with identical exact-label match — the more-connected
+	// one should rank first.
+	srv := New(export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "popular", Label: "auth"},
+			{ID: "obscure", Label: "auth"},
+			{ID: "x1", Label: "x1"}, {ID: "x2", Label: "x2"}, {ID: "x3", Label: "x3"},
+		},
+		Edges: []schema.Edge{
+			{Source: "popular", Target: "x1"},
+			{Source: "popular", Target: "x2"},
+			{Source: "popular", Target: "x3"},
+		},
+	}, nil)
+	resp := runOnce(t, srv, jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_query",
+		"arguments": map[string]any{"text": "auth"},
+	}))
+	text := resp[0]["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	popularIdx := strings.Index(text, "(popular)")
+	obscureIdx := strings.Index(text, "(obscure)")
+	if popularIdx < 0 || obscureIdx < 0 {
+		t.Fatalf("missing matches: %s", text)
+	}
+	if popularIdx > obscureIdx {
+		t.Fatalf("degree tiebreak broken — popular (3 edges) should rank above obscure (0 edges): %s", text)
+	}
+}
+
+func TestToolCallQuerySourceFileMatchRanksLowest(t *testing.T) {
+	srv := New(export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "exact", Label: "auth"},
+			{ID: "src", Label: "Unrelated", SourceFile: "auth/handler.go"},
+		},
+	}, nil)
+	resp := runOnce(t, srv, jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_query",
+		"arguments": map[string]any{"text": "auth"},
+	}))
+	text := resp[0]["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	exactIdx := strings.Index(text, "(exact)")
+	srcIdx := strings.Index(text, "(src)")
+	if !(exactIdx < srcIdx) {
+		t.Fatalf("source-file-only match should rank last: exact=%d src=%d\n%s", exactIdx, srcIdx, text)
+	}
+}

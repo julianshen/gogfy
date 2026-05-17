@@ -148,7 +148,7 @@
 | Neo4j direct push | Missing | Upstream can push directly to Neo4j via Python driver |
 | Callflow HTML | **Done (v1)** | gogfy `callflow` subcommand: section-level overview + per-section Mermaid LR. v1 omits bilingual/labels-file/GRAPH_REPORT integration. |
 | Node limit / aggregation | Missing | Upstream auto-aggregates to community-level view when graph exceeds 5000 nodes |
-| Confidence score defaults | Missing | Upstream adds `confidence_score` field to edges in JSON |
+| Confidence score defaults | **Done** | `Confidence.Score()` maps Extracted=1.0, Inferred=0.5, Ambiguous=0.25; `Edge.MarshalJSON` emits a derived `confidence_score` field next to the existing int. Additive — int Confidence stays authoritative for round-trip. |
 | Built-at commit metadata | **Done** | `GraphExport.BuiltAtCommit` (json `built_at_commit`, omitempty for backwards compat) populated from `gitmeta.HeadShortSHA` at both runPipeline and runClusterOnly export sites. Cross-tool consumers can detect a stale snapshot against a fresh repo. |
 
 ### 2.8 MCP Server
@@ -157,7 +157,7 @@
 | Tools | **Done** | gogfy: god_nodes, explain (superset of upstream get_node), query, path, get_neighbors, graph_stats, get_community — all 7 upstream tools covered. |
 | Resources | Partial | gogfy: report only; upstream: report, stats, god-nodes, surprises, audit, questions |
 | BFS/DFS traversal | **Done (BFS)** | New `gogfy_traverse` MCP tool: BFS from a starting node up to `depth` hops, capped at `limit` total nodes, returns the visited subgraph grouped by hop distance. Treats edges as undirected (direction is extractor implementation detail; agents want local context). |
-| Node scoring | Missing | Upstream scores nodes by label match relevance |
+| Node scoring | **Done** | `gogfy_query` ranks matches by tier: exact label (100) > prefix (50) > contains (25) > ID-contains (15) > source-file-contains (10). Degree adds a capped tie-break bonus so popular nodes outrank obscure ones at the same match quality. |
 
 ### 2.9 Cache
 | Feature | Status | What's Missing |
