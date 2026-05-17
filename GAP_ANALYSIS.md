@@ -132,7 +132,7 @@
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
 | Report sections | **Done (10/11)** | Added Summary, Corpus, Graph Freshness (conditional), Community Hubs, Communities (with thin-community filtering), Ambiguous Edges, Knowledge Gaps. Hyperedges omitted — gogfy doesn't model N-ary relations. `report.RenderWithOptions` carries the extended data; legacy `Render(r)` preserved as a trimmed variant. |
-| Token cost reporting | Missing | Upstream reports input/output tokens and estimated cost |
+| Token cost reporting | **Done** | `report.Options.SemanticCost` (pointer; nil omits the section) feeds a `## Semantic Extraction` section listing backend, file count, input/output/total tokens, and USD estimate. Populated by runPipeline when `--semantic` is active. |
 | Git commit freshness | **Done** | `internal/gitmeta.HeadShortSHA` reads `.git/HEAD` + the referenced ref file (or `packed-refs` fallback) — no shell-out. Auto-populated in runPipeline, runClusterOnly, reportCommand so the Graph Freshness section appears on every report inside a repo. Worktree `.git`-file pointers resolved. |
 | Community hub navigation | **Done** | `index.md` lists every community as `[label](slug.md)` link sorted by member count; per-community articles' Relationships section cross-references other communities as `[label](slug.md)` links. Markdown link syntax (not Obsidian `[[wikilinks]]`) so navigation works in any viewer; the Obsidian vault export uses `[[...]]` separately. |
 | Knowledge gaps section | **Done** | Composite digest: isolated-node count, thin-community count, ambiguous-edge count. Each line shows only when count > 0. |

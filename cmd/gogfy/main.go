@@ -1219,10 +1219,21 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	// is visibly out-of-date next to a fresh repo. Missing-data is
 	// non-fatal — the report just omits the freshness section.
 	commit, _ := gitmeta.HeadShortSHA(root)
+	var semCostReport *report.SemanticCost
+	if llmClient != nil && len(semanticJobs) > 0 {
+		semCostReport = &report.SemanticCost{
+			Backend:          llmClient.Name(),
+			FilesProcessed:   len(semanticJobs),
+			InputTokens:      semCost.inputTokens,
+			OutputTokens:     semCost.outputTokens,
+			EstimatedUSDCost: semCost.usd,
+		}
+	}
 	reportBytes, err := report.RenderWithOptions(reportData, report.Options{
 		Nodes:         clusteredNodes,
 		Edges:         edges,
 		BuiltAtCommit: commit,
+		SemanticCost:  semCostReport,
 	})
 	if err != nil {
 		return fmt.Errorf("report: %w", err)
