@@ -39,6 +39,8 @@ import (
 
 	"github.com/julianshen/gogfy/internal/llm"
 	"github.com/julianshen/gogfy/internal/llm/anthropic"
+	"github.com/julianshen/gogfy/internal/llm/ollama"
+	"github.com/julianshen/gogfy/internal/llm/openai"
 	"github.com/julianshen/gogfy/internal/rationale"
 	"github.com/julianshen/gogfy/internal/safefetch"
 	"github.com/julianshen/gogfy/internal/semantic"
@@ -578,8 +580,9 @@ func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob,
 }
 
 // buildLLMClient picks an LLM backend by name. Empty string defaults
-// to anthropic. Future backends (openai, gemini, ollama) plug in here
-// without touching the pipeline.
+// to anthropic (most-likely user already has Claude access via the
+// MCP integration). All backends share the llm.Client interface so
+// the rest of the pipeline is provider-agnostic.
 func buildLLMClient(backend string) (llm.Client, error) {
 	if backend == "" {
 		backend = "anthropic"
@@ -587,8 +590,12 @@ func buildLLMClient(backend string) (llm.Client, error) {
 	switch backend {
 	case "anthropic":
 		return anthropic.New()
+	case "openai":
+		return openai.New()
+	case "ollama":
+		return ollama.New()
 	}
-	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic)", backend)
+	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama)", backend)
 }
 
 // hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The
