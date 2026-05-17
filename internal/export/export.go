@@ -16,6 +16,12 @@ import (
 type GraphExport struct {
 	Nodes []schema.Node `json:"nodes"`
 	Edges []schema.Edge `json:"edges"`
+	// BuiltAtCommit, when non-empty, records the short git SHA of HEAD
+	// at the time graph.json was written. Lets a cross-tool consumer
+	// (wiki regenerator, downstream analysis script) detect a stale
+	// graph against a fresh repo. omitempty so existing graph.json
+	// files without the field still round-trip cleanly.
+	BuiltAtCommit string `json:"built_at_commit,omitempty"`
 }
 
 // ExportJSON returns the graph as indented JSON bytes.

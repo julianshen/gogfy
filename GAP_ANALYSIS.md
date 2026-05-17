@@ -149,7 +149,7 @@
 | Callflow HTML | **Done (v1)** | gogfy `callflow` subcommand: section-level overview + per-section Mermaid LR. v1 omits bilingual/labels-file/GRAPH_REPORT integration. |
 | Node limit / aggregation | Missing | Upstream auto-aggregates to community-level view when graph exceeds 5000 nodes |
 | Confidence score defaults | Missing | Upstream adds `confidence_score` field to edges in JSON |
-| Built-at commit metadata | Missing | Upstream embeds git HEAD in graph.json |
+| Built-at commit metadata | **Done** | `GraphExport.BuiltAtCommit` (json `built_at_commit`, omitempty for backwards compat) populated from `gitmeta.HeadShortSHA` at both runPipeline and runClusterOnly export sites. Cross-tool consumers can detect a stale snapshot against a fresh repo. |
 
 ### 2.8 MCP Server
 | Feature | Status | What's Missing |

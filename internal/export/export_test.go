@@ -405,3 +405,37 @@ func TestExportHTMLContainsPhysicsToggle(t *testing.T) {
 		t.Fatal("physics state variable missing from script")
 	}
 }
+
+func TestGraphExportBuiltAtCommitRoundTrips(t *testing.T) {
+	g := GraphExport{
+		Nodes:         []schema.Node{{ID: "a", Label: "A"}},
+		BuiltAtCommit: "abc1234",
+	}
+	data, _ := ExportJSON(g)
+	if !strings.Contains(string(data), `"built_at_commit": "abc1234"`) {
+		t.Fatalf("built_at_commit not serialized: %s", data)
+	}
+	p := filepath.Join(t.TempDir(), "g.json")
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadJSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BuiltAtCommit != "abc1234" {
+		t.Errorf("BuiltAtCommit lost on round-trip: %q", got.BuiltAtCommit)
+	}
+}
+
+func TestGraphExportBuiltAtCommitOmitemptyOnEmpty(t *testing.T) {
+	// Existing graph.json files without the field must round-trip
+	// cleanly — omitempty keeps a "no commit info" export from
+	// emitting `"built_at_commit": ""` which is uglier and harder
+	// for downstream parsers to ignore.
+	g := GraphExport{Nodes: []schema.Node{{ID: "a", Label: "A"}}}
+	data, _ := ExportJSON(g)
+	if strings.Contains(string(data), `"built_at_commit"`) {
+		t.Fatalf("empty BuiltAtCommit must omitempty, got: %s", data)
+	}
+}

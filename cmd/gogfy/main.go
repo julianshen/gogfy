@@ -900,7 +900,11 @@ func runClusterOnly(out string, directed bool, opts runOptions) error {
 	if err != nil {
 		return fmt.Errorf("cluster-only: report: %w", err)
 	}
-	exportGraph := export.GraphExport{Nodes: clustered, Edges: g.Edges}
+	exportGraph := export.GraphExport{
+		Nodes:         clustered,
+		Edges:         g.Edges,
+		BuiltAtCommit: commit,
+	}
 	jsonBytes, err := export.ExportJSON(exportGraph)
 	if err != nil {
 		return fmt.Errorf("cluster-only: export json: %w", err)
@@ -1108,8 +1112,9 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	}
 
 	exportGraph := export.GraphExport{
-		Nodes: clusteredNodes,
-		Edges: edges,
+		Nodes:         clusteredNodes,
+		Edges:         edges,
+		BuiltAtCommit: commit,
 	}
 
 	jsonBytes, err := export.ExportJSON(exportGraph)
