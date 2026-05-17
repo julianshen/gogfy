@@ -794,3 +794,61 @@ func TestAnalyzeBridgeNodesCappedAtMax(t *testing.T) {
 		t.Fatal("line graph should produce some bridge nodes")
 	}
 }
+
+func TestGodNodesExcludesModuleHub(t *testing.T) {
+	// Module nodes (gogfy's "<lang>:module:<file>") accumulate imports
+	// and contains edges mechanically. They're the highest-degree
+	// nodes by construction — but they're file hubs, not architectural
+	// abstractions. Must be filtered from god-node ranking.
+	nodes := []schema.Node{
+		{ID: "go:module:/proj/auth.go", Label: "auth.go", SourceFile: "/proj/auth.go"},
+		{ID: "go:function:/proj/auth.go:m:Login", Label: "Login", SourceFile: "/proj/auth.go"},
+		{ID: "go:function:/proj/auth.go:m:Logout", Label: "Logout", SourceFile: "/proj/auth.go"},
+		{ID: "go:function:/proj/auth.go:m:Verify", Label: "Verify", SourceFile: "/proj/auth.go"},
+	}
+	edges := []schema.Edge{
+		// module mechanically owns every function via "contains"
+		{Source: "go:module:/proj/auth.go", Target: "go:function:/proj/auth.go:m:Login", Relation: "contains"},
+		{Source: "go:module:/proj/auth.go", Target: "go:function:/proj/auth.go:m:Logout", Relation: "contains"},
+		{Source: "go:module:/proj/auth.go", Target: "go:function:/proj/auth.go:m:Verify", Relation: "contains"},
+		// Login is the real architectural anchor — called by everyone
+		{Source: "go:function:/proj/auth.go:m:Logout", Target: "go:function:/proj/auth.go:m:Login", Relation: "calls"},
+		{Source: "go:function:/proj/auth.go:m:Verify", Target: "go:function:/proj/auth.go:m:Login", Relation: "calls"},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	for _, g := range r.GodNodes {
+		if g.ID == "go:module:/proj/auth.go" {
+			t.Fatalf("module hub leaked into god nodes: %+v", r.GodNodes)
+		}
+	}
+	// Login should still appear (or at least, Logout/Verify could —
+	// the point is the module node shouldn't dominate the top).
+	if len(r.GodNodes) == 0 {
+		t.Fatal("expected at least one non-module god node")
+	}
+}
+
+func TestGodNodesExcludesMethodStubsWithLeadingDot(t *testing.T) {
+	// graphify's convention: AST-extracted method stubs labeled like
+	// ".auth_flow()" are placeholders for unresolved receivers, not
+	// real architectural anchors.
+	nodes := []schema.Node{
+		{ID: "stub", Label: ".helper()"},
+		{ID: "real1", Label: "RealOne"},
+		{ID: "real2", Label: "RealTwo"},
+		{ID: "real3", Label: "RealThree"},
+		{ID: "real4", Label: "RealFour"},
+	}
+	edges := []schema.Edge{
+		{Source: "real1", Target: "stub"},
+		{Source: "real2", Target: "stub"},
+		{Source: "real3", Target: "stub"},
+		{Source: "real4", Target: "stub"},
+	}
+	r := NewAnalyzer().Analyze(nodes, edges)
+	for _, g := range r.GodNodes {
+		if g.ID == "stub" {
+			t.Fatalf("dotted-method stub should be filtered out: %+v", r.GodNodes)
+		}
+	}
+}

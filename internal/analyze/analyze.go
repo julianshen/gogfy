@@ -80,6 +80,14 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 
 	nd := make([]nodeDegree, 0, len(nodes))
 	for _, n := range nodes {
+		if isFileHubOrStub(n, degree[n.ID]) {
+			// Module/file-level hubs accumulate edges mechanically
+			// (every contained function adds one), and AST-stub method
+			// nodes (label ".foo()") are extractor placeholders, not
+			// architectural anchors. Excluding them from the degree
+			// pool keeps god nodes meaningful even on small repos.
+			continue
+		}
 		d := degree[n.ID]
 		nd = append(nd, nodeDegree{node: n, degree: d})
 	}
@@ -449,6 +457,34 @@ func labelOrID(n schema.Node) string {
 		return n.Label
 	}
 	return n.ID
+}
+
+// isFileHubOrStub reports whether n is a structural artifact that
+// shouldn't dominate the god-node ranking.
+//
+// Module/file-level hubs (the `<lang>:module:<filepath>` shape gogfy
+// emits) accumulate one edge per declaration via "contains" relations,
+// so they always top a naive degree ranking — but they're file
+// containers, not architectural anchors.
+//
+// The two `()`-label rules target graphify-shaped graphs that gogfy
+// might ingest through `global add` or `merge-graphs`: graphify's AST
+// extractor labels unresolved method calls as `.foo()` and module-
+// level function stubs as `foo()`. gogfy's own extractors don't emit
+// either today, so the rules are no-ops on a pure gogfy graph — they
+// just keep the filter consistent across cross-tool inputs.
+func isFileHubOrStub(n schema.Node, degree int) bool {
+	if _, kind, _, ok := schema.ParseLangID(n.ID); ok && kind == "module" {
+		return true
+	}
+	label := n.Label
+	if strings.HasPrefix(label, ".") && strings.HasSuffix(label, "()") {
+		return true
+	}
+	if strings.HasSuffix(label, "()") && degree <= 1 {
+		return true
+	}
+	return false
 }
 
 // pickBridgeNodes computes betweenness centrality and returns the
