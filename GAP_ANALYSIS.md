@@ -169,9 +169,9 @@
 ### 2.10 Security
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
-| URL validation | Missing | Upstream validates http/https, blocks private IPs, cloud metadata endpoints |
-| SSRF-guarded socket | Missing | Upstream has DNS rebinding protection |
-| Safe fetch | Missing | Upstream has `safe_fetch()` / `safe_fetch_text()` with size caps |
+| URL validation | **Done** | `safefetch.Fetch` rejects non-http(s) schemes, validates hostname, optional suffix-allowlist. |
+| SSRF-guarded socket | **Done** | `validateHost` resolves the URL's hostname BEFORE the request and rejects any IP in private/loopback/link-local/cloud-metadata ranges. Redirects re-run the check at every hop so a server can't bounce to an internal address. Resolves all IPs (not just first) to defeat DNS rebinding. |
+| Safe fetch | **Done** | `internal/safefetch` ships SSRF guard + 10 MiB default size cap + 30s timeout + 5-redirect cap. Drop-in replacement for raw `http.Get` for user-supplied URLs. |
 | Path traversal guard | Partial | gogfy has RootGuard; upstream also has `validate_graph_path()` |
 | Label sanitization | Partial | `internal/labels` strips control chars and caps at 256 runes for community names; node Label/SourceFile fields not yet sanitized at ingest. |
 
@@ -228,7 +228,7 @@
 | Feature | Upstream Location | Description |
 |---------|-------------------|-------------|
 | URL fetching with type detection | `ingest.py` | Detect tweet, arxiv, github, youtube, pdf, image, webpage |
-| HTML-to-markdown conversion | `ingest.py` | Convert web pages to markdown |
+| HTML-to-markdown conversion | **Done** | `internal/ingest.htmlToMarkdown` strips script/style/noscript, converts h1-h6/p/li/br, decodes basic entities. Wrapper `Ingest` writes a content-hashed sidecar under `<out>/ingested/` with `source_url:` frontmatter — idempotent across runs. CLI: `gogfy ingest <url> [--out <dir>]`. |
 | arXiv abstract extraction | `ingest.py` | Fetch and format arXiv papers |
 | YouTube audio download | `ingest.py` | yt-dlp integration |
 | Binary download for PDFs/images | `ingest.py` | Save raw binaries |

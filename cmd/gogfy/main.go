@@ -34,11 +34,13 @@ import (
 	"github.com/julianshen/gogfy/internal/report"
 	"github.com/julianshen/gogfy/internal/gitmeta"
 	"github.com/julianshen/gogfy/internal/graphdiff"
+	"github.com/julianshen/gogfy/internal/ingest"
 	"sync"
 
 	"github.com/julianshen/gogfy/internal/llm"
 	"github.com/julianshen/gogfy/internal/llm/anthropic"
 	"github.com/julianshen/gogfy/internal/rationale"
+	"github.com/julianshen/gogfy/internal/safefetch"
 	"github.com/julianshen/gogfy/internal/semantic"
 	"github.com/julianshen/gogfy/internal/resolve"
 	"github.com/julianshen/gogfy/internal/tsalias"
@@ -141,6 +143,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return mergeGraphsCommand(rest, os.Stdout, stderr)
 	case "diff":
 		return diffCommand(rest, os.Stdout, stderr)
+	case "ingest":
+		return ingestCommand(rest, stderr)
 	case "wiki":
 		return wikiCommand(rest, stderr)
 	case "labels":
@@ -310,6 +314,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
 	fmt.Fprintln(w, "       gogfy diff <old.json> <new.json>")
+	fmt.Fprintln(w, "       gogfy ingest <url> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy labels <graph.json> [--out <path>] [--force]")
 	fmt.Fprintln(w, "       gogfy obsidian <graph.json> [--out <vault-dir>]")
@@ -501,6 +506,33 @@ func renderDiff(w io.Writer, d graphdiff.Diff) {
 			fmt.Fprintf(w, "- %s --%s--> %s\n", e.Source, e.Relation, e.Target)
 		}
 	}
+}
+
+// ingestCommand fetches a URL through the SSRF-guarded safe_fetch
+// and writes a markdown sidecar under --out (default "graphify-out").
+// The sidecar is picked up by a subsequent `gogfy run` as an
+// ordinary document — semantic extraction can then process it like
+// any local markdown file.
+func ingestCommand(args []string, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"out"}, nil)
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("ingest", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	out := fs.String("out", "graphify-out", "output directory (sidecar lands under <out>/ingested/)")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("ingest: expected one <url> argument, got %d", fs.NArg())
+	}
+	path, err := ingest.Ingest(context.Background(), fs.Arg(0), *out, safefetch.Options{})
+	if err != nil {
+		return fmt.Errorf("ingest: %w", err)
+	}
+	fmt.Fprintf(stderr, "ingest: wrote %s\n", path)
+	return nil
 }
 
 // semanticJob bundles the file path + already-read bytes so the
