@@ -1483,3 +1483,25 @@ func TestDispatchObsidian(t *testing.T) {
 		t.Fatalf("vault has no _COMMUNITY_*.md notes: %v", entries)
 	}
 }
+
+func TestDispatchDiff(t *testing.T) {
+	dir := t.TempDir()
+	oldP := filepath.Join(dir, "old.json")
+	newP := filepath.Join(dir, "new.json")
+	if err := os.WriteFile(oldP, []byte(`{"nodes":[{"ID":"a","Label":"A"},{"ID":"b","Label":"B"}],"edges":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newP, []byte(`{"nodes":[{"ID":"a","Label":"A2"},{"ID":"c","Label":"C"}],"edges":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := dispatchTo(t, []string{"diff", oldP, newP}, &stdout, &stderr); err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	out := stdout.String()
+	for _, want := range []string{"Nodes added", "C ", "Nodes removed", "B ", "Nodes changed", "a:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in diff output: %s", want, out)
+		}
+	}
+}

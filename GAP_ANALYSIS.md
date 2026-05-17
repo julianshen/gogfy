@@ -125,7 +125,7 @@
 | Surprising connections scoring | **Done** | Composite integer score: confidence bonus (AMBIGUOUS=3, INFERRED=2, EXTRACTED=1, zeroed for cross-lang INFERRED `calls`), +2 cross-file-type, +2 cross-repo (top-level dir differs), +1 cross-community baseline, ×1.5 for `semantically_similar_to`, +1 peripheral→hub. Tie-break: legacy inverse-log-degree, then input order. |
 | Cross-file vs single-source modes | Missing | Upstream switches between `_cross_file_surprises` and `_cross_community_surprises` based on corpus size |
 | Suggested questions | **Done** | All 7 upstream types covered: god-node role, ambiguous_edge, verify_inferred, isolated_nodes, low_cohesion (threshold-aligned with cluster splitter), no_signal (empty/edgeless graph short-circuit), community-bridge. Per-category budget prevents one type from crowding out others. |
-| Graph diff | Missing | Upstream can compare two graph snapshots |
+| Graph diff | **Done** | `internal/graphdiff.Compute` + `gogfy diff <old.json> <new.json>` — markdown summary of added/removed/changed nodes (label/community/file-type drift) and added/removed edges. Edge identity is (source, target, relation); confidence flips on the same edge are intentionally not surfaced. |
 | Betweenness centrality | **Done** | `internal/centrality.Betweenness` ports Brandes' O(V·E) algorithm (undirected, dedup self-loops/parallels, dangling-ref-safe). `analyze.Report.BridgeNodes` surfaces top-3 by score with deterministic tie-break; report writes a `## Bridge Nodes` section when non-empty. |
 
 ### 2.6 Report
@@ -133,7 +133,7 @@
 |---------|--------|----------------|
 | Report sections | **Done (10/11)** | Added Summary, Corpus, Graph Freshness (conditional), Community Hubs, Communities (with thin-community filtering), Ambiguous Edges, Knowledge Gaps. Hyperedges omitted — gogfy doesn't model N-ary relations. `report.RenderWithOptions` carries the extended data; legacy `Render(r)` preserved as a trimmed variant. |
 | Token cost reporting | Missing | Upstream reports input/output tokens and estimated cost |
-| Git commit freshness | Missing | Upstream embeds `built_at_commit` hash |
+| Git commit freshness | **Done** | `internal/gitmeta.HeadShortSHA` reads `.git/HEAD` + the referenced ref file (or `packed-refs` fallback) — no shell-out. Auto-populated in runPipeline, runClusterOnly, reportCommand so the Graph Freshness section appears on every report inside a repo. Worktree `.git`-file pointers resolved. |
 | Community hub navigation | Missing | Upstream has wikilink navigation to community notes |
 | Knowledge gaps section | **Done** | Composite digest: isolated-node count, thin-community count, ambiguous-edge count. Each line shows only when count > 0. |
 | Thin community filtering | **Done** | `Options.ThinCommunityMin` (default 2) drops single-node \"communities\" from the Communities section and feeds the Knowledge Gaps thin-community counter. |
