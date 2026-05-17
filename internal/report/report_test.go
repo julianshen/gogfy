@@ -592,3 +592,37 @@ func TestRenderReportBridgeNodesOmittedWhenEmpty(t *testing.T) {
 		t.Fatalf("section should be omitted when no bridges: %s", out)
 	}
 }
+
+func TestRenderReportSemanticCostSection(t *testing.T) {
+	out, _ := RenderWithOptions(analyze.Report{}, Options{
+		SemanticCost: &SemanticCost{
+			Backend:          "anthropic-claude-3-5-haiku-20241022",
+			FilesProcessed:   3,
+			InputTokens:      1500,
+			OutputTokens:     400,
+			EstimatedUSDCost: 0.0042,
+		},
+	})
+	s := string(out)
+	for _, want := range []string{
+		"## Semantic Extraction",
+		"Backend: anthropic-claude-3-5-haiku-20241022",
+		"Files processed: 3",
+		"1500 input + 400 output = 1900 total",
+		"$0.0042 USD",
+	} {
+		if !contains(s, want) {
+			t.Errorf("expected %q in output: %s", want, s)
+		}
+	}
+}
+
+func TestRenderReportSemanticCostOmittedWhenNil(t *testing.T) {
+	// No semantic pass → section absent. Distinguishes from a run
+	// that did fire but produced 0 tokens (which would emit the
+	// section with zeros).
+	out, _ := RenderWithOptions(analyze.Report{}, Options{})
+	if contains(string(out), "## Semantic Extraction") {
+		t.Fatalf("section should be absent when SemanticCost is nil: %s", out)
+	}
+}

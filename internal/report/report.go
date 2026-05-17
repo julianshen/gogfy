@@ -30,6 +30,21 @@ type Options struct {
 	// CommunityLabels maps community ID → human-readable name (from
 	// labels.Load). Empty/missing entries fall back to "Community <id>".
 	CommunityLabels map[string]string
+	// SemanticCost, when non-nil, emits a "Semantic Extraction"
+	// section with the LLM token usage and USD estimate for the run.
+	// Pointer so the report can distinguish "no semantic pass ran"
+	// (omit section) from "ran with zero output" (show 0 tokens).
+	SemanticCost *SemanticCost
+}
+
+// SemanticCost summarizes the LLM-token spend for a run. Filled in
+// by runPipeline when --semantic is on; zero-valued otherwise.
+type SemanticCost struct {
+	Backend          string
+	FilesProcessed   int
+	InputTokens      int
+	OutputTokens     int
+	EstimatedUSDCost float64
 }
 
 const defaultThinCommunityMin = 2
@@ -55,6 +70,7 @@ func RenderWithOptions(r analyze.Report, opts Options) ([]byte, error) {
 	writeSummary(&b, r, opts)
 	writeCorpus(&b, opts)
 	writeGraphFreshness(&b, opts)
+	writeSemanticCost(&b, opts)
 	writeCommunityHubs(&b, opts, degree)
 
 	fmt.Fprintf(&b, "## God Nodes\n")
@@ -195,6 +211,25 @@ func writeGraphFreshness(b *bytes.Buffer, opts Options) {
 		return
 	}
 	fmt.Fprintf(b, "## Graph Freshness\n- Built at commit `%s`\n\n", opts.BuiltAtCommit)
+}
+
+// writeSemanticCost emits an LLM-spend section so a maintainer can
+// audit how much each run cost. Omitted when no semantic pass ran;
+// shown with zero totals when the pass ran but produced no output
+// (file-count tells the user the pass actually fired).
+func writeSemanticCost(b *bytes.Buffer, opts Options) {
+	if opts.SemanticCost == nil {
+		return
+	}
+	c := opts.SemanticCost
+	fmt.Fprintf(b, "## Semantic Extraction\n")
+	if c.Backend != "" {
+		fmt.Fprintf(b, "- Backend: %s\n", c.Backend)
+	}
+	fmt.Fprintf(b, "- Files processed: %d\n", c.FilesProcessed)
+	fmt.Fprintf(b, "- Tokens: %d input + %d output = %d total\n",
+		c.InputTokens, c.OutputTokens, c.InputTokens+c.OutputTokens)
+	fmt.Fprintf(b, "- Estimated cost: $%.4f USD\n\n", c.EstimatedUSDCost)
 }
 
 // writeCommunityHubs picks the highest-degree node per community as the
