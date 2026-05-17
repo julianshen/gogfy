@@ -754,29 +754,83 @@ func (s *Server) callQuery(args json.RawMessage) map[string]any {
 	if limit <= 0 {
 		limit = 25
 	}
-	matches := []schema.Node{}
-	for _, n := range s.graph.Nodes {
-		// Search across label, ID, and source file: agents reasonably expect
-		// to find a function by its name, its fully-qualified ID, or the
-		// file it lives in. All three are cheap on the same loop.
-		if strings.Contains(strings.ToLower(n.Label), needle) ||
-			strings.Contains(strings.ToLower(n.ID), needle) ||
-			strings.Contains(strings.ToLower(n.SourceFile), needle) {
-			matches = append(matches, n)
-			if len(matches) >= limit {
-				break
-			}
-		}
+	// Score matches by relevance so the right node ranks first instead
+	// of relying on graph-iteration order. Buckets are intentionally
+	// spaced so a higher tier always outranks a lower one even when the
+	// lower tier accumulates a high degree tie-break bonus.
+	type scored struct {
+		node  schema.Node
+		score int
 	}
-	sort.Slice(matches, func(i, j int) bool { return matches[i].ID < matches[j].ID })
+	var matches []scored
+	degree := s.degreeMap()
+	for _, n := range s.graph.Nodes {
+		score := matchScore(needle, n)
+		if score == 0 {
+			continue
+		}
+		// Tie-breaker: popular nodes outrank obscure ones with the same
+		// match quality. Capped so degree can't flip tiers.
+		bonus := degree[n.ID]
+		if bonus > 9 {
+			bonus = 9
+		}
+		matches = append(matches, scored{node: n, score: score*10 + bonus})
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].score != matches[j].score {
+			return matches[i].score > matches[j].score
+		}
+		return matches[i].node.ID < matches[j].node.ID
+	})
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
 	var b strings.Builder
-	for _, n := range matches {
-		fmt.Fprintf(&b, "- %s (%s)\n", n.Label, n.ID)
+	for _, m := range matches {
+		fmt.Fprintf(&b, "- %s (%s)\n", m.node.Label, m.node.ID)
 	}
 	if b.Len() == 0 {
 		fmt.Fprintf(&b, "(no labels matched %q)\n", p.Text)
 	}
 	return toolResult(b.String(), false)
+}
+
+// matchScore returns 0 for non-matches; higher is more relevant.
+// Exact label match (case-insensitive) gets the top tier so renaming a
+// function "auth" surfaces it ahead of nodes whose label merely contains
+// "auth" as a substring. ID and source-file matches rank below label
+// matches since agents typically look by name first.
+func matchScore(needle string, n schema.Node) int {
+	label := strings.ToLower(n.Label)
+	switch {
+	case label == needle:
+		return 100
+	case strings.HasPrefix(label, needle):
+		return 50
+	case strings.Contains(label, needle):
+		return 25
+	}
+	if strings.Contains(strings.ToLower(n.ID), needle) {
+		return 15
+	}
+	if strings.Contains(strings.ToLower(n.SourceFile), needle) {
+		return 10
+	}
+	return 0
+}
+
+// degreeMap counts incident edges per node for the tie-breaker bonus.
+// Built lazily here (rather than indexed once in New) because query is
+// expected to be infrequent relative to explain/get_neighbors — keeping
+// the Server zero-cost on init still wins more than caching saves.
+func (s *Server) degreeMap() map[string]int {
+	d := make(map[string]int, len(s.graph.Nodes))
+	for _, e := range s.graph.Edges {
+		d[e.Source]++
+		d[e.Target]++
+	}
+	return d
 }
 
 // findNode resolves a query string to a node, accepting either an exact ID
