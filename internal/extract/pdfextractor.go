@@ -74,6 +74,25 @@ func pdfModuleLabel(r *pdf.Reader, abs string) (label string) {
 	return title
 }
 
+// PDFPlainText opens path, returns the concatenated plain text of
+// every page. Exposed so the semantic-extraction pipeline can feed
+// PDF bodies into an LLM without re-implementing the panic-tolerant
+// read pattern. Returns "" on any read failure (the PDF library
+// panics on some uncommon font encodings — callers want
+// best-effort, not pipeline-aborts).
+func PDFPlainText(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	f, r, err := pdf.Open(abs)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	return pdfPlainText(r, abs), nil
+}
+
 // pdfPlainText returns the concatenated text of every page, or "" on
 // any failure (read error or library panic on uncommon font encodings
 // / content-stream operators). The caller treats empty text as "no

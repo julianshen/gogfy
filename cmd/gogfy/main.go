@@ -1183,8 +1183,24 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		// LLM calls are I/O-bound and dominate runtime; serializing
 		// them here would turn a 100-file vault into a ~5-minute
 		// wall-clock blocker.
-		if llmClient != nil && schema.ClassifyFile(f) == schema.FileTypeDocument && data != nil {
-			semanticJobs = append(semanticJobs, semanticJob{path: f, src: data})
+		if llmClient != nil {
+			ft := schema.ClassifyFile(f)
+			switch ft {
+			case schema.FileTypeDocument:
+				if data != nil {
+					semanticJobs = append(semanticJobs, semanticJob{path: f, src: data})
+				}
+			case schema.FileTypePaper:
+				// PDFs need a text-extraction pass before the LLM —
+				// passing binary bytes would either be rejected or
+				// hallucinated over. Use the same panic-tolerant
+				// reader the AST extractor uses.
+				if text, terr := extract.PDFPlainText(f); terr == nil && text != "" {
+					semanticJobs = append(semanticJobs, semanticJob{path: f, src: []byte(text)})
+				} else if terr != nil {
+					fmt.Fprintf(os.Stderr, "gogfy: pdf text for %s skipped: %v\n", f, terr)
+				}
+			}
 		}
 		for _, e := range res.Edges {
 			if err := builder.AddEdge(e); err != nil {

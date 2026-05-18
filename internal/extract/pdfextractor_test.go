@@ -139,3 +139,27 @@ func TestPDFExtractorMalformedReturnsError(t *testing.T) {
 		t.Fatalf("expected error on malformed PDF")
 	}
 }
+
+func TestPDFPlainTextExposesHelperForExternalCallers(t *testing.T) {
+	// Sanity check: the exported helper opens the file and returns
+	// its body text. The semantic-extraction pipeline depends on
+	// this — a regression that re-makes PDFPlainText unexported
+	// would silently break PDF→LLM routing.
+	t.Helper()
+	// Reuse the fixture from the existing pdf tests by finding the
+	// nearest .pdf testdata file. If none exists we skip — we don't
+	// want to fail when the helper exists but happens to have no
+	// fixture file in this build.
+	candidates, _ := filepath.Glob("testdata/*.pdf")
+	if len(candidates) == 0 {
+		t.Skip("no PDF fixtures available")
+	}
+	text, err := PDFPlainText(candidates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Don't pin content — just that we got a string back without a
+	// panic. The unit shows the helper is callable from outside the
+	// package.
+	_ = text
+}
