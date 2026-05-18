@@ -95,6 +95,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		noDedup := fs.Bool("no-dedup", false, "skip entity deduplication (faster, may produce duplicate nodes)")
 		semantic := fs.Bool("semantic", false, "extract entities from document files via LLM (requires ANTHROPIC_API_KEY)")
 		semanticBackend := fs.String("backend", "", "LLM backend when --semantic is set (default: anthropic)")
+		maxCostUSD := fs.Float64("max-cost-usd", 0, "stop semantic dispatch once running USD cost exceeds this cap (0 = no cap)")
+		maxTokens := fs.Int("max-tokens", 0, "stop semantic dispatch once running token total exceeds this cap (0 = no cap)")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
@@ -116,6 +118,8 @@ func dispatch(args []string, stderr io.Writer) error {
 			NoDedup:         *noDedup,
 			Semantic:        *semantic,
 			SemanticBackend: *semanticBackend,
+			MaxLLMCostUSD:   *maxCostUSD,
+			MaxLLMTokens:    *maxTokens,
 		})
 	case "validate":
 		if len(rest) < 1 {
@@ -555,24 +559,60 @@ type semanticJob struct {
 // 429 a typical run, while still giving ~3-4× throughput vs serial.
 const semanticConcurrency = 4
 
-// runSemanticJobs fans out semantic extraction with bounded concurrency.
-// Returns results in input order so downstream merge produces
-// deterministic graph IDs regardless of how Go scheduled workers.
-// Errors are logged per-file (best-effort policy) so a single
-// rate-limit hiccup doesn't fail the whole pipeline.
-func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob, limit int) ([]semantic.Result, error) {
+// runSemanticJobs fans out semantic extraction with bounded concurrency
+// + optional cost/token caps. Returns results in input order so
+// downstream merge produces deterministic graph IDs regardless of how
+// Go scheduled workers. Errors are logged per-file (best-effort
+// policy) so a single rate-limit hiccup doesn't fail the whole
+// pipeline.
+//
+// When maxUSD or maxTokens is non-zero and the running tally exceeds
+// it (after a result lands), no new jobs start. In-flight jobs are
+// allowed to finish — cancelling them would waste the tokens already
+// spent on the API call.
+func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob, limit int, maxUSD float64, maxTokens int) ([]semantic.Result, error) {
 	if limit <= 0 {
 		limit = 1
 	}
 	out := make([]semantic.Result, len(jobs))
 	sem := make(chan struct{}, limit)
 	var wg sync.WaitGroup
+	var costMu sync.Mutex
+	var ranUSD float64
+	var ranTokens int
+	var stopped bool
+
+	overBudget := func() bool {
+		costMu.Lock()
+		defer costMu.Unlock()
+		if stopped {
+			return true
+		}
+		if maxUSD > 0 && ranUSD >= maxUSD {
+			stopped = true
+			fmt.Fprintf(os.Stderr, "gogfy: max-cost-usd $%.4f reached (spent $%.4f); halting semantic dispatch\n", maxUSD, ranUSD)
+			return true
+		}
+		if maxTokens > 0 && ranTokens >= maxTokens {
+			stopped = true
+			fmt.Fprintf(os.Stderr, "gogfy: max-tokens %d reached (spent %d); halting semantic dispatch\n", maxTokens, ranTokens)
+			return true
+		}
+		return false
+	}
+
 	for i, j := range jobs {
 		wg.Add(1)
 		go func(i int, j semanticJob) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			// Cap-check is at job-start so any work the user's
+			// budget allowed completes; jobs queued behind the
+			// cap-breaching one just no-op.
+			if overBudget() {
+				return
+			}
 			var (
 				r   semantic.Result
 				err error
@@ -587,6 +627,10 @@ func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob,
 				fmt.Fprintf(os.Stderr, "gogfy: semantic skipped for %s: %v\n", j.path, err)
 				return
 			}
+			costMu.Lock()
+			ranUSD += r.EstimatedUSDCost
+			ranTokens += r.InputTokens + r.OutputTokens
+			costMu.Unlock()
 			out[i] = r
 		}(i, j)
 	}
@@ -1007,6 +1051,16 @@ type runOptions struct {
 	// SemanticBackend names the LLM provider when Semantic is on.
 	// Empty defaults to "anthropic". Future: openai, gemini, ollama.
 	SemanticBackend string
+	// MaxLLMCostUSD, when > 0, halts semantic dispatch once the
+	// running USD tally exceeds the cap. Half-eaten cost reports
+	// are surfaced on stderr so the user knows why a run stopped
+	// short. Zero (default) = no cap.
+	MaxLLMCostUSD float64
+	// MaxLLMTokens, when > 0, halts semantic dispatch once the
+	// running token tally exceeds the cap. Independent of
+	// MaxLLMCostUSD — either trips alone. Useful for local
+	// (zero-cost) backends where token budget is the real concern.
+	MaxLLMTokens int
 }
 
 // runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
@@ -1250,7 +1304,7 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	}
 
 	if llmClient != nil && len(semanticJobs) > 0 {
-		results, err := runSemanticJobs(context.Background(), llmClient, semanticJobs, semanticConcurrency)
+		results, err := runSemanticJobs(context.Background(), llmClient, semanticJobs, semanticConcurrency, opts.MaxLLMCostUSD, opts.MaxLLMTokens)
 		if err != nil {
 			return fmt.Errorf("semantic: %w", err)
 		}
