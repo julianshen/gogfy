@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/julianshen/gogfy/internal/llm"
 )
 
 // dispatchTo runs dispatch with stdout temporarily redirected so tests
@@ -1503,5 +1506,98 @@ func TestDispatchDiff(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in diff output: %s", want, out)
 		}
+	}
+}
+
+// fakeClient lets the cap-enforcement tests run without network.
+// Each Generate returns a canned token spend so the running tally
+// is predictable.
+type fakeClient struct {
+	inputTokens  int
+	outputTokens int
+	usd          float64
+}
+
+func (fakeClient) Name() string { return "fake" }
+func (f fakeClient) Generate(_ context.Context, _ llm.Request) (llm.Response, error) {
+	return llm.Response{
+		Text:             `{"entities":[],"relations":[]}`,
+		InputTokens:      f.inputTokens,
+		OutputTokens:     f.outputTokens,
+		EstimatedUSDCost: f.usd,
+	}, nil
+}
+
+func TestRunSemanticJobsHaltsAtMaxCost(t *testing.T) {
+	// 5 jobs at $0.10 each, cap at $0.25 → expect ≤ 3 results.
+	// Strictly speaking 2 are guaranteed to land before the cap
+	// trips, but the third might run before the second's tally is
+	// recorded — the bound to test is "no more than the cap allows
+	// plus already-in-flight."
+	client := fakeClient{usd: 0.10, inputTokens: 100}
+	jobs := []semanticJob{
+		{path: "a.md", src: []byte("x"), kind: "text"},
+		{path: "b.md", src: []byte("x"), kind: "text"},
+		{path: "c.md", src: []byte("x"), kind: "text"},
+		{path: "d.md", src: []byte("x"), kind: "text"},
+		{path: "e.md", src: []byte("x"), kind: "text"},
+	}
+	results, err := runSemanticJobs(context.Background(), client, jobs, 1, 0.25, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executed := 0
+	for _, r := range results {
+		if r.EstimatedUSDCost > 0 {
+			executed++
+		}
+	}
+	// With concurrency=1, the cap-check fires deterministically after
+	// each result lands, so exactly 3 should run ($0.30 ≥ $0.25 triggers
+	// the halt before the 4th starts).
+	if executed != 3 {
+		t.Fatalf("expected exactly 3 jobs to run before cap, got %d", executed)
+	}
+}
+
+func TestRunSemanticJobsHaltsAtMaxTokens(t *testing.T) {
+	// Independent token cap — for local backends with zero USD cost.
+	client := fakeClient{inputTokens: 100, outputTokens: 50} // 150 tokens/call
+	jobs := []semanticJob{
+		{path: "a.md", src: []byte("x"), kind: "text"},
+		{path: "b.md", src: []byte("x"), kind: "text"},
+		{path: "c.md", src: []byte("x"), kind: "text"},
+		{path: "d.md", src: []byte("x"), kind: "text"},
+	}
+	// Cap at 250 → 2 jobs (300) trips, expect exactly 2 to run.
+	results, _ := runSemanticJobs(context.Background(), client, jobs, 1, 0, 250)
+	executed := 0
+	for _, r := range results {
+		if r.InputTokens > 0 {
+			executed++
+		}
+	}
+	if executed != 2 {
+		t.Fatalf("expected 2 jobs before token cap, got %d", executed)
+	}
+}
+
+func TestRunSemanticJobsZeroCapsRunAll(t *testing.T) {
+	// Zero caps = no limit. All jobs must run.
+	client := fakeClient{usd: 0.01, inputTokens: 10}
+	jobs := []semanticJob{
+		{path: "a.md", src: []byte("x"), kind: "text"},
+		{path: "b.md", src: []byte("x"), kind: "text"},
+		{path: "c.md", src: []byte("x"), kind: "text"},
+	}
+	results, _ := runSemanticJobs(context.Background(), client, jobs, 1, 0, 0)
+	executed := 0
+	for _, r := range results {
+		if r.EstimatedUSDCost > 0 {
+			executed++
+		}
+	}
+	if executed != 3 {
+		t.Fatalf("zero caps should let all 3 jobs run, got %d", executed)
 	}
 }
