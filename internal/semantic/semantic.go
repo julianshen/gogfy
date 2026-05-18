@@ -42,6 +42,29 @@ Rules:
 - Skip entities that appear only once and are not central.
 - If the text contains no extractable entities, return {"entities":[],"relations":[]}.`
 
+// visionSystemPrompt mirrors systemPrompt but pivots the extraction
+// surface from prose to visual content. Same JSON output shape so
+// downstream consumers don't need a separate parse path.
+const visionSystemPrompt = `You extract entities and relationships visible in an image.
+
+Return a JSON object exactly matching this shape, with no commentary:
+
+{
+  "entities": [
+    {"id": "kebab-case-slug", "type": "Concept|Person|Organization|Technology|Artifact", "label": "Human-readable name"}
+  ],
+  "relations": [
+    {"source": "entity-id", "target": "entity-id", "type": "describes|uses|contains|part-of"}
+  ]
+}
+
+Rules:
+- Only emit entities and relations clearly visible in the image.
+- IDs must be lowercase kebab-case and unique within the response.
+- For diagrams (architecture/flowcharts), each box/node becomes an entity and each arrow becomes a relation.
+- For photographs, identify the principal subjects only.
+- If the image contains nothing extractable (blank, noise), return {"entities":[],"relations":[]}.`
+
 // Result is what Extract returns: the nodes/edges in the same shape
 // the AST extractors emit, plus token-usage telemetry so callers can
 // build a running cost estimate across many files.
@@ -69,8 +92,39 @@ func Extract(ctx context.Context, client llm.Client, path string, src []byte) (R
 		// requests where the model goes long.
 		MaxTokens: 4096,
 	})
-	if err != nil {
-		return Result{}, fmt.Errorf("semantic: %w", err)
+	return parseResponse(resp, path, err)
+}
+
+// ExtractImage is the vision counterpart to Extract. Pass raw image
+// bytes (PNG, JPEG, WebP) plus the MIME type; the model sees the
+// image and emits entities + relations the same JSON shape Extract
+// uses, so downstream merge/dedup treat the output uniformly.
+//
+// Caller decides the MIME type — usually from the file extension via
+// http.DetectContentType on the first 512 bytes.
+func ExtractImage(ctx context.Context, client llm.Client, path string, image []byte, mimeType string) (Result, error) {
+	if len(image) == 0 {
+		return Result{}, nil
+	}
+	resp, err := client.Generate(ctx, llm.Request{
+		System: visionSystemPrompt,
+		User:   "Extract entities and relationships from this image.",
+		Images: []llm.ImageInput{{Data: image, MimeType: mimeType}},
+		// Visual content can require longer outputs (multiple
+		// entities per scene) but the JSON shape is still bounded.
+		MaxTokens: 4096,
+	})
+	return parseResponse(resp, path, err)
+}
+
+// parseResponse is the shared post-LLM-call path: strip JSON from
+// the response, map entities → schema.Node, relations → schema.Edge,
+// anchor everything to a module node for the source path. Splitting
+// it out keeps Extract and ExtractImage to one prompt-policy line
+// each.
+func parseResponse(resp llm.Response, path string, callErr error) (Result, error) {
+	if callErr != nil {
+		return Result{}, fmt.Errorf("semantic: %w", callErr)
 	}
 	payload, ok := extractJSON(resp.Text)
 	if !ok {

@@ -9,6 +9,7 @@ package gemini
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,11 +106,20 @@ func (c *Client) Name() string { return "gemini-" + c.model }
 // Gemini's wire shape splits "system" and "contents" — system goes
 // into a sibling top-level field, not a message with role=system.
 func (c *Client) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {
+	parts := []part{}
+	if req.User != "" {
+		parts = append(parts, part{Text: req.User})
+	}
+	for _, img := range req.Images {
+		// Gemini uses inlineData (snake-cased as inline_data in some
+		// SDK docs; the REST API accepts camelCase here).
+		parts = append(parts, part{InlineData: &inlineData{
+			MimeType: img.MimeType,
+			Data:     base64.StdEncoding.EncodeToString(img.Data),
+		}})
+	}
 	body := generateRequest{
-		Contents: []content{{
-			Role:  "user",
-			Parts: []part{{Text: req.User}},
-		}},
+		Contents:         []content{{Role: "user", Parts: parts}},
 		GenerationConfig: &generationConfig{MaxOutputTokens: defaultMaxTokens(req.MaxTokens)},
 	}
 	if req.System != "" {
@@ -221,7 +231,17 @@ type content struct {
 }
 
 type part struct {
-	Text string `json:"text"`
+	Text       string      `json:"text,omitempty"`
+	InlineData *inlineData `json:"inlineData,omitempty"`
+}
+
+// inlineData is Gemini's image-attachment shape — base64 bytes plus
+// a mime type, sibling to a text part within the same Content.Parts
+// array. Different from OpenAI's "url-with-data-URI" and Anthropic's
+// "source object" but absorbed by the same llm.Request shape.
+type inlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 type generationConfig struct {

@@ -14,6 +14,7 @@ package ollama
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -85,10 +86,23 @@ func (c *Client) Name() string { return "ollama-" + c.model }
 // supports streaming, but the simpler non-streaming path is enough
 // for entity extraction (which produces small JSON outputs anyway).
 func (c *Client) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {
+	// Ollama's images field is base64 strings — same encoding as the
+	// cloud providers, just packaged in a flat array. Vision support
+	// depends on the active model (llava, llama3.2-vision); on a
+	// text-only model the field is ignored or errors at the API
+	// layer rather than here.
+	var encodedImages []string
+	if len(req.Images) > 0 {
+		encodedImages = make([]string, 0, len(req.Images))
+		for _, img := range req.Images {
+			encodedImages = append(encodedImages, base64.StdEncoding.EncodeToString(img.Data))
+		}
+	}
 	body, err := json.Marshal(generateRequest{
 		Model:  c.model,
 		Prompt: req.User,
 		System: req.System,
+		Images: encodedImages,
 		Stream: false,
 		Options: map[string]any{
 			"num_predict": defaultMaxTokens(req.MaxTokens),
@@ -143,6 +157,7 @@ type generateRequest struct {
 	Model   string         `json:"model"`
 	Prompt  string         `json:"prompt"`
 	System  string         `json:"system,omitempty"`
+	Images  []string       `json:"images,omitempty"`
 	Stream  bool           `json:"stream"`
 	Options map[string]any `json:"options,omitempty"`
 }

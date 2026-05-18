@@ -183,3 +183,67 @@ func TestExtractDefaultsRelationTypeWhenBlank(t *testing.T) {
 		t.Fatalf("blank relation type should default to relates_to: %+v", res.Edges)
 	}
 }
+
+func TestExtractImagePassesImageToClient(t *testing.T) {
+	mock := &visionMock{
+		Response: `{"entities":[{"id":"box","type":"Artifact","label":"Box"}],"relations":[]}`,
+	}
+	res, err := ExtractImage(context.Background(), mock, "/diagrams/arch.png", []byte("png bytes"), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Nodes) != 2 { // module + 1 entity
+		t.Fatalf("expected 2 nodes, got %d", len(res.Nodes))
+	}
+	if len(mock.gotImages) != 1 {
+		t.Fatalf("client should receive 1 image, got %d", len(mock.gotImages))
+	}
+	if mock.gotImages[0].MimeType != "image/png" {
+		t.Errorf("mime type not passed: %q", mock.gotImages[0].MimeType)
+	}
+	if string(mock.gotImages[0].Data) != "png bytes" {
+		t.Errorf("image bytes not passed verbatim: %q", mock.gotImages[0].Data)
+	}
+}
+
+func TestExtractImageUsesVisionSystemPrompt(t *testing.T) {
+	mock := &visionMock{Response: `{"entities":[],"relations":[]}`}
+	_, err := ExtractImage(context.Background(), mock, "/x.png", []byte("img"), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mock.gotSystem, "visible in an image") {
+		t.Errorf("vision system prompt not used: %q", mock.gotSystem)
+	}
+}
+
+func TestExtractImageEmptyBytesNoOps(t *testing.T) {
+	mock := &visionMock{}
+	res, err := ExtractImage(context.Background(), mock, "/x.png", nil, "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Nodes) != 0 || len(res.Edges) != 0 {
+		t.Errorf("empty image must not produce nodes/edges: %+v", res)
+	}
+	if mock.called {
+		t.Error("client must not be called for empty image bytes")
+	}
+}
+
+// visionMock captures image attachments so tests can assert on
+// shape without sending real network traffic.
+type visionMock struct {
+	gotSystem string
+	gotImages []llm.ImageInput
+	Response  string
+	called    bool
+}
+
+func (m *visionMock) Name() string { return "vision-mock" }
+func (m *visionMock) Generate(_ context.Context, req llm.Request) (llm.Response, error) {
+	m.called = true
+	m.gotSystem = req.System
+	m.gotImages = req.Images
+	return llm.Response{Text: m.Response}, nil
+}
