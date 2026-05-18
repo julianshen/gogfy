@@ -117,3 +117,48 @@ func TestNameIncludesModelTag(t *testing.T) {
 		t.Errorf("Name() = %q", c.Name())
 	}
 }
+
+func TestGenerateAttachesImageInUserContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body messagesRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		// With images attached, Content must be an array (not a bare
+		// string). Decode it loosely to confirm the shape.
+		raw, _ := json.Marshal(body.Messages[0].Content)
+		var parts []map[string]any
+		if err := json.Unmarshal(raw, &parts); err != nil {
+			t.Fatalf("Content should be an array when images present: %s", raw)
+		}
+		hasImage, hasText := false, false
+		for _, p := range parts {
+			switch p["type"] {
+			case "image":
+				hasImage = true
+				if src, ok := p["source"].(map[string]any); ok {
+					if src["media_type"] != "image/png" {
+						t.Errorf("media_type wrong: %v", src["media_type"])
+					}
+				}
+			case "text":
+				hasText = true
+			}
+		}
+		if !hasImage || !hasText {
+			t.Errorf("expected both image + text parts: %v", parts)
+		}
+		_ = json.NewEncoder(w).Encode(messagesResponse{
+			Content: []contentBlock{{Type: "text", Text: "ok"}},
+		})
+	}))
+	defer srv.Close()
+	c := NewWithKey("k", WithEndpoint(srv.URL))
+	_, err := c.Generate(context.Background(), llm.Request{
+		User:   "what is in this image",
+		Images: []llm.ImageInput{{Data: []byte("fake png bytes"), MimeType: "image/png"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

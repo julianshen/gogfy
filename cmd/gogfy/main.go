@@ -35,6 +35,7 @@ import (
 	"github.com/julianshen/gogfy/internal/gitmeta"
 	"github.com/julianshen/gogfy/internal/graphdiff"
 	"github.com/julianshen/gogfy/internal/ingest"
+	"net/http"
 	"sync"
 
 	"github.com/julianshen/gogfy/internal/llm"
@@ -539,10 +540,14 @@ func ingestCommand(args []string, stderr io.Writer) error {
 }
 
 // semanticJob bundles the file path + already-read bytes so the
-// parallel pass doesn't re-read source from disk.
+// parallel pass doesn't re-read source from disk. When kind=image
+// the worker calls semantic.ExtractImage with the right MIME type;
+// otherwise it treats src as text and calls semantic.Extract.
 type semanticJob struct {
-	path string
-	src  []byte
+	path     string
+	src      []byte
+	kind     string // "text" | "image"
+	mimeType string // populated when kind=image
 }
 
 // semanticConcurrency caps in-flight LLM requests. Anthropic's free
@@ -568,7 +573,16 @@ func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob,
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			r, err := semantic.Extract(ctx, client, j.path, j.src)
+			var (
+				r   semantic.Result
+				err error
+			)
+			switch j.kind {
+			case "image":
+				r, err = semantic.ExtractImage(ctx, client, j.path, j.src, j.mimeType)
+			default:
+				r, err = semantic.Extract(ctx, client, j.path, j.src)
+			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "gogfy: semantic skipped for %s: %v\n", j.path, err)
 				return
@@ -578,6 +592,18 @@ func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob,
 	}
 	wg.Wait()
 	return out, nil
+}
+
+// isSupportedVisionMime gates which image MIME types the vision
+// pipeline will forward to a backend. All four LLM backends accept
+// PNG/JPEG/WebP/GIF; rarer formats (TIFF, BMP, SVG) are skipped so
+// we don't pay a request for one we'd expect to fail.
+func isSupportedVisionMime(mime string) bool {
+	switch mime {
+	case "image/png", "image/jpeg", "image/webp", "image/gif":
+		return true
+	}
+	return false
 }
 
 // buildLLMClient picks an LLM backend by name. Empty string defaults
@@ -1188,7 +1214,7 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 			switch ft {
 			case schema.FileTypeDocument:
 				if data != nil {
-					semanticJobs = append(semanticJobs, semanticJob{path: f, src: data})
+					semanticJobs = append(semanticJobs, semanticJob{path: f, src: data, kind: "text"})
 				}
 			case schema.FileTypePaper:
 				// PDFs need a text-extraction pass before the LLM —
@@ -1196,9 +1222,23 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 				// hallucinated over. Use the same panic-tolerant
 				// reader the AST extractor uses.
 				if text, terr := extract.PDFPlainText(f); terr == nil && text != "" {
-					semanticJobs = append(semanticJobs, semanticJob{path: f, src: []byte(text)})
+					semanticJobs = append(semanticJobs, semanticJob{path: f, src: []byte(text), kind: "text"})
 				} else if terr != nil {
 					fmt.Fprintf(os.Stderr, "gogfy: pdf text for %s skipped: %v\n", f, terr)
+				}
+			case schema.FileTypeImage:
+				// Vision pass: image bytes go straight to the LLM
+				// with a vision-specific system prompt. MIME type
+				// is detected from the file's first 512 bytes
+				// rather than relying on the extension, because
+				// `.png`-named JPEGs and vice versa are common.
+				if imgData, ierr := os.ReadFile(f); ierr == nil && len(imgData) > 0 {
+					mime := http.DetectContentType(imgData)
+					if isSupportedVisionMime(mime) {
+						semanticJobs = append(semanticJobs, semanticJob{
+							path: f, src: imgData, kind: "image", mimeType: mime,
+						})
+					}
 				}
 			}
 		}

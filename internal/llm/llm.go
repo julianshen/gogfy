@@ -31,6 +31,22 @@ type Request struct {
 	System    string
 	User      string
 	MaxTokens int
+	// Images, when non-empty, attaches each image as a vision input
+	// alongside the User text. Each backend converts to its own wire
+	// format (Anthropic source-object, OpenAI image_url data URI,
+	// Gemini inlineData, Ollama base64 images array). Backends whose
+	// active model doesn't support vision will either silently drop
+	// images or return a clear API error — callers should default-on
+	// images only for files that classify as image.
+	Images []ImageInput
+}
+
+// ImageInput is a single vision attachment. Data is raw bytes (the
+// backend handles base64 encoding); MimeType is required so the API
+// can decode (e.g. "image/png", "image/jpeg", "image/webp").
+type ImageInput struct {
+	Data     []byte
+	MimeType string
 }
 
 // Response carries the model output plus token accounting.

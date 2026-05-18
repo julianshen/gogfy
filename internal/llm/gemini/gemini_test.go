@@ -150,3 +150,33 @@ func TestURLForRequestPreservesExistingQuery(t *testing.T) {
 		t.Errorf("double `?` in URL: %q", got)
 	}
 }
+
+func TestGenerateAttachesImageAsInlineData(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body generateRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		hit := false
+		for _, p := range body.Contents[0].Parts {
+			if p.InlineData != nil && p.InlineData.MimeType == "image/jpeg" && p.InlineData.Data != "" {
+				hit = true
+			}
+		}
+		if !hit {
+			t.Errorf("expected inlineData part with mime type: %+v", body.Contents)
+		}
+		_ = json.NewEncoder(w).Encode(generateResponse{
+			Candidates: []candidate{{Content: content{Parts: []part{{Text: "ok"}}}}},
+		})
+	}))
+	defer srv.Close()
+	c := NewWithKey("k", WithEndpoint(srv.URL))
+	_, err := c.Generate(context.Background(), llm.Request{
+		User:   "what is this",
+		Images: []llm.ImageInput{{Data: []byte("jpeg"), MimeType: "image/jpeg"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

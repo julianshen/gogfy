@@ -7,6 +7,7 @@ package openai
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,7 +99,7 @@ func (c *Client) Generate(ctx context.Context, req llm.Request) (llm.Response, e
 	if req.System != "" {
 		msgs = append(msgs, message{Role: "system", Content: req.System})
 	}
-	msgs = append(msgs, message{Role: "user", Content: req.User})
+	msgs = append(msgs, message{Role: "user", Content: buildUserContent(req)})
 
 	body, err := json.Marshal(chatRequest{
 		Model:     c.model,
@@ -130,7 +131,12 @@ func (c *Client) Generate(ctx context.Context, req llm.Request) (llm.Response, e
 	}
 	text := ""
 	if len(parsed.Choices) > 0 {
-		text = parsed.Choices[0].Message.Content
+		// Responses are always text (even when input had images),
+		// but Content is typed as `any` to share the message struct
+		// with requests where it can be an array. Coerce to string.
+		if s, ok := parsed.Choices[0].Message.Content.(string); ok {
+			text = s
+		}
 	}
 	return llm.Response{
 		Text:             text,
@@ -187,8 +193,40 @@ type chatRequest struct {
 }
 
 type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role string `json:"role"`
+	// Content can be a string (text-only) or a []contentPart (vision).
+	// OpenAI's Chat Completions API accepts both shapes — we use the
+	// minimal string form when no images are attached.
+	Content any `json:"content"`
+}
+
+// contentPart is the array element for multi-modal messages.
+type contentPart struct {
+	Type     string    `json:"type"`               // "text" | "image_url"
+	Text     string    `json:"text,omitempty"`
+	ImageURL *imageURL `json:"image_url,omitempty"`
+}
+
+type imageURL struct {
+	URL string `json:"url"` // data URI: data:image/png;base64,...
+}
+
+// buildUserContent picks bare string when no images, multi-part
+// array otherwise. Image bytes encode as data URIs to keep the
+// request self-contained (no follow-up signed-URL fetch).
+func buildUserContent(req llm.Request) any {
+	if len(req.Images) == 0 {
+		return req.User
+	}
+	parts := []contentPart{}
+	if req.User != "" {
+		parts = append(parts, contentPart{Type: "text", Text: req.User})
+	}
+	for _, img := range req.Images {
+		dataURI := "data:" + img.MimeType + ";base64," + base64.StdEncoding.EncodeToString(img.Data)
+		parts = append(parts, contentPart{Type: "image_url", ImageURL: &imageURL{URL: dataURI}})
+	}
+	return parts
 }
 
 type chatResponse struct {

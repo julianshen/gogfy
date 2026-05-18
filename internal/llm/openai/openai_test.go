@@ -93,3 +93,43 @@ func TestNameIncludesModelTag(t *testing.T) {
 		t.Errorf("Name() = %q", c.Name())
 	}
 }
+
+func TestGenerateAttachesImageAsDataURI(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		// User message Content must be an array when images attached.
+		raw, _ := json.Marshal(body.Messages[len(body.Messages)-1].Content)
+		var parts []map[string]any
+		if err := json.Unmarshal(raw, &parts); err != nil {
+			t.Fatalf("Content should be array with images: %s", raw)
+		}
+		hit := false
+		for _, p := range parts {
+			if p["type"] == "image_url" {
+				if iu, ok := p["image_url"].(map[string]any); ok {
+					if url, ok := iu["url"].(string); ok && strings.HasPrefix(url, "data:image/png;base64,") {
+						hit = true
+					}
+				}
+			}
+		}
+		if !hit {
+			t.Errorf("expected image_url part with data URI: %v", parts)
+		}
+		_ = json.NewEncoder(w).Encode(chatResponse{
+			Choices: []choice{{Message: message{Content: "ok"}}},
+		})
+	}))
+	defer srv.Close()
+	c := NewWithKey("k", WithEndpoint(srv.URL))
+	_, err := c.Generate(context.Background(), llm.Request{
+		User:   "describe",
+		Images: []llm.ImageInput{{Data: []byte("png bytes"), MimeType: "image/png"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

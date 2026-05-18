@@ -7,6 +7,7 @@ package anthropic
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -106,7 +107,7 @@ func (c *Client) Generate(ctx context.Context, req llm.Request) (llm.Response, e
 		Model:     c.model,
 		MaxTokens: defaultMaxTokens(req.MaxTokens),
 		System:    req.System,
-		Messages:  []message{{Role: "user", Content: req.User}},
+		Messages:  []message{{Role: "user", Content: buildUserContent(req)}},
 	})
 	if err != nil {
 		return llm.Response{}, fmt.Errorf("anthropic: marshal request: %w", err)
@@ -203,8 +204,50 @@ type messagesRequest struct {
 }
 
 type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role string `json:"role"`
+	// Content can be a string (text-only) or a []contentInput
+	// (vision). Anthropic's API accepts both forms; we use the
+	// string form when there are no images to keep the wire shape
+	// minimal for text-only requests.
+	Content any `json:"content"`
+}
+
+// contentInput is the array element for multi-modal messages. Type
+// switches on "text" | "image" with the relevant field populated.
+type contentInput struct {
+	Type   string       `json:"type"`
+	Text   string       `json:"text,omitempty"`
+	Source *imageSource `json:"source,omitempty"`
+}
+
+type imageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // "image/png", etc.
+	Data      string `json:"data"`       // base64-encoded image bytes
+}
+
+// buildUserContent picks the simplest wire shape: bare string when
+// there are no images, []contentInput when there are. Mirrors
+// Anthropic's documented dual-shape input.
+func buildUserContent(req llm.Request) any {
+	if len(req.Images) == 0 {
+		return req.User
+	}
+	parts := make([]contentInput, 0, len(req.Images)+1)
+	for _, img := range req.Images {
+		parts = append(parts, contentInput{
+			Type: "image",
+			Source: &imageSource{
+				Type:      "base64",
+				MediaType: img.MimeType,
+				Data:      base64.StdEncoding.EncodeToString(img.Data),
+			},
+		})
+	}
+	if req.User != "" {
+		parts = append(parts, contentInput{Type: "text", Text: req.User})
+	}
+	return parts
 }
 
 type messagesResponse struct {

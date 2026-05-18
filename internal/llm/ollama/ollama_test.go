@@ -2,6 +2,7 @@ package ollama
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -104,5 +105,35 @@ func TestNameIncludesModelTag(t *testing.T) {
 	c, _ := New(WithModel("mistral"))
 	if c.Name() != "ollama-mistral" {
 		t.Errorf("Name() = %q", c.Name())
+	}
+}
+
+func TestGenerateAttachesImagesAsBase64Array(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body generateRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Images) != 1 {
+			t.Errorf("expected 1 image in array, got %d", len(body.Images))
+		}
+		// Verify it's base64 — should decode cleanly back to original bytes.
+		decoded, err := base64.StdEncoding.DecodeString(body.Images[0])
+		if err != nil {
+			t.Errorf("image not base64: %v", err)
+		}
+		if string(decoded) != "img bytes" {
+			t.Errorf("decoded mismatch: %q", decoded)
+		}
+		_ = json.NewEncoder(w).Encode(generateResponse{Response: "ok"})
+	}))
+	defer srv.Close()
+	c, _ := New(WithEndpoint(srv.URL))
+	_, err := c.Generate(context.Background(), llm.Request{
+		User:   "describe",
+		Images: []llm.ImageInput{{Data: []byte("img bytes"), MimeType: "image/png"}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
