@@ -41,6 +41,7 @@ import (
 	"github.com/julianshen/gogfy/internal/llm"
 	"github.com/julianshen/gogfy/internal/llm/anthropic"
 	"github.com/julianshen/gogfy/internal/llm/gemini"
+	"github.com/julianshen/gogfy/internal/llm/kimi"
 	"github.com/julianshen/gogfy/internal/llm/ollama"
 	"github.com/julianshen/gogfy/internal/llm/openai"
 	"github.com/julianshen/gogfy/internal/rationale"
@@ -667,8 +668,10 @@ func buildLLMClient(backend string) (llm.Client, error) {
 		return ollama.New()
 	case "gemini":
 		return gemini.New()
+	case "kimi":
+		return kimi.New()
 	}
-	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama, gemini)", backend)
+	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama, gemini, kimi)", backend)
 }
 
 // hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The
