@@ -235,11 +235,11 @@
 | Query result memory | `ingest.py` | save_query_result for feedback loop |
 
 ### 3.5 Transcription
-| Feature | Upstream Location | Description |
-|---------|-------------------|-------------|
-| Video/audio transcription | `transcribe.py` | faster-whisper integration |
-| YouTube audio extraction | `transcribe.py` | yt-dlp + whisper pipeline |
-| Domain hint generation | `transcribe.py` | Generate hints from god nodes |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Video/audio transcription | **Partial (interface + Whisper backend)** | `internal/transcribe` defines a pluggable `Client` interface (Transcribe + Name) plus `IsTranscribable(ext)` covering common audio/video extensions. `internal/transcribe/whisper` implements an OpenAI `/v1/audio/transcriptions` backend (multipart upload, verbose_json for duration-based cost). Pipeline wiring (video/audio file → transcribe → feed into semantic pass) and god-node-driven prompt biasing deferred. |
+| YouTube audio extraction | Missing | Upstream uses yt-dlp; gogfy's no-shell-out policy makes this a larger lift. |
+| Domain hint generation | Missing | Upstream feeds god-node labels into the Whisper `prompt` field; backend supports `Prompt` but the pipeline doesn't yet plumb god-node hints into transcription jobs. |
 
 ---
 
