@@ -42,6 +42,7 @@ import (
 	"github.com/julianshen/gogfy/internal/llm"
 	"github.com/julianshen/gogfy/internal/llm/anthropic"
 	"github.com/julianshen/gogfy/internal/llm/gemini"
+	"github.com/julianshen/gogfy/internal/llm/bedrock"
 	"github.com/julianshen/gogfy/internal/llm/kimi"
 	"github.com/julianshen/gogfy/internal/llm/ollama"
 	"github.com/julianshen/gogfy/internal/llm/openai"
@@ -675,8 +676,10 @@ func buildLLMClient(backend string) (llm.Client, error) {
 		return gemini.New()
 	case "kimi":
 		return kimi.New()
+	case "bedrock":
+		return bedrock.New()
 	}
-	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama, gemini, kimi)", backend)
+	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama, gemini, kimi, bedrock)", backend)
 }
 
 // transcribeJob bundles a file path with its pre-read audio bytes
