@@ -35,7 +35,12 @@ import (
 // Idempotent: the content-hashed filename means the same URL maps to
 // the same path across runs; re-running skips the fetch.
 func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) (string, error) {
-	fetchURL := rewriteArxivURL(rawURL)
+	fetchURL := rawURL
+	if rewritten, ok := rewriteGitHubURL(rawURL); ok {
+		fetchURL = rewritten
+	} else {
+		fetchURL = rewriteArxivURL(fetchURL)
+	}
 	// Skip-on-exists is checked twice: once eagerly with the .md
 	// guess for the common HTML case, and once after the fetch for
 	// the PDF case (which we can't know until we see the body).
@@ -46,6 +51,21 @@ func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) 
 	pdfPath := pdfSidecarPath(outDir, rawURL)
 	if _, err := os.Stat(pdfPath); err == nil {
 		return pdfPath, nil
+	}
+	// YouTube takes a different shape — the watch-page HTML is JS-
+	// rendered and full of player chrome, but the oembed endpoint
+	// returns clean title/author/thumbnail JSON. Skip the HTML path
+	// and write a metadata-only sidecar.
+	if IsYouTubeURL(rawURL) {
+		meta, err := fetchYouTubeMetadata(ctx, rawURL, opts)
+		if err != nil {
+			return "", fmt.Errorf("ingest: %w", err)
+		}
+		out := fmt.Sprintf("---\nsource_url: %q\nkind: youtube\n---\n\n%s\n", rawURL, meta)
+		if err := fsutil.WriteFileAtomic(mdPath, []byte(out), 0644); err != nil {
+			return "", fmt.Errorf("ingest: write %s: %w", mdPath, err)
+		}
+		return mdPath, nil
 	}
 	body, finalURL, err := safefetch.Fetch(ctx, fetchURL, opts)
 	if err != nil {
@@ -70,11 +90,14 @@ func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) 
 	if !og.Empty() {
 		md = og.Format() + "\n" + md
 	}
-	tweetLabel := ""
-	if IsTweetURL(rawURL) {
-		tweetLabel = "kind: tweet\n"
+	kindLabel := ""
+	switch {
+	case IsTweetURL(rawURL):
+		kindLabel = "kind: tweet\n"
+	case IsGitHubURL(rawURL):
+		kindLabel = "kind: github\n"
 	}
-	out := fmt.Sprintf("---\nsource_url: %q\n%s---\n\n%s\n", rawURL, tweetLabel, md)
+	out := fmt.Sprintf("---\nsource_url: %q\n%s---\n\n%s\n", rawURL, kindLabel, md)
 	if err := fsutil.WriteFileAtomic(mdPath, []byte(out), 0644); err != nil {
 		return "", fmt.Errorf("ingest: write %s: %w", mdPath, err)
 	}
