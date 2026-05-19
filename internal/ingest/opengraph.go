@@ -43,6 +43,12 @@ type OGTags struct {
 func parseOGTags(html []byte) OGTags {
 	props := map[string]string{}
 	collect := func(name, content string) {
+		// First-write-wins keeps the result deterministic when a page
+		// emits the same property twice (rare but seen on sites that
+		// inject OG tags both server-side and from client JS).
+		if _, dup := props[name]; dup {
+			return
+		}
 		// Strip line breaks: an embedded \n in a title would terminate
 		// the markdown blockquote in Format() and let attacker-
 		// controlled content (including frontmatter `---` markers)
