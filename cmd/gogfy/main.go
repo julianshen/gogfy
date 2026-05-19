@@ -42,6 +42,7 @@ import (
 	"github.com/julianshen/gogfy/internal/llm"
 	"github.com/julianshen/gogfy/internal/llm/anthropic"
 	"github.com/julianshen/gogfy/internal/llm/gemini"
+	"github.com/julianshen/gogfy/internal/llm/bedrock"
 	"github.com/julianshen/gogfy/internal/llm/kimi"
 	"github.com/julianshen/gogfy/internal/llm/ollama"
 	"github.com/julianshen/gogfy/internal/llm/openai"
@@ -97,8 +98,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		emitWiki := fs.Bool("wiki", false, "also emit <out>/wiki/ (index + per-community + per-god-node markdown)")
 		emitTree := fs.Bool("tree", false, "also emit <out>/tree.html (D3 collapsible filesystem-tree view)")
 		noDedup := fs.Bool("no-dedup", false, "skip entity deduplication (faster, may produce duplicate nodes)")
-		semantic := fs.Bool("semantic", false, "extract entities from document files via LLM (requires ANTHROPIC_API_KEY)")
-		semanticBackend := fs.String("backend", "", "LLM backend when --semantic is set (default: anthropic)")
+		semantic := fs.Bool("semantic", false, "extract entities from document files via LLM (requires the selected backend's credentials)")
+		semanticBackend := fs.String("backend", "", "LLM backend when --semantic is set: anthropic (ANTHROPIC_API_KEY), openai (OPENAI_API_KEY), gemini (GEMINI_API_KEY), ollama (local), kimi (MOONSHOT_API_KEY), bedrock (AWS env chain). Default: anthropic.")
 		maxCostUSD := fs.Float64("max-cost-usd", 0, "stop semantic dispatch once running USD cost exceeds this cap (0 = no cap)")
 		maxTokens := fs.Int("max-tokens", 0, "stop semantic dispatch once running token total exceeds this cap (0 = no cap)")
 		transcribeBackend := fs.String("transcribe-backend", "", "transcribe audio/video files via this backend before --semantic pass (e.g. whisper). Empty = off; requires --semantic")
@@ -675,8 +676,10 @@ func buildLLMClient(backend string) (llm.Client, error) {
 		return gemini.New()
 	case "kimi":
 		return kimi.New()
+	case "bedrock":
+		return bedrock.New()
 	}
-	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama, gemini, kimi)", backend)
+	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama, gemini, kimi, bedrock)", backend)
 }
 
 // transcribeJob bundles a file path with its pre-read audio bytes
