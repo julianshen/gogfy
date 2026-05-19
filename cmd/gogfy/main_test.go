@@ -1845,3 +1845,19 @@ func (c *captureTranscriber) Transcribe(ctx context.Context, req transcribe.Requ
 	c.record(req)
 	return transcribe.Response{Text: "x"}, nil
 }
+
+// TestDispatchAddAliasesIngest verifies that "gogfy add" routes through
+// the same handler as "gogfy ingest" — this is the upstream parity
+// alias (the Python graphify CLI uses "add"). The test only confirms
+// routing reached ingestCommand (which then errors on missing URL);
+// the actual fetch path is exercised by internal/ingest tests.
+func TestDispatchAddAliasesIngest(t *testing.T) {
+	var stderr bytes.Buffer
+	err := dispatch([]string{"add"}, &stderr)
+	if err == nil {
+		t.Fatalf("expected ingest error for missing URL, got nil")
+	}
+	if !strings.Contains(err.Error(), "ingest:") {
+		t.Fatalf("expected error from ingestCommand (prefix \"ingest:\"), got %v", err)
+	}
+}

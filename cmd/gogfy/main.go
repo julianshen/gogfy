@@ -157,7 +157,7 @@ func dispatch(args []string, stderr io.Writer) error {
 		return mergeGraphsCommand(rest, os.Stdout, stderr)
 	case "diff":
 		return diffCommand(rest, os.Stdout, stderr)
-	case "ingest":
+	case "ingest", "add":
 		return ingestCommand(rest, stderr)
 	case "wiki":
 		return wikiCommand(rest, stderr)
@@ -328,7 +328,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "       gogfy path <source> <target> [--graph <graph.json>]")
 	fmt.Fprintln(w, "       gogfy merge-graphs <a.json> <b.json> [<...>] [--out <merged.json>]")
 	fmt.Fprintln(w, "       gogfy diff <old.json> <new.json>")
-	fmt.Fprintln(w, "       gogfy ingest <url> [--out <dir>]")
+	fmt.Fprintln(w, "       gogfy ingest <url> [--out <dir>]   (alias: gogfy add)")
 	fmt.Fprintln(w, "       gogfy wiki <graph.json> [--out <dir>]")
 	fmt.Fprintln(w, "       gogfy labels <graph.json> [--out <path>] [--force]")
 	fmt.Fprintln(w, "       gogfy obsidian <graph.json> [--out <vault-dir>]")
