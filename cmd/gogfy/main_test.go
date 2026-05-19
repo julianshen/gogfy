@@ -1682,6 +1682,9 @@ func TestCollectExtensionsWidensWhenTranscribeEnabled(t *testing.T) {
 }
 
 func TestLoadPriorGodNodePromptMissingGraphReturnsFallback(t *testing.T) {
+	// Clear any developer-exported env override so the assertion
+	// reflects the function's behavior, not the local shell.
+	t.Setenv("GOGFY_WHISPER_PROMPT", "")
 	dir := t.TempDir()
 	got := loadPriorGodNodePrompt(dir)
 	if got != transcribe.FallbackPrompt {
@@ -1690,6 +1693,7 @@ func TestLoadPriorGodNodePromptMissingGraphReturnsFallback(t *testing.T) {
 }
 
 func TestLoadPriorGodNodePromptDerivesFromGraph(t *testing.T) {
+	t.Setenv("GOGFY_WHISPER_PROMPT", "")
 	// Build a tiny graph where one node has clearly higher degree —
 	// analyze should crown it god and BuildPrompt should fold its
 	// label into the prompt.
