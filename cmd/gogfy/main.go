@@ -579,7 +579,7 @@ const semanticConcurrency = 4
 // it (after a result lands), no new jobs start. In-flight jobs are
 // allowed to finish — cancelling them would waste the tokens already
 // spent on the API call.
-func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob, limit int, maxUSD float64, maxTokens int) ([]semantic.Result, error) {
+func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob, limit int, maxUSD float64, maxTokens int, cache *semantic.Cache) ([]semantic.Result, error) {
 	if limit <= 0 {
 		limit = 1
 	}
@@ -628,9 +628,9 @@ func runSemanticJobs(ctx context.Context, client llm.Client, jobs []semanticJob,
 			)
 			switch j.kind {
 			case "image":
-				r, err = semantic.ExtractImage(ctx, client, j.path, j.src, j.mimeType)
+				r, err = semantic.ExtractImageCached(ctx, client, j.path, j.src, j.mimeType, cache)
 			default:
-				r, err = semantic.Extract(ctx, client, j.path, j.src)
+				r, err = semantic.ExtractCached(ctx, client, j.path, j.src, cache)
 			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "gogfy: semantic skipped for %s: %v\n", j.path, err)
@@ -1514,7 +1514,11 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	}
 
 	if llmClient != nil && len(semanticJobs) > 0 {
-		results, err := runSemanticJobs(context.Background(), llmClient, semanticJobs, semanticConcurrency, opts.MaxLLMCostUSD, opts.MaxLLMTokens)
+		// Semantic result cache lives next to the file-hash cache so
+		// `--update` and the new semantic cache decay together: any
+		// invalidation strategy that wipes one will wipe the other.
+		semCache := semantic.NewCache(filepath.Join(out, ".gographify-cache", "semantic"))
+		results, err := runSemanticJobs(context.Background(), llmClient, semanticJobs, semanticConcurrency, opts.MaxLLMCostUSD, opts.MaxLLMTokens, semCache)
 		if err != nil {
 			return fmt.Errorf("semantic: %w", err)
 		}
