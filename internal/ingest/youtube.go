@@ -58,23 +58,31 @@ func fetchYouTubeMetadata(ctx context.Context, rawURL string, opts safefetch.Opt
 // markdown block — same style as the OpenGraph block so downstream
 // consumers see one consistent "structured metadata up top, prose
 // below" shape regardless of source type.
+//
+// Every string field is run through lineBreakRe before concatenation
+// — a value with an embedded \n would otherwise break the markdown
+// blockquote and let attacker-controlled (or simply unexpected)
+// content escape into the sidecar's frontmatter region.
 func formatYouTubeMetadata(emb youTubeOEmbed) string {
 	if emb.Title == "" && emb.AuthorName == "" {
 		return ""
 	}
+	clean := func(s string) string {
+		return lineBreakRe.ReplaceAllString(s, " ")
+	}
 	out := "> **YouTube video**\n"
 	if emb.Title != "" {
-		out += "> Title: " + lineBreakRe.ReplaceAllString(emb.Title, " ") + "\n"
+		out += "> Title: " + clean(emb.Title) + "\n"
 	}
 	if emb.AuthorName != "" {
-		out += "> Author: " + emb.AuthorName
+		out += "> Author: " + clean(emb.AuthorName)
 		if emb.AuthorURL != "" {
-			out += " (" + emb.AuthorURL + ")"
+			out += " (" + clean(emb.AuthorURL) + ")"
 		}
 		out += "\n"
 	}
 	if emb.ThumbnailURL != "" {
-		out += "> Thumbnail: " + emb.ThumbnailURL + "\n"
+		out += "> Thumbnail: " + clean(emb.ThumbnailURL) + "\n"
 	}
 	return out
 }

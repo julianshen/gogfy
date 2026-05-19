@@ -546,6 +546,18 @@ func TestFormatYouTubeMetadata(t *testing.T) {
 		t.Errorf("unexpected newline count: %q", got)
 	}
 
+	// All string fields must be sanitized — not just Title. A crafted
+	// AuthorName / AuthorURL / ThumbnailURL containing \n---\n would
+	// otherwise smuggle frontmatter-like content into the sidecar.
+	got = formatYouTubeMetadata(youTubeOEmbed{
+		AuthorName:   "good\n---\nbad",
+		AuthorURL:    "https://e.com\n---\nbad",
+		ThumbnailURL: "https://e.com/t.jpg\n---\nbad",
+	})
+	if strings.Contains(got, "\n---") {
+		t.Errorf("frontmatter-like injection via author/thumbnail not stripped: %q", got)
+	}
+
 	// Empty oembed → empty result so callers can skip.
 	if formatYouTubeMetadata(youTubeOEmbed{}) != "" {
 		t.Error("empty oembed should produce empty string")
