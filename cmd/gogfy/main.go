@@ -103,6 +103,7 @@ func dispatch(args []string, stderr io.Writer) error {
 		maxCostUSD := fs.Float64("max-cost-usd", 0, "stop semantic dispatch once running USD cost exceeds this cap (0 = no cap)")
 		maxTokens := fs.Int("max-tokens", 0, "stop semantic dispatch once running token total exceeds this cap (0 = no cap)")
 		transcribeBackend := fs.String("transcribe-backend", "", "transcribe audio/video files via this backend before --semantic pass (e.g. whisper). Empty = off; requires --semantic")
+		followSymlinks := fs.Bool("follow-symlinks", false, "descend into symlinked directories whose resolved targets are still inside the corpus root (cycle-safe via resolved-path bookkeeping)")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
@@ -127,6 +128,7 @@ func dispatch(args []string, stderr io.Writer) error {
 			MaxLLMCostUSD:     *maxCostUSD,
 			MaxLLMTokens:      *maxTokens,
 			TranscribeBackend: *transcribeBackend,
+			FollowSymlinks:    *followSymlinks,
 		})
 	case "validate":
 		if len(rest) < 1 {
@@ -1179,6 +1181,12 @@ type runOptions struct {
 	// recognized; requires --semantic so the transcribed text has a
 	// downstream consumer.
 	TranscribeBackend string
+	// FollowSymlinks descends into symlinked directories whose
+	// resolved targets remain inside the corpus root. Cycle-safe via
+	// visited-resolved-path bookkeeping in internal/detect. Off by
+	// default — the historical behavior is to treat symlinked dirs
+	// as opaque entries.
+	FollowSymlinks bool
 }
 
 // runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
@@ -1277,7 +1285,9 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	if opts.ClusterOnly {
 		return runClusterOnly(out, directed, opts)
 	}
-	files, err := detect.CollectFiles(root, collectExtensions(opts))
+	files, err := detect.CollectFilesWithOptions(root, collectExtensions(opts), detect.CollectOptions{
+		FollowSymlinks: opts.FollowSymlinks,
+	})
 	if err != nil {
 		return fmt.Errorf("detect: %w", err)
 	}
