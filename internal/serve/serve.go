@@ -854,13 +854,48 @@ func (s *Server) labelFor(id string) string {
 	return id
 }
 
-// resourceDescriptors is the static resources/list payload.
+// resourceDescriptors is the static resources/list payload. Each
+// resource corresponds to a slice of the analyze.Report computed at
+// server start. Splitting them into separate resources (rather than
+// stuffing everything into the single GRAPH_REPORT.md) lets MCP
+// clients fetch only the slice they need — which keeps prompt
+// budgets small when only stats / questions / etc. is needed.
 var resourceDescriptors = []map[string]any{
 	{
 		"uri":         "gogfy://report",
 		"name":        "GRAPH_REPORT.md",
 		"description": "Markdown report: god nodes, surprising connections, confidence summary, exploration questions.",
 		"mimeType":    "text/markdown",
+	},
+	{
+		"uri":         "gogfy://stats",
+		"name":        "graph stats",
+		"description": "Corpus summary: node count, edge count, breakdowns by node type and file type, community count.",
+		"mimeType":    "application/json",
+	},
+	{
+		"uri":         "gogfy://god-nodes",
+		"name":        "god nodes",
+		"description": "Top-degree nodes (the project's hubs). JSON array of {id, label, source_file, source_location}.",
+		"mimeType":    "application/json",
+	},
+	{
+		"uri":         "gogfy://surprising-links",
+		"name":        "surprising links",
+		"description": "Cross-community edges scored by inverse log-degree — likely-interesting connections that bridge clusters.",
+		"mimeType":    "application/json",
+	},
+	{
+		"uri":         "gogfy://questions",
+		"name":        "exploration questions",
+		"description": "Auto-generated questions about god-node roles and community bridges — a starting point for tour-the-codebase prompts.",
+		"mimeType":    "application/json",
+	},
+	{
+		"uri":         "gogfy://audit",
+		"name":        "confidence audit",
+		"description": "Edge counts by confidence level (extracted / inferred / ambiguous / hypothesis) — how much of the graph is directly grounded vs. heuristic.",
+		"mimeType":    "application/json",
 	},
 }
 
@@ -871,18 +906,80 @@ func (s *Server) resourcesRead(req rpcRequest) []byte {
 	if err := json.Unmarshal(req.Params, &p); err != nil {
 		return jsonRPCError(req.ID, -32602, "invalid params: "+err.Error())
 	}
-	if p.URI != "gogfy://report" {
+	switch p.URI {
+	case "gogfy://report":
+		return s.resourceText(req.ID, p.URI, "text/markdown", string(s.report))
+	case "gogfy://stats":
+		return s.resourceJSON(req.ID, p.URI, s.statsPayload())
+	case "gogfy://god-nodes":
+		return s.resourceJSON(req.ID, p.URI, map[string]any{"god_nodes": s.analyzed.GodNodes})
+	case "gogfy://surprising-links":
+		return s.resourceJSON(req.ID, p.URI, map[string]any{"surprising_links": s.analyzed.SurprisingLinks})
+	case "gogfy://questions":
+		return s.resourceJSON(req.ID, p.URI, map[string]any{"questions": s.analyzed.ExplorationQuestions})
+	case "gogfy://audit":
+		return s.resourceJSON(req.ID, p.URI, map[string]any{"confidence_summary": s.analyzed.ConfidenceSummary})
+	default:
 		return jsonRPCError(req.ID, -32602, "unknown resource: "+p.URI)
 	}
-	return jsonRPCResult(req.ID, map[string]any{
+}
+
+// statsPayload mirrors the Corpus section of GRAPH_REPORT.md as
+// structured JSON. Keeping the breakdowns here means callers don't
+// have to parse markdown to get a "how big is this graph" answer.
+func (s *Server) statsPayload() map[string]any {
+	fileByType := map[string]int{}
+	communities := map[string]struct{}{}
+	for _, n := range s.graph.Nodes {
+		if n.FileType != "" {
+			fileByType[string(n.FileType)]++
+		}
+		if n.Community != "" {
+			communities[n.Community] = struct{}{}
+		}
+	}
+	edgeByRelation := map[string]int{}
+	for _, e := range s.graph.Edges {
+		edgeByRelation[e.Relation]++
+	}
+	// Confidence is an int enum — convert to its String() form so the
+	// JSON output is readable.
+	confStr := map[string]int{}
+	for k, v := range s.analyzed.ConfidenceSummary {
+		confStr[k.String()] = v
+	}
+	return map[string]any{
+		"nodes":              len(s.graph.Nodes),
+		"edges":              len(s.graph.Edges),
+		"communities":        len(communities),
+		"god_nodes":          len(s.analyzed.GodNodes),
+		"surprising_links":   len(s.analyzed.SurprisingLinks),
+		"bridge_nodes":       len(s.analyzed.BridgeNodes),
+		"files_by_type":      fileByType,
+		"edges_by_relation":  edgeByRelation,
+		"confidence_summary": confStr,
+	}
+}
+
+// resourceText wraps a plain text body in the MCP resources/read
+// response envelope.
+func (s *Server) resourceText(id json.RawMessage, uri, mime, body string) []byte {
+	return jsonRPCResult(id, map[string]any{
 		"contents": []any{
-			map[string]any{
-				"uri":      p.URI,
-				"mimeType": "text/markdown",
-				"text":     string(s.report),
-			},
+			map[string]any{"uri": uri, "mimeType": mime, "text": body},
 		},
 	})
+}
+
+// resourceJSON marshals payload into the MCP resources/read text
+// body. Resources spec is text-or-blob; we ship JSON as text/json
+// so simple clients (jq, curl) can pipe the body directly.
+func (s *Server) resourceJSON(id json.RawMessage, uri string, payload any) []byte {
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return jsonRPCError(id, -32603, "marshal resource: "+err.Error())
+	}
+	return s.resourceText(id, uri, "application/json", string(data))
 }
 
 // toolDescriptors is the static tools/list payload. JSON Schemas are kept

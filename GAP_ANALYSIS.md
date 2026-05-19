@@ -155,7 +155,7 @@
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
 | Tools | **Done** | gogfy: god_nodes, explain (superset of upstream get_node), query, path, get_neighbors, graph_stats, get_community — all 7 upstream tools covered. |
-| Resources | Partial | gogfy: report only; upstream: report, stats, god-nodes, surprises, audit, questions |
+| Resources | **Done** | MCP server exposes six resources: `gogfy://report` (markdown), plus `gogfy://stats` (corpus counts + breakdowns), `gogfy://god-nodes`, `gogfy://surprising-links`, `gogfy://questions`, `gogfy://audit` (confidence-summary). All five JSON resources expose existing analyze-report slices that previously required parsing the markdown report. |
 | BFS/DFS traversal | **Done (BFS)** | New `gogfy_traverse` MCP tool: BFS from a starting node up to `depth` hops, capped at `limit` total nodes, returns the visited subgraph grouped by hop distance. Treats edges as undirected (direction is extractor implementation detail; agents want local context). |
 | Node scoring | **Done** | `gogfy_query` ranks matches by tier: exact label (100) > prefix (50) > contains (25) > ID-contains (15) > source-file-contains (10). Degree adds a capped tie-break bonus so popular nodes outrank obscure ones at the same match quality. |
 

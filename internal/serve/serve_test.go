@@ -188,6 +188,71 @@ func TestResourcesReadReportReturnsBytes(t *testing.T) {
 	}
 }
 
+func TestResourcesListIncludesNewSlices(t *testing.T) {
+	// Every analyze-report slice the server caches must surface as
+	// its own resource — otherwise clients have to ask for the whole
+	// markdown report and parse it.
+	want := []string{
+		"gogfy://stats",
+		"gogfy://god-nodes",
+		"gogfy://surprising-links",
+		"gogfy://questions",
+		"gogfy://audit",
+	}
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "resources/list", nil))
+	result := resp[0]["result"].(map[string]any)
+	resources := result["resources"].([]any)
+	got := map[string]bool{}
+	for _, r := range resources {
+		got[r.(map[string]any)["uri"].(string)] = true
+	}
+	for _, uri := range want {
+		if !got[uri] {
+			t.Errorf("missing resource %s in resources/list", uri)
+		}
+	}
+}
+
+func TestResourcesReadStatsReturnsJSON(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "resources/read", map[string]any{
+		"uri": "gogfy://stats",
+	}))
+	result := resp[0]["result"].(map[string]any)
+	contents := result["contents"].([]any)
+	body := contents[0].(map[string]any)
+	if body["mimeType"] != "application/json" {
+		t.Errorf("stats mime: got %v want application/json", body["mimeType"])
+	}
+	text := body["text"].(string)
+	for _, key := range []string{`"nodes"`, `"edges"`, `"god_nodes"`} {
+		if !strings.Contains(text, key) {
+			t.Errorf("stats body missing %s: %q", key, text)
+		}
+	}
+}
+
+func TestResourcesReadGodNodesReturnsList(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "resources/read", map[string]any{
+		"uri": "gogfy://god-nodes",
+	}))
+	result := resp[0]["result"].(map[string]any)
+	contents := result["contents"].([]any)
+	text := contents[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, `"god_nodes"`) {
+		t.Errorf("expected god_nodes key, got %q", text)
+	}
+}
+
+func TestResourcesReadUnknownStillErrors(t *testing.T) {
+	// Adding new resources mustn't break the unknown-URI error path.
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "resources/read", map[string]any{
+		"uri": "gogfy://does-not-exist",
+	}))
+	if _, ok := resp[0]["error"].(map[string]any); !ok {
+		t.Fatalf("expected error for unknown URI, got %v", resp[0])
+	}
+}
+
 func TestUnknownMethodReturnsMethodNotFoundError(t *testing.T) {
 	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "no/such/method", nil))
 	errObj, ok := resp[0]["error"].(map[string]any)
