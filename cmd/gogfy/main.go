@@ -1376,7 +1376,10 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 			// Defer the actual Transcribe call to the parallel pass
 			// below. Reading the bytes here keeps the file-walk and
 			// network-fan-out phases separated so a slow disk doesn't
-			// stall the http fan-out (and vice versa).
+			// stall the http fan-out (and vice versa). Trades higher
+			// peak memory (all media held until fan-out finishes) for
+			// that separation — acceptable at current corpus scales;
+			// revisit if hundreds of hours of audio land in one run.
 			audio, err := os.ReadFile(f)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: read failed: %v\n", f, err)
