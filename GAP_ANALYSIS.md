@@ -239,7 +239,7 @@
 |---------|--------|-------|
 | Video/audio transcription | **Done (Whisper backend + pipeline wiring)** | `internal/transcribe` defines a pluggable `Client` interface plus `IsTranscribable(ext)` covering common audio/video extensions. `internal/transcribe/whisper` implements an OpenAI `/v1/audio/transcriptions` backend (multipart upload, verbose_json for duration-based cost). `runPipeline` now branches on transcribable extensions when `--transcribe-backend` is set, routing media files through the transcribe client and feeding the resulting text into the semantic pass. `--transcribe-backend` requires `--semantic` (validated). Per-run transcribe cost summary printed to stderr alongside the semantic-cost line. God-node-driven prompt biasing still deferred. |
 | YouTube audio extraction | Missing | Upstream uses yt-dlp; gogfy's no-shell-out policy makes this a larger lift. |
-| Domain hint generation | Missing | Upstream feeds god-node labels into the Whisper `prompt` field; backend supports `Prompt` but the pipeline doesn't yet plumb god-node hints into transcription jobs. |
+| Domain hint generation | **Done** | `transcribe.BuildPrompt(godNodes)` folds up to 5 top god-node labels into a "Technical discussion about X, Y, Z. Use proper punctuation..." prompt (mirrors upstream graphify's `build_whisper_prompt`). Pipeline calls `loadPriorGodNodePrompt(out)` which re-analyzes the previous run's `graph.json` to derive labels — bootstrap-only for first runs but accumulates across iterations. `GOGFY_WHISPER_PROMPT` env override wins when set (lets coding agents inject hand-crafted domain hints). |
 
 ---
 

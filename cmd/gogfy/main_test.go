@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/julianshen/gogfy/internal/export"
 	"github.com/julianshen/gogfy/internal/llm"
+	"github.com/julianshen/gogfy/internal/schema"
+	"github.com/julianshen/gogfy/internal/transcribe"
 )
 
 // dispatchTo runs dispatch with stdout temporarily redirected so tests
@@ -1675,5 +1678,50 @@ func TestCollectExtensionsWidensWhenTranscribeEnabled(t *testing.T) {
 		if !contains(withTranscribe, ext) {
 			t.Errorf("transcribe-on ext list dropped AST extension %q", ext)
 		}
+	}
+}
+
+func TestLoadPriorGodNodePromptMissingGraphReturnsFallback(t *testing.T) {
+	// Clear any developer-exported env override so the assertion
+	// reflects the function's behavior, not the local shell.
+	t.Setenv("GOGFY_WHISPER_PROMPT", "")
+	dir := t.TempDir()
+	got := loadPriorGodNodePrompt(dir)
+	if got != transcribe.FallbackPrompt {
+		t.Errorf("missing graph.json should yield fallback, got %q", got)
+	}
+}
+
+func TestLoadPriorGodNodePromptDerivesFromGraph(t *testing.T) {
+	t.Setenv("GOGFY_WHISPER_PROMPT", "")
+	// Build a tiny graph where one node has clearly higher degree —
+	// analyze should crown it god and BuildPrompt should fold its
+	// label into the prompt.
+	dir := t.TempDir()
+	g := export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "hub", Label: "DistributedLedger"},
+			{ID: "a", Label: "A"},
+			{ID: "b", Label: "B"},
+			{ID: "c", Label: "C"},
+			{ID: "d", Label: "D"},
+		},
+		Edges: []schema.Edge{
+			{Source: "hub", Target: "a", Relation: "links"},
+			{Source: "hub", Target: "b", Relation: "links"},
+			{Source: "hub", Target: "c", Relation: "links"},
+			{Source: "hub", Target: "d", Relation: "links"},
+		},
+	}
+	data, err := json.Marshal(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "graph.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := loadPriorGodNodePrompt(dir)
+	if !strings.Contains(got, "DistributedLedger") {
+		t.Errorf("expected hub label folded into prompt, got %q", got)
 	}
 }

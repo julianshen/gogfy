@@ -679,6 +679,23 @@ func buildLLMClient(backend string) (llm.Client, error) {
 	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama, gemini, kimi)", backend)
 }
 
+// loadPriorGodNodePrompt reads <out>/graph.json (if it exists from a
+// previous run) and derives a Whisper prompt biased by the corpus's
+// top god nodes. Missing/unreadable/empty graph all return the
+// fallback prompt — transcription should never fail because the
+// prior-run side-input is absent.
+func loadPriorGodNodePrompt(out string) string {
+	g, err := loadGraph(filepath.Join(out, "graph.json"))
+	if err != nil {
+		return transcribe.BuildPrompt(nil)
+	}
+	// Re-run analyze rather than caching god-node IDs in graph.json —
+	// keeps the contract one-way (analyze derives from graph) so we
+	// don't drift if the analyzer's ranking changes.
+	reportData := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
+	return transcribe.BuildPrompt(reportData.GodNodes)
+}
+
 // buildTranscribeClient picks a transcription backend by name. Empty
 // backend is a programming error here — runPipeline only calls this
 // when the user passed a non-empty --transcribe-backend, so falling
@@ -1272,6 +1289,17 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		}
 		transcribeClient = client
 	}
+	// Build a Whisper prompt from the prior run's god nodes (if any).
+	// First runs against a corpus get the fallback; subsequent runs
+	// benefit from corpus-specific vocabulary biasing — names,
+	// acronyms, and uncommon terms Whisper would otherwise mis-hear.
+	// Bootstrap-only: a fresh corpus's first transcribe pass can't
+	// bias against itself, but that's the same constraint upstream
+	// graphify operates under.
+	var whisperPrompt string
+	if transcribeClient != nil {
+		whisperPrompt = loadPriorGodNodePrompt(out)
+	}
 	var semanticJobs []semanticJob
 	var transcribeCost struct {
 		files   int
@@ -1299,6 +1327,7 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 				Filename: filepath.Base(f),
 				MimeType: mime.TypeByExtension(ext),
 				Audio:    audio,
+				Prompt:   whisperPrompt,
 			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: %v\n", f, err)
