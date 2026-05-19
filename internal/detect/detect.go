@@ -35,6 +35,10 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	includeMatcher, err := loadIncludeMatcher(root)
+	if err != nil {
+		return nil, err
+	}
 	guard, err := security.NewRootGuard(root)
 	if err != nil {
 		return nil, fmt.Errorf("security: %w", err)
@@ -66,6 +70,20 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 		matchPath := slash
 		if info.IsDir() {
 			matchPath += "/"
+		}
+		// Hidden entries (basename starts with '.') are skipped by
+		// default — they're usually config, not source. `.graphifyinclude`
+		// is the escape hatch: any pattern matched there re-includes
+		// the entry. Mirrors upstream graphify's allowlist behavior.
+		// The base check uses filepath.Base so `subdir/.git` is caught
+		// even though `rel` is the full path.
+		if strings.HasPrefix(filepath.Base(rel), ".") {
+			if includeMatcher == nil || !includeMatcher.MatchesPath(matchPath) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 		}
 		if matcher != nil && matcher.MatchesPath(matchPath) {
 			if !info.IsDir() {
@@ -169,6 +187,48 @@ func loadIgnoreMatcher(root string) (*gitignore.GitIgnore, bool, error) {
 		return nil, false, nil
 	}
 	return gitignore.CompileIgnoreLines(lines...), hasNegations, nil
+}
+
+// loadIncludeMatcher reads .graphifyinclude from the scan root (and
+// the VCS-ancestor chain, same layering as .graphifyignore). The
+// resulting matcher is the dotfile-skip escape hatch: paths that
+// match are re-included even though their basename starts with `.`.
+//
+// Pattern syntax is identical to gitignore (last-match-wins, `!`
+// negation, etc.) since users already know the dialect from .gitignore
+// and .graphifyignore.
+//
+// Returns (nil, nil) when no .graphifyinclude exists — the dotfile
+// default-skip then applies to everything.
+func loadIncludeMatcher(root string) (*gitignore.GitIgnore, error) {
+	chain := ignoreDirChain(root)
+	var lines []string
+	for _, dir := range chain {
+		f, err := os.Open(filepath.Join(dir, ".graphifyinclude"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			lines = append(lines, line)
+		}
+		scanErr := scanner.Err()
+		f.Close()
+		if scanErr != nil {
+			return nil, scanErr
+		}
+	}
+	if len(lines) == 0 {
+		return nil, nil
+	}
+	return gitignore.CompileIgnoreLines(lines...), nil
 }
 
 // ignoreDirChain returns the ordered list of directories whose

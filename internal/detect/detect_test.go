@@ -527,3 +527,65 @@ func TestIgnoreDirChainNoVCSReturnsScanRootOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectFilesDefaultSkipsHiddenFilesAndDirs(t *testing.T) {
+	// Default behavior: dotfile entries (basename starts with '.')
+	// stay out of the corpus. .git/, .vscode/, .env all skipped at
+	// the walk layer without needing a .graphifyignore rule.
+	dir := t.TempDir()
+	mustWrite(t, dir+"/main.go", "package main\n")
+	if err := os.Mkdir(dir+"/.git", 0755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, dir+"/.git/config", "ignored\n")
+	mustWrite(t, dir+"/.env", "SECRET=hunter2\n")
+	got, err := CollectFiles(dir, []string{".go", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !strings.HasSuffix(got[0], "main.go") {
+		t.Errorf("expected only main.go in corpus, got %v", got)
+	}
+}
+
+func TestCollectFilesGraphifyIncludeReAddsHiddenFiles(t *testing.T) {
+	// .graphifyinclude with `.github/` re-adds the dir even though
+	// the basename starts with '.'. Mirrors upstream's allowlist:
+	// dotfiles are skipped by default; this file is the escape hatch.
+	dir := t.TempDir()
+	mustWrite(t, dir+"/.graphifyinclude", ".github/\n")
+	if err := os.Mkdir(dir+"/.github", 0755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, dir+"/.github/workflows.yml", "name: ci\n")
+	if err := os.Mkdir(dir+"/.git", 0755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, dir+"/.git/config", "[core]\n")
+	got, err := CollectFiles(dir, []string{".yml", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 file (workflows.yml), got %v", got)
+	}
+	if !strings.Contains(got[0], ".github/workflows.yml") {
+		t.Errorf("expected .github/workflows.yml in corpus, got %v", got)
+	}
+}
+
+func TestCollectFilesGraphifyIncludeSpecificFile(t *testing.T) {
+	// File-specific allowlist: pull in `.eslintrc.json` without
+	// re-including the rest of the dotfile family.
+	dir := t.TempDir()
+	mustWrite(t, dir+"/.graphifyinclude", ".eslintrc.json\n")
+	mustWrite(t, dir+"/.eslintrc.json", `{"extends":"airbnb"}`+"\n")
+	mustWrite(t, dir+"/.prettierrc", "{}\n")
+	got, err := CollectFiles(dir, []string{".json", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !strings.HasSuffix(got[0], ".eslintrc.json") {
+		t.Errorf("expected just .eslintrc.json, got %v", got)
+	}
+}
