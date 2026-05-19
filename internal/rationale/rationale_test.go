@@ -224,3 +224,144 @@ func TestExtractTruncationMarker(t *testing.T) {
 		t.Fatalf("truncated label must end with …: %q", nodes[0].Label)
 	}
 }
+
+func TestExtractGoCommentAttributedToFollowingFunction(t *testing.T) {
+	// A NOTE that immediately precedes a Go function should attach to
+	// the function node, not the module node — the rationale is "why
+	// this function exists", and downstream consumers want it tied to
+	// the function row, not the file as a whole.
+	src := []byte(`package main
+
+// NOTE: retry loop assumes ordered delivery — DO NOT reorder
+func processQueue(items []string) {}
+`)
+	_, edges := Extract("/proj/main.go", src)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	want := "go:function:/proj/main.go:processQueue"
+	if edges[0].Target != want {
+		t.Errorf("expected function-targeted edge: got %q want %q", edges[0].Target, want)
+	}
+}
+
+func TestExtractGoMethodReceiverIgnoredForName(t *testing.T) {
+	// `func (r *Repo) Save()` — function ID uses just the method name
+	// (`Save`), matching what emitDecl in internal/extract emits. The
+	// receiver type is irrelevant for the node ID.
+	src := []byte(`// NOTE: persistence must be atomic
+func (r *Repo) Save(item Item) error { return nil }
+`)
+	_, edges := Extract("/proj/repo.go", src)
+	want := "go:function:/proj/repo.go:Save"
+	if edges[0].Target != want {
+		t.Errorf("method attribution: got %q want %q", edges[0].Target, want)
+	}
+}
+
+func TestExtractPythonCommentAttributedToFollowingDef(t *testing.T) {
+	src := []byte(`# WHY: short-circuit when input is empty to avoid div-by-zero
+def normalize(xs):
+    return xs
+`)
+	_, edges := Extract("/proj/math.py", src)
+	want := "py:function:/proj/math.py:normalize"
+	if edges[0].Target != want {
+		t.Errorf("expected py function target: got %q want %q", edges[0].Target, want)
+	}
+}
+
+func TestExtractPythonSkipsDecoratorsBetweenCommentAndDef(t *testing.T) {
+	// Decorators sit between a docstring-style comment and the def.
+	// Real codebases stack multiple — attribution should still find
+	// the function below them.
+	src := []byte(`# IMPORTANT: cached for 5 minutes, eviction is manual
+@functools.lru_cache(maxsize=128)
+@trace
+def expensive():
+    pass
+`)
+	_, edges := Extract("/proj/cache.py", src)
+	want := "py:function:/proj/cache.py:expensive"
+	if edges[0].Target != want {
+		t.Errorf("decorator-skipping failed: got %q want %q", edges[0].Target, want)
+	}
+}
+
+func TestExtractRustCommentAttributedToFn(t *testing.T) {
+	src := []byte(`// HACK: temporary clone() — TODO remove once Cow refactor lands
+pub async fn fetch(url: &str) -> Result<String, Error> { Ok(String::new()) }
+`)
+	_, edges := Extract("/proj/net.rs", src)
+	want := "rust:function:/proj/net.rs:fetch"
+	if edges[0].Target != want {
+		t.Errorf("rust attribution: got %q want %q", edges[0].Target, want)
+	}
+}
+
+func TestExtractTSArrowConstAttributedToBinding(t *testing.T) {
+	// Modern JS/TS idiom: `export const handler = async (req) => {…}`.
+	// The function "name" for graph purposes is the const binding.
+	src := []byte(`// NOTE: handler runs in the edge runtime — no Node APIs
+export const handler = async (req: Request) => new Response("ok");
+`)
+	_, edges := Extract("/proj/route.ts", src)
+	want := "ts:function:/proj/route.ts:handler"
+	if edges[0].Target != want {
+		t.Errorf("ts arrow attribution: got %q want %q", edges[0].Target, want)
+	}
+}
+
+func TestExtractFallsBackToModuleWhenNoFunctionFollows(t *testing.T) {
+	// Top-of-file rationale with no nearby function — keeps the
+	// module-level edge so file-scope rationales (overall design
+	// notes) still attach to the graph.
+	src := []byte(`# RATIONALE: this script is a one-shot migration tool
+
+import os
+import sys
+
+x = 1
+`)
+	_, edges := Extract("/proj/migrate.py", src)
+	want := "py:module:/proj/migrate.py"
+	if edges[0].Target != want {
+		t.Errorf("expected module fallback: got %q want %q", edges[0].Target, want)
+	}
+}
+
+func TestExtractUnsupportedLanguageFallsBackToModule(t *testing.T) {
+	// Java isn't in fnDeclPatterns (method declarations are too
+	// noisy to regex-match reliably). Rationale comments in Java
+	// files keep module-level attribution — better than guessing
+	// wrong.
+	src := []byte(`// NOTE: defensive null-check — see ticket #4421
+public void run() {}
+`)
+	_, edges := Extract("/proj/App.java", src)
+	want := "java:module:/proj/App.java"
+	if edges[0].Target != want {
+		t.Errorf("unsupported-lang fallback: got %q want %q", edges[0].Target, want)
+	}
+}
+
+func TestExtractMultipleStackedCommentsAllPointAtSameFunction(t *testing.T) {
+	// A docstring-style block of multiple markers (NOTE, IMPORTANT,
+	// HACK) that all describe the *same* function should all attribute
+	// to that function — not just the comment line directly adjacent.
+	src := []byte(`// NOTE: O(n²) but n is bounded by config
+// HACK: relies on caller holding the mutex
+// IMPORTANT: order-sensitive — keep this loop body intact
+func compress(buf []byte) []byte { return buf }
+`)
+	_, edges := Extract("/proj/zip.go", src)
+	if len(edges) != 3 {
+		t.Fatalf("expected 3 edges, got %d", len(edges))
+	}
+	want := "go:function:/proj/zip.go:compress"
+	for i, e := range edges {
+		if e.Target != want {
+			t.Errorf("edge %d target: got %q want %q", i, e.Target, want)
+		}
+	}
+}
