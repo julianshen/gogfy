@@ -1646,3 +1646,34 @@ func TestBuildTranscribeClientAcceptsOpenAIWhisperAlias(t *testing.T) {
 		t.Fatal("client nil")
 	}
 }
+
+func TestCollectExtensionsWidensWhenTranscribeEnabled(t *testing.T) {
+	base := collectExtensions(runOptions{})
+	withTranscribe := collectExtensions(runOptions{TranscribeBackend: "whisper"})
+
+	contains := func(s []string, want string) bool {
+		for _, v := range s {
+			if v == want {
+				return true
+			}
+		}
+		return false
+	}
+	for _, ext := range []string{".mp3", ".mp4", ".wav", ".m4a", ".ogg", ".flac", ".webm", ".mov"} {
+		if contains(base, ext) {
+			t.Errorf("base ext list should NOT contain %q (audio/video belongs only when transcribe is on)", ext)
+		}
+		if !contains(withTranscribe, ext) {
+			t.Errorf("transcribe-on ext list missing %q — CollectFiles would drop the file before the loop", ext)
+		}
+	}
+	// AST extensions stay in both lists.
+	for _, ext := range []string{".go", ".py", ".md"} {
+		if !contains(base, ext) {
+			t.Errorf("base ext list dropped AST extension %q", ext)
+		}
+		if !contains(withTranscribe, ext) {
+			t.Errorf("transcribe-on ext list dropped AST extension %q", ext)
+		}
+	}
+}

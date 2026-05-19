@@ -1031,6 +1031,24 @@ var supportedExtensions = map[string]extract.Extractor{
 	".gslides":  extract.GoogleWorkspaceExtractor{},
 }
 
+// collectExtensions returns the union of AST-supported extensions and
+// (when enabled) transcribable media extensions. CollectFiles filters
+// by extension up-front, so audio/video files only reach the per-file
+// loop when their extension is in this list — without the union the
+// transcribe branch in runPipeline would never fire.
+func collectExtensions(opts runOptions) []string {
+	exts := supportedExtensionsList()
+	if opts.TranscribeBackend != "" {
+		for ext := range transcribe.VideoExtensions {
+			exts = append(exts, ext)
+		}
+		for ext := range transcribe.AudioExtensions {
+			exts = append(exts, ext)
+		}
+	}
+	return exts
+}
+
 func supportedExtensionsList() []string {
 	exts := make([]string, 0, len(supportedExtensions))
 	for ext := range supportedExtensions {
@@ -1185,7 +1203,7 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	if opts.ClusterOnly {
 		return runClusterOnly(out, directed, opts)
 	}
-	files, err := detect.CollectFiles(root, supportedExtensionsList())
+	files, err := detect.CollectFiles(root, collectExtensions(opts))
 	if err != nil {
 		return fmt.Errorf("detect: %w", err)
 	}
@@ -1244,22 +1262,21 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	var transcribeClient transcribe.Client
 	if opts.TranscribeBackend != "" {
 		if !opts.Semantic {
-			// Transcription without --semantic would produce text
-			// nobody consumes — fail fast rather than silently spending
-			// Whisper minutes for no graph effect.
+			// Fail fast: transcribed text has no consumer without --semantic,
+			// and Whisper minutes are billed.
 			return fmt.Errorf("transcribe: --transcribe-backend requires --semantic")
 		}
-		tc, err := buildTranscribeClient(opts.TranscribeBackend)
+		client, err := buildTranscribeClient(opts.TranscribeBackend)
 		if err != nil {
 			return fmt.Errorf("transcribe: %w", err)
 		}
-		transcribeClient = tc
+		transcribeClient = client
 	}
 	var semanticJobs []semanticJob
 	var transcribeCost struct {
+		files   int
 		seconds float64
 		usd     float64
-		files   int
 	}
 	semCost := struct {
 		inputTokens, outputTokens int
@@ -1273,18 +1290,18 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		// silently drop it. When a transcribe backend is configured we
 		// turn the audio into a semantic-text job; otherwise skip.
 		if transcribeClient != nil && transcribe.IsTranscribable(ext) {
-			audio, rerr := os.ReadFile(f)
-			if rerr != nil {
-				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: %v\n", f, rerr)
+			audio, err := os.ReadFile(f)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: read failed: %v\n", f, err)
 				continue
 			}
-			tResp, terr := transcribeClient.Transcribe(context.Background(), transcribe.Request{
+			tResp, err := transcribeClient.Transcribe(context.Background(), transcribe.Request{
 				Filename: filepath.Base(f),
 				MimeType: mime.TypeByExtension(ext),
 				Audio:    audio,
 			})
-			if terr != nil {
-				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: %v\n", f, terr)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: %v\n", f, err)
 				continue
 			}
 			transcribeCost.files++
