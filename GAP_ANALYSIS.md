@@ -227,11 +227,11 @@
 ### 3.4 Ingestion
 | Feature | Upstream Location | Description |
 |---------|-------------------|-------------|
-| URL fetching with type detection | `ingest.py` | Detect tweet, arxiv, github, youtube, pdf, image, webpage |
+| URL fetching with type detection | **Partial (PDF + HTML; arXiv URL rewrite)** | `Ingest` now detects PDF responses via the `%PDF-` magic bytes (authoritative) plus a URL-suffix fallback for servers that serve PDFs with generic content types. arXiv `abs/<id>` URLs are rewritten to `pdf/<id>.pdf` before fetching so paper ingestion lands the document, not the abstract landing page. Tweet/GitHub/YouTube detection deferred. |
 | HTML-to-markdown conversion | **Done** | `internal/ingest.htmlToMarkdown` strips script/style/noscript, converts h1-h6/p/li/br, decodes basic entities. Wrapper `Ingest` writes a content-hashed sidecar under `<out>/ingested/` with `source_url:` frontmatter — idempotent across runs. CLI: `gogfy ingest <url> [--out <dir>]`. |
-| arXiv abstract extraction | `ingest.py` | Fetch and format arXiv papers |
-| YouTube audio download | `ingest.py` | yt-dlp integration |
-| Binary download for PDFs/images | `ingest.py` | Save raw binaries |
+| arXiv abstract extraction | **Done (PDF fetch)** | arXiv `abs/<id>[v<n>]` URLs (including pre-2007 cross-list ids like `cs/0601001`) are rewritten to their PDF endpoint at fetch time; the response lands as a `.pdf` sidecar that the existing PDF extractor processes during the next `gogfy run`. |
+| YouTube audio download | Missing | Upstream uses yt-dlp; no-shell-out policy makes this a larger lift. |
+| Binary download for PDFs/images | **Done (PDF)** | PDF bodies are saved verbatim as `.pdf` sidecars (no markdown conversion, no frontmatter — PDF parsers reject anything before `%PDF-`). Image-binary save deferred — the current `Ingest` flow assumes textual content; an image branch would parallel the PDF one. |
 | Query result memory | `ingest.py` | save_query_result for feedback loop |
 
 ### 3.5 Transcription

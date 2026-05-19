@@ -105,3 +105,90 @@ func TestIngestSurfacesSSRFGuardError(t *testing.T) {
 		t.Fatal("expected SSRF error to propagate")
 	}
 }
+
+func TestIngestPDFContentWritesPDFSidecar(t *testing.T) {
+	// PDF magic-bytes prefix should route to a .pdf sidecar with the
+	// original bytes preserved (no markdown conversion, no frontmatter
+	// — PDF parsers reject anything before %PDF-).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = io.WriteString(w, "%PDF-1.4\nsome bytes\n%%EOF")
+	}))
+	defer srv.Close()
+	out := t.TempDir()
+	opts := safefetch.Options{Resolver: publicResolver()}
+
+	path, err := Ingest(context.Background(), srv.URL+"/paper", out, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(path, ".pdf") {
+		t.Errorf("PDF body should land as .pdf, got %q", path)
+	}
+	body, _ := os.ReadFile(path)
+	if !strings.HasPrefix(string(body), "%PDF-") {
+		t.Errorf("PDF bytes should be preserved verbatim, got %q", body[:min(20, len(body))])
+	}
+}
+
+func TestIngestPDFUrlSuffixRoutesEvenWithoutMagicBytes(t *testing.T) {
+	// Servers sometimes serve PDFs with octet-stream or other
+	// generic content types — fall back to URL-suffix detection.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = io.WriteString(w, "garbage but URL says it's a pdf")
+	}))
+	defer srv.Close()
+	out := t.TempDir()
+	opts := safefetch.Options{Resolver: publicResolver()}
+
+	path, err := Ingest(context.Background(), srv.URL+"/paper.pdf", out, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(path, ".pdf") {
+		t.Errorf("URL with .pdf suffix should land as .pdf, got %q", path)
+	}
+}
+
+func TestIngestPDFIdempotent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = io.WriteString(w, "%PDF-1.4\nfoo")
+	}))
+	defer srv.Close()
+	out := t.TempDir()
+	opts := safefetch.Options{Resolver: publicResolver()}
+
+	p1, err := Ingest(context.Background(), srv.URL+"/paper", out, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	p2, err := Ingest(context.Background(), srv.URL+"/paper", out, opts)
+	if err != nil {
+		t.Fatalf("PDF re-ingest should be idempotent offline: %v", err)
+	}
+	if p1 != p2 {
+		t.Errorf("PDF sidecar path drifted: %q vs %q", p1, p2)
+	}
+}
+
+func TestRewriteArxivURL(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"https://arxiv.org/abs/2401.12345", "https://arxiv.org/pdf/2401.12345.pdf"},
+		{"https://arxiv.org/abs/2401.12345v2", "https://arxiv.org/pdf/2401.12345v2.pdf"},
+		{"http://arxiv.org/abs/cs/0601001", "http://arxiv.org/pdf/cs/0601001.pdf"},
+		{"https://arxiv.org/abs/2401.12345.pdf", "https://arxiv.org/pdf/2401.12345.pdf"},
+		// Non-arXiv URLs untouched.
+		{"https://example.com/abs/x", "https://example.com/abs/x"},
+		{"https://arxiv.org/pdf/2401.12345.pdf", "https://arxiv.org/pdf/2401.12345.pdf"},
+	}
+	for _, tc := range cases {
+		if got := rewriteArxivURL(tc.in); got != tc.want {
+			t.Errorf("rewriteArxivURL(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
