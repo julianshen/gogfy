@@ -11,9 +11,18 @@ import (
 // (`twitter:title`, etc.) are picked up as fallback when og:* is
 // missing — common on X/Twitter pages whose body content is otherwise
 // gated behind JS.
+// `\s` before (?:property|name) is load-bearing — without it the
+// pattern matches data-property="og:title", aria-name="og:x", and
+// other compound attributes whose suffix happens to be "property" or
+// "name". `<meta\b` (instead of `<meta\s+`) leaves the whitespace
+// inside [^>]*?, so the required `\s` matches the space that
+// separates `<meta` from the attribute even when property/name is
+// the FIRST attribute on the tag.
+var lineBreakRe = regexp.MustCompile(`[\r\n]+`)
+
 var (
-	ogMetaPropFirstRe = regexp.MustCompile(`(?is)<meta\s+[^>]*?(?:property|name)\s*=\s*["']((?:og|twitter):[^"']+)["'][^>]*?content\s*=\s*["']([^"']*)["']`)
-	ogMetaContentFirstRe = regexp.MustCompile(`(?is)<meta\s+[^>]*?content\s*=\s*["']([^"']*)["'][^>]*?(?:property|name)\s*=\s*["']((?:og|twitter):[^"']+)["']`)
+	ogMetaPropFirstRe    = regexp.MustCompile(`(?is)<meta\b[^>]*?\s(?:property|name)\s*=\s*["']((?:og|twitter):[^"']+)["'][^>]*?\scontent\s*=\s*["']([^"']*)["']`)
+	ogMetaContentFirstRe = regexp.MustCompile(`(?is)<meta\b[^>]*?\scontent\s*=\s*["']([^"']*)["'][^>]*?\s(?:property|name)\s*=\s*["']((?:og|twitter):[^"']+)["']`)
 )
 
 // OGTags is the subset of OpenGraph / Twitter Card metadata Ingest
@@ -28,18 +37,17 @@ type OGTags struct {
 
 // parseOGTags scans an HTML body for OpenGraph + Twitter Card meta
 // tags. Both attribute orderings are accepted (property-first and
-// content-first). When both og:X and twitter:X are present, og:X
-// wins — og is the canonical spec and twitter:* is a fallback per
-// Twitter's own card validator behavior.
+// content-first). og:X precedence over twitter:X is enforced by the
+// `pick` priority list below, not by match order — a page that emits
+// twitter:title before og:title still resolves to og:title.
 func parseOGTags(html []byte) OGTags {
 	props := map[string]string{}
 	collect := func(name, content string) {
-		// First write wins so og:* (registered before twitter:* in the
-		// caller's match order) isn't overwritten by a later twitter:*
-		// variant for the same logical field.
-		if _, dup := props[name]; dup {
-			return
-		}
+		// Strip line breaks: an embedded \n in a title would terminate
+		// the markdown blockquote in Format() and let attacker-
+		// controlled content (including frontmatter `---` markers)
+		// leak out of the metadata block.
+		content = lineBreakRe.ReplaceAllString(content, " ")
 		props[name] = strings.TrimSpace(content)
 	}
 	for _, m := range ogMetaPropFirstRe.FindAllSubmatch(html, -1) {

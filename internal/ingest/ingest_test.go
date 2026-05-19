@@ -293,6 +293,12 @@ func TestIsTweetURL(t *testing.T) {
 		{"https://twitter.com/foo", false},        // profile, not status
 		{"https://example.com/status/12345", false},
 		{"", false},
+		// Host-spoofing / suffix attacks must not match.
+		{"https://twitter.com.evil.com/foo/status/1", false},
+		{"https://evil.com/twitter.com/foo/status/1", false},
+		{"https://eviltwitter.com/foo/status/1", false},
+		// "statuses" plural is GitHub-style, not a tweet.
+		{"https://twitter.com/foo/statuses/12345", false},
 	}
 	for _, tc := range cases {
 		if got := IsTweetURL(tc.in); got != tc.want {
@@ -387,5 +393,41 @@ func TestIngestPrependsOGMetadataBlock(t *testing.T) {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("expected %q in sidecar, got: %s", want, body)
 		}
+	}
+}
+
+func TestParseOGTagsIgnoresCompoundAttributeNames(t *testing.T) {
+	// data-property, aria-name, etc. share the suffix "property" /
+	// "name" — earlier regex matched these by accident. Word-boundary
+	// requirement on the attribute name closes the false-match path.
+	html := []byte(`
+<meta data-property="og:title" content="Should Not Match">
+<meta aria-name="og:description" content="Also Should Not Match">
+<meta property="og:image" content="https://real.example.com/image.png">
+`)
+	got := parseOGTags(html)
+	if got.Title != "" {
+		t.Errorf("data-property should not be picked up: %q", got.Title)
+	}
+	if got.Description != "" {
+		t.Errorf("aria-name should not be picked up: %q", got.Description)
+	}
+	if got.ImageURL != "https://real.example.com/image.png" {
+		t.Errorf("real og:image should match: %q", got.ImageURL)
+	}
+}
+
+func TestParseOGTagsStripsNewlinesInValues(t *testing.T) {
+	// Embedded \n in a title would break out of the markdown
+	// blockquote in Format() and let attacker-controlled content
+	// (including frontmatter --- markers) leak. Newlines are
+	// replaced with a single space.
+	html := []byte("<meta property=\"og:title\" content=\"line1\nline2\r\n---\nlooks like frontmatter\">")
+	got := parseOGTags(html)
+	if strings.ContainsAny(got.Title, "\r\n") {
+		t.Errorf("newlines should be stripped from values: %q", got.Title)
+	}
+	if !strings.Contains(got.Title, "line1") || !strings.Contains(got.Title, "line2") {
+		t.Errorf("content text should be preserved (just newlines replaced): %q", got.Title)
 	}
 }
