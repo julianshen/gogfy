@@ -2,12 +2,15 @@ package dedup
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/dgryski/go-minhash"
 	"github.com/dgryski/go-spooky"
 	"github.com/julianshen/gogfy/internal/schema"
 	"github.com/xrash/smetrics"
 )
+
+func sortStringSlice(s []string) { sort.Strings(s) }
 
 const (
 	entropyThreshold = 2.5
@@ -191,10 +194,14 @@ func (d *Deduplicator) Deduplicate(nodes []schema.Node, edges []schema.Edge, com
 		}
 	}
 
-	// Build remap
+	// Build remap. Sort component members for determinism — Components()
+	// iterates a map under the hood, so without this sort tie-broken
+	// winner selection (pickWinner sees equal-score candidates in
+	// different orders) yields different winners across runs.
 	remap := make(map[string]string)
 	comps := uf.Components()
 	for _, members := range comps {
+		sortStringSlice(members)
 		if len(members) < 2 {
 			continue
 		}
