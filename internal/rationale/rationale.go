@@ -37,6 +37,76 @@ var markerRe = regexp.MustCompile(`^\s*(#|//|--|/\*)\s*(NOTE|IMPORTANT|HACK|WHY|
 // block-comment-style rationale labels don't keep the closer.
 var blockCloseRe = regexp.MustCompile(`\s*\*/\s*$`)
 
+// commentLineRe matches a line that's entirely a comment (any of the
+// four marker families). Used to skip continuation lines when walking
+// forward from a rationale comment to find the next non-comment line.
+var commentLineRe = regexp.MustCompile(`^\s*(#|//|--|/\*|\*)`)
+
+// fnDeclPatterns maps a lang tag to a regex that captures the
+// function name from a declaration line. Only the high-signal
+// languages are covered; for the rest (Java, C#, Kotlin, ...) the
+// receiver / return-type clutter makes a regex unreliable and we
+// fall back to module-level attribution. The match group name is
+// always the function identifier the AST extractor emits as the
+// `<lang>:function:<filepath>:<name>` node.
+var fnDeclPatterns = map[string]*regexp.Regexp{
+	// Go: optional receiver `func (r *T)` before name.
+	"go": regexp.MustCompile(`^\s*func\s+(?:\([^)]*\)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(`),
+	// Python: optional async, plain def.
+	"py": regexp.MustCompile(`^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`),
+	// Rust: pub / pub(crate) / async modifiers before fn.
+	"rust": regexp.MustCompile(`^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*[(<]`),
+	// JS / TS: function declaration form. The const-arrow form is
+	// matched by jsArrowRe below; this regex alone keeps the simple
+	// case fast.
+	"js": regexp.MustCompile(`^\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(`),
+	"ts": regexp.MustCompile(`^\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(`),
+}
+
+// jsArrowRe captures the `const name = (args) => …` / `const name =
+// function …` form that's idiomatic in modern JS/TS modules. Kept
+// separate from fnDeclPatterns so the simple-case regex stays
+// readable; both are tried for js/ts files.
+var jsArrowRe = regexp.MustCompile(`^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>)`)
+
+// nextFunctionName scans forward from comment line index `from` for
+// the nearest non-comment, non-blank line and returns the function
+// name if that line declares one in `lang`. Returns "" when no
+// function pattern applies (unsupported lang, target line is not a
+// declaration, or the comment is followed by something other than a
+// function). Falls back to module-level attribution silently —
+// attribution is best-effort, not a contract.
+func nextFunctionName(lang string, lines []string, from int) string {
+	pat := fnDeclPatterns[lang]
+	if pat == nil {
+		return ""
+	}
+	for j := from + 1; j < len(lines) && j < from+12; j++ {
+		t := strings.TrimSpace(lines[j])
+		if t == "" {
+			continue
+		}
+		if commentLineRe.MatchString(lines[j]) {
+			continue
+		}
+		// Decorators (Python `@cache`) sit between the comment and the
+		// def line; skip them so attribution still works.
+		if lang == "py" && strings.HasPrefix(t, "@") {
+			continue
+		}
+		if m := pat.FindStringSubmatch(lines[j]); m != nil {
+			return m[1]
+		}
+		if (lang == "js" || lang == "ts") && jsArrowRe.MatchString(lines[j]) {
+			return jsArrowRe.FindStringSubmatch(lines[j])[1]
+		}
+		// First non-comment, non-blank, non-decorator line isn't a
+		// function declaration — the comment is module-scope.
+		return ""
+	}
+	return ""
+}
+
 // Extract scans src for rationale comments and returns (nodes, edges).
 // The edges point from each rationale node to the source file's module
 // node so the rationale attaches to the existing graph rather than
@@ -53,7 +123,8 @@ func Extract(path string, src []byte) ([]schema.Node, []schema.Edge) {
 	// Splitting on '\n' is intentionally cheap — Windows CR is folded
 	// into the trim step inside the loop. tree-sitter wouldn't add
 	// value here since we only care about comment-leading line content.
-	for lineno, line := range strings.Split(string(src), "\n") {
+	lines := strings.Split(string(src), "\n")
+	for lineno, line := range lines {
 		line = strings.TrimRight(line, "\r")
 		if !markerRe.MatchString(line) {
 			continue
@@ -74,9 +145,19 @@ func Extract(path string, src []byte) ([]schema.Node, []schema.Edge) {
 			SourceLocation: fmt.Sprintf("L%d", lineOneBased),
 			FileType:       "rationale",
 		})
+		// If the rationale comment immediately precedes a function
+		// declaration (after skipping intervening comments / decorators
+		// / blank lines), attach to that function instead of the file's
+		// module node. This gives "why does this function exist"
+		// rationale a precise target; downstream renderers can still
+		// walk function → module for file-level views.
+		target := moduleID
+		if fnName := nextFunctionName(lang, lines, lineno); fnName != "" {
+			target = schema.LangID(lang, "function", path+":"+fnName)
+		}
 		edges = append(edges, schema.Edge{
 			Source:     rid,
-			Target:     moduleID,
+			Target:     target,
 			Relation:   "rationale_for",
 			Confidence: schema.Extracted,
 		})
