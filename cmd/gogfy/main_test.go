@@ -1601,3 +1601,79 @@ func TestRunSemanticJobsZeroCapsRunAll(t *testing.T) {
 		t.Fatalf("zero caps should let all 3 jobs run, got %d", executed)
 	}
 }
+
+func TestRunPipelineTranscribeWithoutSemanticErrors(t *testing.T) {
+	// --transcribe-backend without --semantic would burn Whisper
+	// minutes for output nobody consumes. Pipeline must fail fast
+	// rather than swallowing the misuse silently.
+	out := t.TempDir()
+	err := runPipeline("../../testdata/e2e/mini-corpus", out, false, false, runOptions{
+		TranscribeBackend: "whisper",
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires --semantic") {
+		t.Fatalf("expected requires-semantic error, got %v", err)
+	}
+}
+
+func TestBuildTranscribeClientUnknownBackendErrors(t *testing.T) {
+	if _, err := buildTranscribeClient("nope"); err == nil ||
+		!strings.Contains(err.Error(), "unknown transcribe backend") {
+		t.Errorf("expected unknown-backend error, got %v", err)
+	}
+}
+
+func TestBuildTranscribeClientWhisperRequiresKey(t *testing.T) {
+	// Empty OPENAI_API_KEY → whisper.New returns ErrMissingAPIKey;
+	// buildTranscribeClient must surface (not swallow) that error so
+	// the user sees the cause instead of a generic "unknown backend".
+	t.Setenv("OPENAI_API_KEY", "")
+	_, err := buildTranscribeClient("whisper")
+	if err == nil || !strings.Contains(err.Error(), "OPENAI_API_KEY") {
+		t.Errorf("expected API-key error, got %v", err)
+	}
+}
+
+func TestBuildTranscribeClientAcceptsOpenAIWhisperAlias(t *testing.T) {
+	// "openai-whisper" is documented as an alias since the model is
+	// hosted by OpenAI; users reaching for it shouldn't see an
+	// unknown-backend error.
+	t.Setenv("OPENAI_API_KEY", "sk-fake")
+	c, err := buildTranscribeClient("openai-whisper")
+	if err != nil {
+		t.Fatalf("alias should be accepted: %v", err)
+	}
+	if c == nil {
+		t.Fatal("client nil")
+	}
+}
+
+func TestCollectExtensionsWidensWhenTranscribeEnabled(t *testing.T) {
+	base := collectExtensions(runOptions{})
+	withTranscribe := collectExtensions(runOptions{TranscribeBackend: "whisper"})
+
+	contains := func(s []string, want string) bool {
+		for _, v := range s {
+			if v == want {
+				return true
+			}
+		}
+		return false
+	}
+	for _, ext := range []string{".mp3", ".mp4", ".wav", ".m4a", ".ogg", ".flac", ".webm", ".mov"} {
+		if contains(base, ext) {
+			t.Errorf("base ext list should NOT contain %q (audio/video belongs only when transcribe is on)", ext)
+		}
+		if !contains(withTranscribe, ext) {
+			t.Errorf("transcribe-on ext list missing %q — CollectFiles would drop the file before the loop", ext)
+		}
+	}
+	// AST extensions stay in both lists.
+	for _, ext := range []string{".go", ".py", ".md"} {
+		if !contains(base, ext) {
+			t.Errorf("base ext list dropped AST extension %q", ext)
+		}
+		if !contains(withTranscribe, ext) {
+			t.Errorf("transcribe-on ext list dropped AST extension %q", ext)
+		}
+	}
+}

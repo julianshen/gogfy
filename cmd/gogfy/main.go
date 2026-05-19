@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"mime"
 	"strings"
 
 	"os/signal"
@@ -44,6 +45,8 @@ import (
 	"github.com/julianshen/gogfy/internal/llm/kimi"
 	"github.com/julianshen/gogfy/internal/llm/ollama"
 	"github.com/julianshen/gogfy/internal/llm/openai"
+	"github.com/julianshen/gogfy/internal/transcribe"
+	"github.com/julianshen/gogfy/internal/transcribe/whisper"
 	"github.com/julianshen/gogfy/internal/rationale"
 	"github.com/julianshen/gogfy/internal/safefetch"
 	"github.com/julianshen/gogfy/internal/semantic"
@@ -98,6 +101,7 @@ func dispatch(args []string, stderr io.Writer) error {
 		semanticBackend := fs.String("backend", "", "LLM backend when --semantic is set (default: anthropic)")
 		maxCostUSD := fs.Float64("max-cost-usd", 0, "stop semantic dispatch once running USD cost exceeds this cap (0 = no cap)")
 		maxTokens := fs.Int("max-tokens", 0, "stop semantic dispatch once running token total exceeds this cap (0 = no cap)")
+		transcribeBackend := fs.String("transcribe-backend", "", "transcribe audio/video files via this backend before --semantic pass (e.g. whisper). Empty = off; requires --semantic")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
@@ -119,8 +123,9 @@ func dispatch(args []string, stderr io.Writer) error {
 			NoDedup:         *noDedup,
 			Semantic:        *semantic,
 			SemanticBackend: *semanticBackend,
-			MaxLLMCostUSD:   *maxCostUSD,
-			MaxLLMTokens:    *maxTokens,
+			MaxLLMCostUSD:     *maxCostUSD,
+			MaxLLMTokens:      *maxTokens,
+			TranscribeBackend: *transcribeBackend,
 		})
 	case "validate":
 		if len(rest) < 1 {
@@ -674,6 +679,18 @@ func buildLLMClient(backend string) (llm.Client, error) {
 	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama, gemini, kimi)", backend)
 }
 
+// buildTranscribeClient picks a transcription backend by name. Empty
+// backend is a programming error here — runPipeline only calls this
+// when the user passed a non-empty --transcribe-backend, so falling
+// back to a default would mask a typo as a working run.
+func buildTranscribeClient(backend string) (transcribe.Client, error) {
+	switch backend {
+	case "whisper", "openai-whisper":
+		return whisper.New()
+	}
+	return nil, fmt.Errorf("unknown transcribe backend %q (supported: whisper)", backend)
+}
+
 // hookCommand backs `gogfy hook install` / `gogfy hook uninstall`. The
 // hook structure (subcommand + verb) mirrors graphify's `graphify hook
 // install` shape and keeps the top-level help readable.
@@ -1014,6 +1031,24 @@ var supportedExtensions = map[string]extract.Extractor{
 	".gslides":  extract.GoogleWorkspaceExtractor{},
 }
 
+// collectExtensions returns the union of AST-supported extensions and
+// (when enabled) transcribable media extensions. CollectFiles filters
+// by extension up-front, so audio/video files only reach the per-file
+// loop when their extension is in this list — without the union the
+// transcribe branch in runPipeline would never fire.
+func collectExtensions(opts runOptions) []string {
+	exts := supportedExtensionsList()
+	if opts.TranscribeBackend != "" {
+		for ext := range transcribe.VideoExtensions {
+			exts = append(exts, ext)
+		}
+		for ext := range transcribe.AudioExtensions {
+			exts = append(exts, ext)
+		}
+	}
+	return exts
+}
+
 func supportedExtensionsList() []string {
 	exts := make([]string, 0, len(supportedExtensions))
 	for ext := range supportedExtensions {
@@ -1064,6 +1099,12 @@ type runOptions struct {
 	// MaxLLMCostUSD — either trips alone. Useful for local
 	// (zero-cost) backends where token budget is the real concern.
 	MaxLLMTokens int
+	// TranscribeBackend names the transcription provider for audio/
+	// video files. Empty disables transcription (audio/video files
+	// are silently skipped, as today). Currently only "whisper" is
+	// recognized; requires --semantic so the transcribed text has a
+	// downstream consumer.
+	TranscribeBackend string
 }
 
 // runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
@@ -1162,7 +1203,7 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	if opts.ClusterOnly {
 		return runClusterOnly(out, directed, opts)
 	}
-	files, err := detect.CollectFiles(root, supportedExtensionsList())
+	files, err := detect.CollectFiles(root, collectExtensions(opts))
 	if err != nil {
 		return fmt.Errorf("detect: %w", err)
 	}
@@ -1213,14 +1254,67 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		}
 		llmClient = client
 	}
+	// Transcription client: separate from llmClient because the
+	// transcribe API (multipart audio upload, duration-based pricing)
+	// doesn't share auth or wire format with the chat-completions
+	// backends, and a user may run --semantic without paying for
+	// transcription (or vice versa, once transcript-only modes ship).
+	var transcribeClient transcribe.Client
+	if opts.TranscribeBackend != "" {
+		if !opts.Semantic {
+			// Fail fast: transcribed text has no consumer without --semantic,
+			// and Whisper minutes are billed.
+			return fmt.Errorf("transcribe: --transcribe-backend requires --semantic")
+		}
+		client, err := buildTranscribeClient(opts.TranscribeBackend)
+		if err != nil {
+			return fmt.Errorf("transcribe: %w", err)
+		}
+		transcribeClient = client
+	}
 	var semanticJobs []semanticJob
+	var transcribeCost struct {
+		files   int
+		seconds float64
+		usd     float64
+	}
 	semCost := struct {
 		inputTokens, outputTokens int
 		usd                       float64
 	}{}
 
 	for _, f := range files {
-		ex, ok := supportedExtensions[filepath.Ext(f)]
+		ext := strings.ToLower(filepath.Ext(f))
+		// Transcribable media (audio/video) get a dedicated branch:
+		// the file isn't in supportedExtensions so the AST pass would
+		// silently drop it. When a transcribe backend is configured we
+		// turn the audio into a semantic-text job; otherwise skip.
+		if transcribeClient != nil && transcribe.IsTranscribable(ext) {
+			audio, err := os.ReadFile(f)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: read failed: %v\n", f, err)
+				continue
+			}
+			tResp, err := transcribeClient.Transcribe(context.Background(), transcribe.Request{
+				Filename: filepath.Base(f),
+				MimeType: mime.TypeByExtension(ext),
+				Audio:    audio,
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: %v\n", f, err)
+				continue
+			}
+			transcribeCost.files++
+			transcribeCost.seconds += tResp.DurationSeconds
+			transcribeCost.usd += tResp.EstimatedUSDCost
+			if tResp.Text != "" {
+				semanticJobs = append(semanticJobs, semanticJob{
+					path: f, src: []byte(tResp.Text), kind: "text",
+				})
+			}
+			continue
+		}
+		ex, ok := supportedExtensions[ext]
 		if !ok {
 			continue
 		}
@@ -1331,6 +1425,10 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	if llmClient != nil && (semCost.inputTokens+semCost.outputTokens) > 0 {
 		fmt.Fprintf(os.Stderr, "gogfy: semantic extraction used %d input + %d output tokens (~$%.4f)\n",
 			semCost.inputTokens, semCost.outputTokens, semCost.usd)
+	}
+	if transcribeClient != nil && transcribeCost.files > 0 {
+		fmt.Fprintf(os.Stderr, "gogfy: transcribed %d media file(s), %.0fs audio (~$%.4f)\n",
+			transcribeCost.files, transcribeCost.seconds, transcribeCost.usd)
 	}
 	g := builder.Build()
 	// JS/TS path-alias rewrite: tsconfig.json paths like "@app/*" → "src/*"
