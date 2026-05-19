@@ -47,11 +47,15 @@ func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) 
 	if _, err := os.Stat(pdfPath); err == nil {
 		return pdfPath, nil
 	}
-	body, _, err := safefetch.Fetch(ctx, fetchURL, opts)
+	body, finalURL, err := safefetch.Fetch(ctx, fetchURL, opts)
 	if err != nil {
 		return "", fmt.Errorf("ingest: %w", err)
 	}
-	if isPDF(body, fetchURL) {
+	// finalURL reflects the post-redirect URL — a server that 302s to
+	// a .pdf is just as much a PDF source as one that serves it
+	// directly. fetchURL (pre-redirect) catches the case where a
+	// .pdf URL serves with octet-stream and never redirects.
+	if isPDF(body, fetchURL) || isPDF(nil, finalURL) {
 		if err := fsutil.WriteFileAtomic(pdfPath, body, 0644); err != nil {
 			return "", fmt.Errorf("ingest: write %s: %w", pdfPath, err)
 		}
