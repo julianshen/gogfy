@@ -52,6 +52,15 @@ func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) 
 	if _, err := os.Stat(pdfPath); err == nil {
 		return pdfPath, nil
 	}
+	// Image sidecars use an ext-specific filename; on re-ingest the
+	// extension isn't known up front (the body is what told us last
+	// time), so probe the four image variants we write. PNG/JPEG/GIF/
+	// WebP only — SVG goes through the markdown path.
+	for _, ext := range []string{".png", ".jpg", ".gif", ".webp"} {
+		if _, err := os.Stat(imageSidecarPath(outDir, rawURL, ext)); err == nil {
+			return imageSidecarPath(outDir, rawURL, ext), nil
+		}
+	}
 	// YouTube takes a different shape — the watch-page HTML is JS-
 	// rendered and full of player chrome, but the oembed endpoint
 	// returns clean title/author/thumbnail JSON. Skip the HTML path
@@ -80,6 +89,17 @@ func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) 
 			return "", fmt.Errorf("ingest: write %s: %w", pdfPath, err)
 		}
 		return pdfPath, nil
+	}
+	// Images land as raw binary sidecars so downstream
+	// semantic.ExtractImage (vision LLM path) sees the original bytes.
+	// imageKind checks both pre- and post-redirect URLs since a server
+	// can 302 a generic URL into a `.png`, or serve a `.png` URL with a
+	// generic content type — either branch needs to match.
+	if ext, ok := imageKind(body, fetchURL); ok {
+		return writeImageSidecar(outDir, rawURL, ext, body)
+	}
+	if ext, ok := imageKind(nil, finalURL); ok {
+		return writeImageSidecar(outDir, rawURL, ext, body)
 	}
 	md := htmlToMarkdown(body)
 	// Pull OpenGraph / Twitter-Card metadata before-narrowing pruned

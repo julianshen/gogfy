@@ -593,3 +593,99 @@ func TestIngestGitHubRepoFetchesRawReadme(t *testing.T) {
 		t.Errorf("non-github URL should not get kind: github label: %s", body)
 	}
 }
+
+func TestIngestImageMagicBytesWritesBinarySidecar(t *testing.T) {
+	// PNG magic bytes should route to a .png sidecar with bytes
+	// preserved verbatim — no markdown conversion, no frontmatter.
+	pngBody := append([]byte("\x89PNG\r\n\x1a\n"), []byte("fake-png-payload")...)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(pngBody)
+	}))
+	defer srv.Close()
+	out := t.TempDir()
+	opts := safefetch.Options{Resolver: publicResolver()}
+
+	path, err := Ingest(context.Background(), srv.URL+"/diagram", out, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(path, ".png") {
+		t.Errorf("PNG body should land as .png, got %q", path)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != string(pngBody) {
+		t.Errorf("image bytes should be preserved verbatim")
+	}
+}
+
+func TestIngestImageURLSuffixRoutesWithoutMagicBytes(t *testing.T) {
+	// Servers may serve images with bogus content types — a .jpg URL
+	// suffix should still route to the image branch.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = io.WriteString(w, "garbage but URL says jpg")
+	}))
+	defer srv.Close()
+	out := t.TempDir()
+	opts := safefetch.Options{Resolver: publicResolver()}
+
+	path, err := Ingest(context.Background(), srv.URL+"/img.jpg", out, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(path, ".jpg") {
+		t.Errorf("URL with .jpg suffix should land as .jpg, got %q", path)
+	}
+}
+
+func TestIngestImageIdempotent(t *testing.T) {
+	pngBody := append([]byte("\x89PNG\r\n\x1a\n"), []byte("x")...)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(pngBody)
+	}))
+	defer srv.Close()
+	out := t.TempDir()
+	opts := safefetch.Options{Resolver: publicResolver()}
+
+	p1, err := Ingest(context.Background(), srv.URL+"/d", out, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	p2, err := Ingest(context.Background(), srv.URL+"/d", out, opts)
+	if err != nil {
+		t.Fatalf("image re-ingest should be idempotent offline: %v", err)
+	}
+	if p1 != p2 {
+		t.Errorf("image sidecar path drifted: %q vs %q", p1, p2)
+	}
+}
+
+func TestImageKindClassification(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    []byte
+		url     string
+		wantExt string
+		wantOK  bool
+	}{
+		{"png magic", []byte("\x89PNG\r\n\x1a\nrest"), "x", ".png", true},
+		{"jpeg magic", []byte("\xFF\xD8\xFFrest"), "x", ".jpg", true},
+		{"gif87a", []byte("GIF87aXX"), "x", ".gif", true},
+		{"gif89a", []byte("GIF89aXX"), "x", ".gif", true},
+		{"webp magic", []byte("RIFF1234WEBP....."), "x", ".webp", true},
+		{"jpeg suffix", nil, "https://e.com/a.jpeg", ".jpg", true},
+		{"png suffix with query", nil, "https://e.com/a.png?v=2", ".png", true},
+		{"not an image", []byte("plain text"), "https://e.com/x", "", false},
+		{"svg not classified", []byte("<svg></svg>"), "https://e.com/a.svg", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ext, ok := imageKind(tc.body, tc.url)
+			if ok != tc.wantOK || ext != tc.wantExt {
+				t.Errorf("imageKind(%q, %q) = (%q, %v); want (%q, %v)", tc.body, tc.url, ext, ok, tc.wantExt, tc.wantOK)
+			}
+		})
+	}
+}
