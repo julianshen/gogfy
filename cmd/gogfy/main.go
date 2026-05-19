@@ -165,6 +165,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return ingestCommand(rest, stderr)
 	case "manifest":
 		return manifestCommand(rest, os.Stdout, stderr)
+	case "svg":
+		return svgCommand(rest, stderr)
 	case "wiki":
 		return wikiCommand(rest, stderr)
 	case "labels":
@@ -620,6 +622,46 @@ func manifestCommand(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("manifest: save: %w", err)
 	}
 	fmt.Fprintf(stderr, "manifest: wrote %d entries to %s\n", len(current.Entries), manifestPath)
+	return nil
+}
+
+// svgCommand renders <graph.json> to a static .svg file. Unlike the
+// HTML viewer (which embeds JavaScript for D3 force-layout) this is
+// a fully-baked picture suitable for embedding in docs, PRs, or
+// README files. No runtime dependencies — opens in any SVG viewer.
+func svgCommand(args []string, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"out"}, []string{"labels"})
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("svg", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outPath := fs.String("out", "graph.svg", "output .svg path")
+	labels := fs.Bool("labels", false, "draw node labels (off by default — text crowds large graphs)")
+	width := fs.Int("width", 1200, "SVG viewport width")
+	height := fs.Int("height", 1200, "SVG viewport height")
+	iters := fs.Int("iterations", 120, "force-layout iterations (higher = better layout, O(N²) per iter)")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("svg: expected one <graph.json> argument, got %d", fs.NArg())
+	}
+	data, err := os.ReadFile(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("svg: read graph: %w", err)
+	}
+	var graph export.GraphExport
+	if err := json.Unmarshal(data, &graph); err != nil {
+		return fmt.Errorf("svg: parse graph: %w", err)
+	}
+	svg := export.StaticSVG(graph, export.StaticSVGOptions{
+		Width: *width, Height: *height, Iterations: *iters, ShowLabels: *labels,
+	})
+	if err := fsutil.WriteFileAtomic(*outPath, svg, 0644); err != nil {
+		return fmt.Errorf("svg: write %s: %w", *outPath, err)
+	}
+	fmt.Fprintf(stderr, "svg: wrote %s (%d nodes, %d edges)\n", *outPath, len(graph.Nodes), len(graph.Edges))
 	return nil
 }
 
