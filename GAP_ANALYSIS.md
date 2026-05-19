@@ -162,9 +162,9 @@
 ### 2.9 Cache
 | Feature | Status | What's Missing |
 |---------|--------|----------------|
-| Semantic cache | Missing | Upstream has separate `ast/` and `semantic/` cache subdirectories with markdown frontmatter stripping |
+| Semantic cache | **Done** | `internal/semantic.Cache` stores per-file extraction results at `<out>/.gographify-cache/semantic/<key>.json`. Cache key is `sha256(clientName ‖ systemPrompt ‖ mode ‖ frontmatter-stripped-src)` — switching LLM backends or revising the prompt invalidates everything; swapping markdown frontmatter (`kind: tweet` ↔ `kind: github`) hits the same slot. Per-entry layout gives cheap atomicity (rename-on-write), trivial invalidation (delete one file), and corruption recovery (one bad JSON treated as a miss, not poisoned cache). LLM errors do NOT populate the cache so a transient failure doesn't shadow future healthy responses. AST result cache is deferred — AST extraction is cheap; the cost-driving cache is the LLM one.|
 | Legacy migration | Missing | Upstream migrates flat cache to hierarchical |
-| Cache corruption handling | Missing | Upstream has recovery for corrupted cache entries |
+| Cache corruption handling | **Done (semantic)** | One bad JSON entry in the semantic cache directory is treated as a miss (not a fatal error); the next successful extraction rewrites it atomically via fsutil.WriteFileAtomic. The file-hash cache (`internal/cache`) already had partial-write recovery via atomic rename. |
 
 ### 2.10 Security
 | Feature | Status | What's Missing |

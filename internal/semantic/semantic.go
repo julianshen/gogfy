@@ -81,8 +81,22 @@ type Result struct {
 // the source file and `mentions` edges from it to each extracted
 // entity so the LLM output is anchored to where it came from.
 func Extract(ctx context.Context, client llm.Client, path string, src []byte) (Result, error) {
+	return ExtractCached(ctx, client, path, src, nil)
+}
+
+// ExtractCached is Extract with an optional result cache. Cache hits
+// return the stored Result without calling the LLM — the typical win
+// is a re-run over a corpus where most files haven't changed avoids
+// paying the LLM bill for them. Pass nil cache to disable.
+func ExtractCached(ctx context.Context, client llm.Client, path string, src []byte, cache *Cache) (Result, error) {
 	if len(src) == 0 {
 		return Result{}, nil
+	}
+	key := CacheKey(client.Name(), systemPrompt, "text", src)
+	if cache != nil {
+		if hit, ok := cache.Lookup(key); ok {
+			return hit, nil
+		}
 	}
 	resp, err := client.Generate(ctx, llm.Request{
 		System: systemPrompt,
@@ -92,7 +106,16 @@ func Extract(ctx context.Context, client llm.Client, path string, src []byte) (R
 		// requests where the model goes long.
 		MaxTokens: 4096,
 	})
-	return parseResponse(resp, path, err)
+	result, perr := parseResponse(resp, path, err)
+	if perr != nil {
+		return result, perr
+	}
+	if cache != nil {
+		// A cache write failure mustn't block the result — the LLM
+		// call already happened, just log on stderr and proceed.
+		_ = cache.Store(key, result)
+	}
+	return result, nil
 }
 
 // ExtractImage is the vision counterpart to Extract. Pass raw image
@@ -103,8 +126,23 @@ func Extract(ctx context.Context, client llm.Client, path string, src []byte) (R
 // Caller decides the MIME type — usually from the file extension via
 // http.DetectContentType on the first 512 bytes.
 func ExtractImage(ctx context.Context, client llm.Client, path string, image []byte, mimeType string) (Result, error) {
+	return ExtractImageCached(ctx, client, path, image, mimeType, nil)
+}
+
+// ExtractImageCached is ExtractImage with an optional result cache.
+// Cache key incorporates the MIME type so a JPEG re-encoding of the
+// same image doesn't share a cache slot with the PNG original.
+func ExtractImageCached(ctx context.Context, client llm.Client, path string, image []byte, mimeType string, cache *Cache) (Result, error) {
 	if len(image) == 0 {
 		return Result{}, nil
+	}
+	// Image cache key uses the visionSystemPrompt + mimeType so vision-
+	// mode results never collide with text-mode entries.
+	key := CacheKey(client.Name(), visionSystemPrompt+"|"+mimeType, "image", image)
+	if cache != nil {
+		if hit, ok := cache.Lookup(key); ok {
+			return hit, nil
+		}
 	}
 	resp, err := client.Generate(ctx, llm.Request{
 		System: visionSystemPrompt,
@@ -114,7 +152,14 @@ func ExtractImage(ctx context.Context, client llm.Client, path string, image []b
 		// entities per scene) but the JSON shape is still bounded.
 		MaxTokens: 4096,
 	})
-	return parseResponse(resp, path, err)
+	result, perr := parseResponse(resp, path, err)
+	if perr != nil {
+		return result, perr
+	}
+	if cache != nil {
+		_ = cache.Store(key, result)
+	}
+	return result, nil
 }
 
 // parseResponse is the shared post-LLM-call path: strip JSON from

@@ -1548,7 +1548,7 @@ func TestRunSemanticJobsHaltsAtMaxCost(t *testing.T) {
 		{path: "d.md", src: []byte("x"), kind: "text"},
 		{path: "e.md", src: []byte("x"), kind: "text"},
 	}
-	results, err := runSemanticJobs(context.Background(), client, jobs, 1, 0.25, 0)
+	results, err := runSemanticJobs(context.Background(), client, jobs, 1, 0.25, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1576,7 +1576,7 @@ func TestRunSemanticJobsHaltsAtMaxTokens(t *testing.T) {
 		{path: "d.md", src: []byte("x"), kind: "text"},
 	}
 	// Cap at 250 → 2 jobs (300) trips, expect exactly 2 to run.
-	results, _ := runSemanticJobs(context.Background(), client, jobs, 1, 0, 250)
+	results, _ := runSemanticJobs(context.Background(), client, jobs, 1, 0, 250, nil)
 	executed := 0
 	for _, r := range results {
 		if r.InputTokens > 0 {
@@ -1596,7 +1596,7 @@ func TestRunSemanticJobsZeroCapsRunAll(t *testing.T) {
 		{path: "b.md", src: []byte("x"), kind: "text"},
 		{path: "c.md", src: []byte("x"), kind: "text"},
 	}
-	results, _ := runSemanticJobs(context.Background(), client, jobs, 1, 0, 0)
+	results, _ := runSemanticJobs(context.Background(), client, jobs, 1, 0, 0, nil)
 	executed := 0
 	for _, r := range results {
 		if r.EstimatedUSDCost > 0 {
