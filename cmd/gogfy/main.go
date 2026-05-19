@@ -159,6 +159,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return pathCommand(rest, os.Stdout, stderr)
 	case "merge-graphs":
 		return mergeGraphsCommand(rest, os.Stdout, stderr)
+	case "build-merge":
+		return buildMergeCommand(rest, stderr)
 	case "diff":
 		return diffCommand(rest, os.Stdout, stderr)
 	case "ingest", "add":
@@ -622,6 +624,79 @@ func manifestCommand(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("manifest: save: %w", err)
 	}
 	fmt.Fprintf(stderr, "manifest: wrote %d entries to %s\n", len(current.Entries), manifestPath)
+	return nil
+}
+
+// buildMergeCommand folds a freshly-extracted graph (`next`) into a
+// prior graph.json, pruning entries whose SourceFile is no longer
+// listed in --files. This is the incremental counterpart to
+// `merge-graphs`: the latter unions everything forever; this one
+// reflects the current corpus shape, dropping deleted files.
+//
+// Use case: CI runs that incrementally update a long-lived
+// graph.json (think: monorepo with per-commit deltas) without
+// re-extracting every file each time.
+func buildMergeCommand(args []string, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"out", "files"}, nil)
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("build-merge", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outPath := fs.String("out", "graph.json", "merged graph output path")
+	filesArg := fs.String("files", "", "path to a newline-delimited list of files currently in the corpus (prior entries with SourceFile not in this set are pruned). If empty, --files defaults to every SourceFile present in <next>.")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return fmt.Errorf("build-merge: expected <prior-graph.json> <next-graph.json>, got %d positional args", fs.NArg())
+	}
+	priorPath, nextPath := fs.Arg(0), fs.Arg(1)
+	var prior, next export.GraphExport
+	if data, err := os.ReadFile(priorPath); err == nil {
+		if err := json.Unmarshal(data, &prior); err != nil {
+			return fmt.Errorf("build-merge: parse prior: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("build-merge: read prior: %w", err)
+	}
+	data, err := os.ReadFile(nextPath)
+	if err != nil {
+		return fmt.Errorf("build-merge: read next: %w", err)
+	}
+	if err := json.Unmarshal(data, &next); err != nil {
+		return fmt.Errorf("build-merge: parse next: %w", err)
+	}
+	var current []string
+	if *filesArg != "" {
+		raw, err := os.ReadFile(*filesArg)
+		if err != nil {
+			return fmt.Errorf("build-merge: read --files: %w", err)
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				current = append(current, line)
+			}
+		}
+	} else {
+		seen := map[string]bool{}
+		for _, n := range next.Nodes {
+			if n.SourceFile != "" && !seen[n.SourceFile] {
+				seen[n.SourceFile] = true
+				current = append(current, n.SourceFile)
+			}
+		}
+	}
+	merged := merge.IncrementalMerge(prior, next, current)
+	out, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		return fmt.Errorf("build-merge: marshal: %w", err)
+	}
+	if err := fsutil.WriteFileAtomic(*outPath, out, 0644); err != nil {
+		return fmt.Errorf("build-merge: write %s: %w", *outPath, err)
+	}
+	fmt.Fprintf(stderr, "build-merge: wrote %s (%d nodes, %d edges)\n", *outPath, len(merged.Nodes), len(merged.Edges))
 	return nil
 }
 

@@ -107,7 +107,7 @@
 | Entity deduplication | Partial | gogfy dedupes by (source, target, relation) on edges; upstream has three-pass dedup: exact normalization → MinHash/LSH + Jaro-Winkler → optional LLM tiebreaker |
 | Normalized ID reconciliation | **Done** | The three-pass dedup already runs Jaro-Winkler across all nodes regardless of source. The missing piece was tie-break direction: `pickWinner` now ranks by FileType (code < paper < document < image < video < rationale) so when a fuzzy-merged pair includes both an AST-extracted code node and an LLM-emitted document node, the AST-grounded ID survives. |
 | Direction preservation | Partial | gogfy preserves direction in schema; upstream stashes `_src`/`_tgt` on undirected NetworkX graphs |
-| Incremental merge (`build_merge`) | Missing | Upstream can merge new extractions into existing graph.json with prune for deleted files |
+| Incremental merge (`build_merge`) | **Done** | `gogfy build-merge <prior.json> <next.json> [--files list.txt] [--out merged.json]` folds a freshly-extracted graph into a prior graph.json, pruning entries whose SourceFile is no longer in `--files`. Synthetic nodes (empty SourceFile — semantic concepts, cross-file resolution targets) survive prune. Edges follow their endpoints: drop iff either endpoint was pruned. `next` wins ID collisions (refresh semantics). When `--files` is empty, defaults to every SourceFile in `next` — gives a sensible default for the common "re-extract everything" case without forcing users to pre-list files. |
 | Multi-repo prefixing | **Done** | `internal/globalgraph` prefixes node IDs with `<tag>::` and dedupes external-library nodes by label. CLI: `gogfy global add/remove/list/path` ✅ |
 
 ### 2.4 Clustering

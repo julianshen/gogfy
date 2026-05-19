@@ -121,3 +121,113 @@ func graphsEqual(a, b export.GraphExport) bool {
 	}
 	return true
 }
+
+func TestIncrementalMergePrunesDeletedFiles(t *testing.T) {
+	// File b.go disappeared between extractions. Its nodes (and their
+	// edges) must be pruned even though prior still has them.
+	prior := export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "go:module:/a.go", SourceFile: "/a.go"},
+			{ID: "go:module:/b.go", SourceFile: "/b.go"},
+			{ID: "go:function:/a.go:Foo", SourceFile: "/a.go"},
+			{ID: "go:function:/b.go:Bar", SourceFile: "/b.go"},
+		},
+		Edges: []schema.Edge{
+			{Source: "go:module:/a.go", Target: "go:function:/a.go:Foo", Relation: "contains"},
+			{Source: "go:module:/b.go", Target: "go:function:/b.go:Bar", Relation: "contains"},
+			{Source: "go:function:/a.go:Foo", Target: "go:function:/b.go:Bar", Relation: "calls"},
+		},
+	}
+	next := export.GraphExport{Nodes: []schema.Node{}, Edges: []schema.Edge{}}
+	currentFiles := []string{"/a.go"} // /b.go gone
+	got := IncrementalMerge(prior, next, currentFiles)
+
+	for _, n := range got.Nodes {
+		if n.SourceFile == "/b.go" {
+			t.Errorf("deleted-file node survived prune: %s", n.ID)
+		}
+	}
+	for _, e := range got.Edges {
+		if e.Target == "go:function:/b.go:Bar" || e.Source == "go:function:/b.go:Bar" {
+			t.Errorf("edge to deleted-file node survived: %+v", e)
+		}
+	}
+	// /a.go's contents must still be present.
+	want := map[string]bool{"go:module:/a.go": false, "go:function:/a.go:Foo": false}
+	for _, n := range got.Nodes {
+		if _, ok := want[n.ID]; ok {
+			want[n.ID] = true
+		}
+	}
+	for id, present := range want {
+		if !present {
+			t.Errorf("expected %s in merged graph", id)
+		}
+	}
+}
+
+func TestIncrementalMergeRefreshesFileEntriesFromNext(t *testing.T) {
+	// File /a.go was re-extracted. next contains the fresh entries;
+	// prior's stale Foo node should be dropped in favor of next's
+	// updated one (different Label simulates a rename).
+	prior := export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "go:function:/a.go:Foo", Label: "Foo (old)", SourceFile: "/a.go"},
+		},
+	}
+	next := export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "go:function:/a.go:Foo", Label: "Foo (new)", SourceFile: "/a.go"},
+		},
+	}
+	got := IncrementalMerge(prior, next, []string{"/a.go"})
+	if len(got.Nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d: %+v", len(got.Nodes), got.Nodes)
+	}
+	if got.Nodes[0].Label != "Foo (new)" {
+		t.Errorf("next should win on refresh: got %q", got.Nodes[0].Label)
+	}
+}
+
+func TestIncrementalMergeKeepsSyntheticNodes(t *testing.T) {
+	// Nodes with empty SourceFile are synthetic (semantic extraction
+	// concepts, cross-file resolution targets) — they must NOT be
+	// pruned even though they don't correspond to a current file.
+	prior := export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "concept:logging", Label: "Logging"},
+			{ID: "go:module:/gone.go", SourceFile: "/gone.go"},
+		},
+	}
+	got := IncrementalMerge(prior, export.GraphExport{}, []string{"/a.go"})
+	var keptConcept, keptDeleted bool
+	for _, n := range got.Nodes {
+		if n.ID == "concept:logging" {
+			keptConcept = true
+		}
+		if n.SourceFile == "/gone.go" {
+			keptDeleted = true
+		}
+	}
+	if !keptConcept {
+		t.Errorf("synthetic node (empty SourceFile) should survive prune")
+	}
+	if keptDeleted {
+		t.Errorf("deleted-file node should NOT survive prune")
+	}
+}
+
+func TestIncrementalMergeUnchangedFileSurvivesWithoutNext(t *testing.T) {
+	// File /a.go is still in currentFiles but didn't appear in next
+	// (cache hit — we didn't bother re-extracting). Its prior entries
+	// must survive untouched.
+	prior := export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "go:module:/a.go", SourceFile: "/a.go"},
+		},
+	}
+	got := IncrementalMerge(prior, export.GraphExport{}, []string{"/a.go"})
+	if len(got.Nodes) != 1 || got.Nodes[0].ID != "go:module:/a.go" {
+		t.Errorf("cached-file entry lost: %+v", got.Nodes)
+	}
+}
