@@ -260,3 +260,79 @@ func TestXlsxExtractorSheetWithoutHyperlinksProducesNoEdges(t *testing.T) {
 		t.Fatalf("expected 'Empty' section node, got %+v", res.Nodes)
 	}
 }
+
+func TestXlsxExtractorEmitsTableAndColumnNodes(t *testing.T) {
+	// Defined Excel tables (the structured Table objects) live in
+	// xl/tables/tableN.xml and are linked from the worksheet via
+	// <tableParts><tablePart r:id="rIdTbl1"/></tableParts>. Each
+	// table should produce a `xlsx:table` node + `contains` edge
+	// from its sheet; each <tableColumn> should produce a
+	// `xlsx:column` node + `contains` edge from the table.
+	dir := t.TempDir()
+	parts := map[string]string{
+		"xl/workbook.xml": `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`,
+		"xl/worksheets/sheet1.xml": `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetData/>
+  <tableParts count="1"><tablePart r:id="rIdTbl1"/></tableParts>
+</worksheet>`,
+		"xl/worksheets/_rels/sheet1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdTbl1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>
+</Relationships>`,
+		"xl/tables/table1.xml": `<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        id="1" name="Customers" displayName="Customers" ref="A1:C10">
+  <tableColumns count="3">
+    <tableColumn id="1" name="ID"/>
+    <tableColumn id="2" name="Name"/>
+    <tableColumn id="3" name="Email"/>
+  </tableColumns>
+</table>`,
+	}
+	path := writeZipFixture(t, dir, "structured.xlsx", parts)
+	res, err := XlsxExtractor{}.Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]bool{}
+	for _, n := range res.Nodes {
+		labels[n.Label] = true
+	}
+	for _, want := range []string{"Data", "Customers", "ID", "Name", "Email"} {
+		if !labels[want] {
+			t.Errorf("missing node label %q in %v", want, labels)
+		}
+	}
+	// Verify edge structure: sheet contains table, table contains columns.
+	var sheetContainsTable, tableContainsCol bool
+	for _, e := range res.Edges {
+		if e.Relation == "contains" {
+			if containsSub(e.Source, ":section:") && containsSub(e.Target, ":table:") {
+				sheetContainsTable = true
+			}
+			if containsSub(e.Source, ":table:") && containsSub(e.Target, ":column:") {
+				tableContainsCol = true
+			}
+		}
+	}
+	if !sheetContainsTable {
+		t.Errorf("missing sheet→table contains edge: %+v", res.Edges)
+	}
+	if !tableContainsCol {
+		t.Errorf("missing table→column contains edge: %+v", res.Edges)
+	}
+}
+
+func containsSub(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

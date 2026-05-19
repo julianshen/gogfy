@@ -40,7 +40,10 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 	for _, f := range zr.File {
 		if f.Name == "xl/workbook.xml" ||
 			f.Name == "xl/_rels/workbook.xml.rels" ||
-			strings.HasPrefix(f.Name, "xl/worksheets/") {
+			strings.HasPrefix(f.Name, "xl/worksheets/") ||
+			// Defined-table parts live under xl/tables/ and contribute
+			// table + column structural nodes below.
+			strings.HasPrefix(f.Name, "xl/tables/") {
 			files[f.Name] = f
 		}
 	}
@@ -119,6 +122,60 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 				Confidence: schema.Extracted,
 			})
 		}
+
+		// Structural extraction: defined Excel tables and their
+		// columns. Tables are linked from the worksheet via tableParts
+		// → table rels → xl/tables/tableN.xml. Each table has a name
+		// and a list of <tableColumn name="..."/> entries — exactly
+		// the structural signal upstream graphify emits for XLSX.
+		tableRels := parseOOXMLRels(sheetRelsXML, relTypeTable)
+		for _, rid := range parseXlsxTableRefs(sheetXML) {
+			tablePartRel, ok := tableRels[rid]
+			if !ok || tablePartRel == "" {
+				continue
+			}
+			tablePartPath := resolveOOXMLPartPath(dir, tablePartRel)
+			tableXML, err := readPart(tablePartPath)
+			if err != nil {
+				return Result{}, err
+			}
+			if len(tableXML) == 0 {
+				continue
+			}
+			tbl := parseXlsxTable(tableXML)
+			if tbl.Name == "" {
+				continue
+			}
+			tableID := schema.LangID("xlsx", "table", abs+":"+slugify(s.Name)+":"+slugify(tbl.Name))
+			state.nodes = append(state.nodes, schema.Node{
+				ID:         tableID,
+				Label:      tbl.Name,
+				SourceFile: abs,
+			})
+			state.edges = append(state.edges, schema.Edge{
+				Source:     sectionID,
+				Target:     tableID,
+				Relation:   "contains",
+				Confidence: schema.Extracted,
+			})
+			for _, col := range tbl.Columns {
+				if col == "" {
+					continue
+				}
+				colID := schema.LangID("xlsx", "column", abs+":"+slugify(s.Name)+":"+slugify(tbl.Name)+":"+slugify(col))
+				state.nodes = append(state.nodes, schema.Node{
+					ID:         colID,
+					Label:      col,
+					SourceFile: abs,
+				})
+				state.edges = append(state.edges, schema.Edge{
+					Source:     tableID,
+					Target:     colID,
+					Relation:   "contains",
+					Confidence: schema.Extracted,
+				})
+			}
+		}
 	}
 
 	return Result{Nodes: state.nodes, Edges: state.edges}, nil
@@ -150,6 +207,68 @@ func parseXlsxSheets(data []byte) []xlsxSheet {
 			continue
 		}
 		out = append(out, xlsxSheet{Name: s.Name, RelID: s.RelID})
+	}
+	return out
+}
+
+// parseXlsxTableRefs extracts the relationship ids of tableParts
+// embedded in a worksheet XML. Each id refers to a relationship
+// entry in the sheet's _rels file that resolves to xl/tables/tableN.xml.
+func parseXlsxTableRefs(data []byte) []string {
+	if len(data) == 0 {
+		return nil
+	}
+	type tablePart struct {
+		RelID string `xml:"id,attr"`
+	}
+	type worksheet struct {
+		Parts []tablePart `xml:"tableParts>tablePart"`
+	}
+	var ws worksheet
+	if err := xml.Unmarshal(data, &ws); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(ws.Parts))
+	for _, p := range ws.Parts {
+		if p.RelID != "" {
+			out = append(out, p.RelID)
+		}
+	}
+	return out
+}
+
+// xlsxTable bundles a defined-Excel-table's name + column headers.
+// Range / data-only / total-row info is intentionally dropped —
+// the graph cares about structure (this table has these columns),
+// not range coordinates.
+type xlsxTable struct {
+	Name    string
+	Columns []string
+}
+
+func parseXlsxTable(data []byte) xlsxTable {
+	if len(data) == 0 {
+		return xlsxTable{}
+	}
+	type column struct {
+		Name string `xml:"name,attr"`
+	}
+	type table struct {
+		Name        string   `xml:"name,attr"`
+		DisplayName string   `xml:"displayName,attr"`
+		Columns     []column `xml:"tableColumns>tableColumn"`
+	}
+	var t table
+	if err := xml.Unmarshal(data, &t); err != nil {
+		return xlsxTable{}
+	}
+	name := t.Name
+	if name == "" {
+		name = t.DisplayName
+	}
+	out := xlsxTable{Name: name}
+	for _, c := range t.Columns {
+		out.Columns = append(out.Columns, c.Name)
 	}
 	return out
 }
