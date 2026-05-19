@@ -122,14 +122,57 @@ func isUnreservedPathChar(c byte) bool {
 }
 
 // canonicalQuery sorts and re-encodes the query string per SigV4
-// rules: lexicographic by key, RFC 3986 percent-encoded values.
+// rules: each key/value RFC 3986 percent-encoded (with `=` for empty
+// values), then sorted lexicographically by encoded form. Bedrock
+// InvokeModel doesn't use query params today so this path is rarely
+// exercised in practice, but a correct implementation keeps the
+// signer usable for other AWS services later (and matches the
+// canonical-request spec exactly).
 func canonicalQuery(raw string) string {
 	if raw == "" {
 		return ""
 	}
-	pairs := strings.Split(raw, "&")
-	sort.Strings(pairs)
-	return strings.Join(pairs, "&")
+	parts := strings.Split(raw, "&")
+	encoded := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		k, v, hasEq := strings.Cut(p, "=")
+		ek := canonicalQueryEscape(k)
+		if !hasEq {
+			// AWS spec: lone keys still need the `=` separator in the
+			// canonical form.
+			encoded = append(encoded, ek+"=")
+			continue
+		}
+		encoded = append(encoded, ek+"="+canonicalQueryEscape(v))
+	}
+	sort.Strings(encoded)
+	return strings.Join(encoded, "&")
+}
+
+// canonicalQueryEscape percent-encodes per RFC 3986 unreserved-char
+// set used by SigV4 — same set as canonicalURI but `/` is also
+// encoded (it's a reserved char in the query component).
+func canonicalQueryEscape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		unreserved := (c >= 'A' && c <= 'Z') ||
+			(c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') ||
+			c == '-' || c == '.' || c == '_' || c == '~'
+		if unreserved {
+			b.WriteByte(c)
+		} else {
+			const hexd = "0123456789ABCDEF"
+			b.WriteByte('%')
+			b.WriteByte(hexd[c>>4])
+			b.WriteByte(hexd[c&0xF])
+		}
+	}
+	return b.String()
 }
 
 // canonicalAndSignedHeaders returns the canonical-headers block and

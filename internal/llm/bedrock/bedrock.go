@@ -124,7 +124,10 @@ func NewWithCredentials(accessKey, secretKey, sessionToken string, opts ...Optio
 			Service:      "bedrock",
 		},
 		model: DefaultModel,
-		http:  &http.Client{Timeout: 60 * time.Second},
+		// 5-minute ceiling matches the transcribe client and is enough
+		// headroom for long-context Claude calls on Bedrock; users
+		// override via WithHTTPClient if they need more.
+		http: &http.Client{Timeout: 5 * time.Minute},
 		nowFn: time.Now,
 	}
 	for _, o := range opts {
@@ -164,7 +167,10 @@ func (c *Client) Generate(ctx context.Context, req llm.Request) (llm.Response, e
 		return llm.Response{}, fmt.Errorf("bedrock: http: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return llm.Response{}, fmt.Errorf("bedrock: read response (%s): %w", resp.Status, readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return llm.Response{}, fmt.Errorf("bedrock: %s: %s", resp.Status, snippet(respBody, 500))
 	}
