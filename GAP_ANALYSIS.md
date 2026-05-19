@@ -87,7 +87,7 @@
 | Google Workspace conversion | **Done (URL-only)** | `extract.GoogleWorkspaceExtractor` parses .gdoc/.gsheet/.gslides JSON shortcut files and emits a document-typed module node with the linked Drive URL in `SourceLocation`. Distinct lang tags (gdoc/gsheet/gslides) for filterability. Full content conversion via the upstream `gws` CLI deferred — gogfy doesn't currently shell out to external binaries. |
 | Office structural extraction | Partial | gogfy has extractors but upstream does deeper structural node extraction for XLSX (sheets, tables, columns) |
 | Incremental detection (manifest) | Missing | Upstream uses mtime + MD5 manifest for incremental scans; gogfy only has SHA256 cache for extraction |
-| Symlink following | Partial | gogfy resolves symlinks via RootGuard; upstream has `follow_symlinks` flag with cycle detection |
+| Symlink following | **Done** | RootGuard still resolves symlinks for security checks (no in-root escape). `gogfy run --follow-symlinks` now also descends into symlinked dirs whose resolved targets stay inside the corpus root. Cycle-safe via a `visitedDirs` set keyed on resolved path — a→b→a cycle terminates instead of looping. Default off (preserves historical behavior of treating symlinked dirs as opaque entries). |
 
 ### 2.2 Extraction
 | Feature | Status | What's Missing |

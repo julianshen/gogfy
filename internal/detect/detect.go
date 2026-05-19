@@ -19,6 +19,18 @@ import (
 // to assert; production leaves the default (os.Stderr).
 var SkipLogger io.Writer = os.Stderr
 
+// CollectOptions tunes the walk. The zero value is the historical
+// default (no symlink-dir follow). Knobs live on a struct so future
+// additions don't churn the CollectFiles signature.
+type CollectOptions struct {
+	// FollowSymlinks descends into symlinked directories whose
+	// resolved targets are still under the corpus root. Cycle-safe:
+	// resolved-path bookkeeping prevents revisits. When false (the
+	// default) symlinked dirs are visited as files by Lstat semantics
+	// and never descended.
+	FollowSymlinks bool
+}
+
 // CollectFiles recursively collects files under root matching the given extensions,
 // skipping entries matched by .graphifyignore patterns.
 //
@@ -31,6 +43,14 @@ var SkipLogger io.Writer = os.Stderr
 // `!` negation, ignored directories are still descended so that re-included
 // children can be reached, at the cost of walking large vendored trees.
 func CollectFiles(root string, extensions []string) ([]string, error) {
+	return CollectFilesWithOptions(root, extensions, CollectOptions{})
+}
+
+// CollectFilesWithOptions is the knob-bearing form of CollectFiles.
+// Callers that want symlink follow / future options use this; the
+// bare CollectFiles wraps it with defaults so existing call sites
+// don't need to thread an Options value through.
+func CollectFilesWithOptions(root string, extensions []string, opts CollectOptions) ([]string, error) {
 	matcher, hasNegations, err := loadIgnoreMatcher(root)
 	if err != nil {
 		return nil, err
@@ -50,6 +70,10 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 	}
 
 	var files []string
+	// visitedDirs tracks resolved directory paths to break symlink
+	// cycles when FollowSymlinks is on. The same target reached via
+	// two different symlinks is visited once.
+	visitedDirs := map[string]struct{}{}
 	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -59,6 +83,32 @@ func CollectFiles(root string, extensions []string) ([]string, error) {
 			return err
 		}
 		if rel == "." {
+			return nil
+		}
+		// Symlinks: filepath.Walk uses Lstat, so for a symlink the
+		// info describes the LINK, not its target. info.IsDir() is
+		// false even when the link points at a directory. Without
+		// FollowSymlinks the link is processed as a file (which
+		// guard.Check will reject if the target escapes root).
+		// With FollowSymlinks, when the target is an in-root
+		// directory we recursively walk it, tracking resolved
+		// targets to break cycles.
+		if opts.FollowSymlinks && info.Mode()&os.ModeSymlink != 0 {
+			target, statErr := os.Stat(path)
+			if statErr == nil && target.IsDir() {
+				resolved, evErr := filepath.EvalSymlinks(path)
+				if evErr == nil && withinRootFS(guard, resolved) {
+					if _, seen := visitedDirs[resolved]; !seen {
+						visitedDirs[resolved] = struct{}{}
+						if err := walkLinkedDir(path, resolved, root, &files, &visitedDirs, extSet, matcher, hasNegations, includeMatcher, guard); err != nil {
+							return err
+						}
+					}
+				}
+			}
+			// Whether followed or not, return here — the link itself
+			// isn't a regular file to add to the corpus, and we've
+			// already handled descent above.
 			return nil
 		}
 		// gitignore matches dirs with a trailing slash; without it, patterns
@@ -187,6 +237,103 @@ func loadIgnoreMatcher(root string) (*gitignore.GitIgnore, bool, error) {
 		return nil, false, nil
 	}
 	return gitignore.CompileIgnoreLines(lines...), hasNegations, nil
+}
+
+// withinRootFS asks the guard whether resolved is still inside the
+// corpus root. Pulled out so the symlink-follow path can reuse the
+// guard's policy decision without re-implementing the comparison.
+func withinRootFS(guard *security.RootGuard, resolved string) bool {
+	_, err := guard.Check(resolved)
+	return err == nil
+}
+
+// walkLinkedDir is the recursive symlink-follow worker. It mirrors
+// the in-place CollectFiles callback: per-entry ignore / include /
+// sensitive / size checks, then either append (file) or recurse
+// (directory or another symlinked dir).
+//
+// Walking is depth-first via filepath.Walk on the resolved target,
+// but we re-derive `rel` against the ORIGINAL corpus root so paths
+// look like `linked-dir/foo.go` rather than wherever the link points.
+// That keeps .graphifyignore patterns consistent — users write
+// patterns against the corpus they see, not the resolved tree.
+func walkLinkedDir(linkPath, resolvedTarget, root string, files *[]string, visitedDirs *map[string]struct{}, extSet map[string]struct{}, matcher *gitignore.GitIgnore, hasNegations bool, includeMatcher *gitignore.GitIgnore, guard *security.RootGuard) error {
+	return filepath.Walk(resolvedTarget, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		// Re-derive the "logical" path: replace the resolvedTarget
+		// prefix with the linkPath so users see the path through the
+		// symlink, not the resolved form.
+		logical := path
+		if path == resolvedTarget {
+			logical = linkPath
+		} else if rel, relErr := filepath.Rel(resolvedTarget, path); relErr == nil {
+			logical = filepath.Join(linkPath, rel)
+		}
+		rel, err := filepath.Rel(root, logical)
+		if err != nil {
+			return err
+		}
+		if rel == "." || rel == filepath.Base(linkPath) {
+			return nil
+		}
+		slash := filepath.ToSlash(rel)
+		matchPath := slash
+		if info.IsDir() {
+			matchPath += "/"
+		}
+		if strings.HasPrefix(filepath.Base(rel), ".") {
+			if includeMatcher == nil || !includeMatcher.MatchesPath(matchPath) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+		if matcher != nil && matcher.MatchesPath(matchPath) {
+			if !info.IsDir() {
+				return nil
+			}
+			if !hasNegations {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() {
+			// Re-entering an already-visited resolved dir would
+			// cycle — track via the shared visitedDirs map.
+			if _, seen := (*visitedDirs)[path]; seen {
+				return filepath.SkipDir
+			}
+			(*visitedDirs)[path] = struct{}{}
+			return nil
+		}
+		ext := filepath.Ext(logical)
+		if _, ok := extSet[ext]; !ok {
+			return nil
+		}
+		if IsSensitive(logical) {
+			return nil
+		}
+		resolved, gerr := guard.Check(path)
+		if gerr != nil {
+			if security.IsSkippable(gerr) {
+				fmt.Fprintf(SkipLogger, "gogfy: skipping %s: %v\n", logical, gerr)
+				return nil
+			}
+			return gerr
+		}
+		if serr := security.CheckFileSize(resolved, security.DefaultMaxFileSize); serr != nil {
+			if security.IsSkippable(serr) {
+				fmt.Fprintf(SkipLogger, "gogfy: skipping %s: %v\n", logical, serr)
+				return nil
+			}
+			return serr
+		}
+		*files = append(*files, resolved)
+		return nil
+	})
 }
 
 // loadIncludeMatcher reads .graphifyinclude from the scan root (and

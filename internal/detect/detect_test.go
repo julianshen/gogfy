@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCollectFilesFiltersExtensions(t *testing.T) {
@@ -587,5 +588,98 @@ func TestCollectFilesGraphifyIncludeSpecificFile(t *testing.T) {
 	}
 	if len(got) != 1 || !strings.HasSuffix(got[0], ".eslintrc.json") {
 		t.Errorf("expected just .eslintrc.json, got %v", got)
+	}
+}
+
+func TestCollectFilesDoesNotFollowSymlinkDirsByDefault(t *testing.T) {
+	// Default behavior: a symlink pointing at a directory is NOT
+	// descended; files behind it are invisible to the corpus. This
+	// matches filepath.Walk semantics (Lstat, no follow) and prevents
+	// surprise corpus growth via symlinks.
+	dir := t.TempDir()
+	mustWrite(t, dir+"/main.go", "package main\n")
+	external := t.TempDir()
+	mustWrite(t, external+"/secret.go", "package secret\n")
+	if err := os.Symlink(external, dir+"/linked"); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	got, err := CollectFiles(dir, []string{".go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range got {
+		if strings.Contains(p, "secret.go") {
+			t.Errorf("symlink dir contents leaked into corpus without flag: %v", got)
+		}
+	}
+}
+
+func TestCollectFilesFollowSymlinksDescendsInRootTarget(t *testing.T) {
+	// With FollowSymlinks: a symlink whose target is still inside the
+	// corpus root IS descended. Use a real-dir target inside the same
+	// root so guard.Check accepts it.
+	dir := t.TempDir()
+	mustWrite(t, dir+"/main.go", "package main\n")
+	if err := os.Mkdir(dir+"/realdir", 0755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, dir+"/realdir/lib.go", "package lib\n")
+	if err := os.Symlink(dir+"/realdir", dir+"/linked"); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	got, err := CollectFilesWithOptions(dir, []string{".go"}, CollectOptions{FollowSymlinks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Expect main.go + lib.go (lib.go reachable via either /realdir
+	// or /linked; FollowSymlinks may surface it twice — that's a
+	// de-dup concern handled by the consumer, but visiting BOTH the
+	// real path and the link path is OK for this test).
+	var sawLib bool
+	for _, p := range got {
+		if strings.HasSuffix(p, "lib.go") {
+			sawLib = true
+		}
+	}
+	if !sawLib {
+		t.Errorf("FollowSymlinks: lib.go through link not reached: got %v", got)
+	}
+}
+
+func TestCollectFilesFollowSymlinksDetectsCycle(t *testing.T) {
+	// A symlink cycle (a → b → a) must not loop forever. The
+	// visited-resolved-paths map breaks the cycle on the second
+	// visit.
+	dir := t.TempDir()
+	mustWrite(t, dir+"/main.go", "package main\n")
+	if err := os.Mkdir(dir+"/a", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dir+"/b", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(dir+"/b", dir+"/a/to_b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(dir+"/a", dir+"/b/to_a"); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, dir+"/a/source.go", "package a\n")
+	mustWrite(t, dir+"/b/source.go", "package b\n")
+	// Must terminate. Bound runtime so a regression that hits the
+	// cycle would hang the test rather than silently spinning.
+	done := make(chan struct{})
+	go func() {
+		_, err := CollectFilesWithOptions(dir, []string{".go"}, CollectOptions{FollowSymlinks: true})
+		if err != nil {
+			t.Errorf("cycle should not error, just terminate: %v", err)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+		// good
+	case <-time.After(5 * time.Second):
+		t.Fatal("symlink cycle caused hang — visited-paths bookkeeping is broken")
 	}
 }
