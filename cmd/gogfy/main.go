@@ -44,6 +44,7 @@ import (
 	"github.com/julianshen/gogfy/internal/llm/gemini"
 	"github.com/julianshen/gogfy/internal/llm/bedrock"
 	"github.com/julianshen/gogfy/internal/llm/kimi"
+	"github.com/julianshen/gogfy/internal/manifest"
 	"github.com/julianshen/gogfy/internal/llm/ollama"
 	"github.com/julianshen/gogfy/internal/llm/openai"
 	"github.com/julianshen/gogfy/internal/transcribe"
@@ -162,6 +163,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return diffCommand(rest, os.Stdout, stderr)
 	case "ingest", "add":
 		return ingestCommand(rest, stderr)
+	case "manifest":
+		return manifestCommand(rest, os.Stdout, stderr)
 	case "wiki":
 		return wikiCommand(rest, stderr)
 	case "labels":
@@ -549,6 +552,74 @@ func ingestCommand(args []string, stderr io.Writer) error {
 		return fmt.Errorf("ingest: %w", err)
 	}
 	fmt.Fprintf(stderr, "ingest: wrote %s\n", path)
+	return nil
+}
+
+// manifestCommand walks <root> with the same detect.CollectFiles logic
+// the pipeline uses, then either writes a manifest snapshot to
+// --out/.gographify-manifest.json or prints a diff against the existing
+// snapshot at that location. Useful for CI ("did anything ingestible
+// change?") and for incremental-extraction tooling that doesn't want
+// to run the whole pipeline.
+//
+// Without --diff: writes the manifest and prints "wrote N entries to <path>".
+// With --diff: reads the prior manifest, computes a fresh one, prints the
+// added / removed / modified file lists (no write).
+func manifestCommand(args []string, stdout, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"out"}, []string{"diff", "follow-symlinks"})
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("manifest", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	out := fs.String("out", "graphify-out", "directory where the manifest file is read/written")
+	diff := fs.Bool("diff", false, "print the diff vs the prior manifest instead of writing a new one")
+	followSym := fs.Bool("follow-symlinks", false, "descend into in-root symlinked directories during the walk")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("manifest: expected one <root> argument, got %d", fs.NArg())
+	}
+	root := fs.Arg(0)
+	files, err := detect.CollectFilesWithOptions(root, supportedExtensionsList(), detect.CollectOptions{
+		FollowSymlinks: *followSym,
+	})
+	if err != nil {
+		return fmt.Errorf("manifest: detect: %w", err)
+	}
+	if err := os.MkdirAll(*out, 0755); err != nil {
+		return fmt.Errorf("manifest: mkdir %s: %w", *out, err)
+	}
+	manifestPath := filepath.Join(*out, ".gographify-manifest.json")
+	prior, err := manifest.Load(manifestPath)
+	if err != nil {
+		return fmt.Errorf("manifest: load prior: %w", err)
+	}
+	current, err := manifest.Build(files, prior)
+	if err != nil {
+		return fmt.Errorf("manifest: build: %w", err)
+	}
+	if *diff {
+		d := manifest.Compare(prior, current)
+		fmt.Fprintf(stdout, "added (%d):\n", len(d.Added))
+		for _, p := range d.Added {
+			fmt.Fprintf(stdout, "  + %s\n", p)
+		}
+		fmt.Fprintf(stdout, "removed (%d):\n", len(d.Removed))
+		for _, p := range d.Removed {
+			fmt.Fprintf(stdout, "  - %s\n", p)
+		}
+		fmt.Fprintf(stdout, "modified (%d):\n", len(d.Modified))
+		for _, p := range d.Modified {
+			fmt.Fprintf(stdout, "  ~ %s\n", p)
+		}
+		return nil
+	}
+	if err := manifest.Save(manifestPath, current); err != nil {
+		return fmt.Errorf("manifest: save: %w", err)
+	}
+	fmt.Fprintf(stderr, "manifest: wrote %d entries to %s\n", len(current.Entries), manifestPath)
 	return nil
 }
 
