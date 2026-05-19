@@ -24,28 +24,90 @@ import (
 	"github.com/julianshen/gogfy/internal/safefetch"
 )
 
-// Ingest fetches `rawURL`, writes a markdown sidecar to outDir, and
-// returns the written path. Skips re-fetch if the sidecar already
-// exists (the URL's content-hash filename means the same URL maps to
-// the same path across runs).
+// Ingest fetches `rawURL`, writes a sidecar to outDir, and returns
+// the written path. The sidecar extension depends on the response:
+// PDF bodies (detected via magic bytes) are saved as `.pdf` so the
+// existing PDF extractor processes them; HTML/text bodies are
+// converted to markdown and saved as `.md`. arXiv `abs/` URLs are
+// rewritten to their PDF equivalent before fetching so paper
+// ingestion always lands as a real PDF rather than the abstract page.
 //
-// Returns the path even on skip so callers can pass it to the next
-// pipeline stage.
+// Idempotent: the content-hashed filename means the same URL maps to
+// the same path across runs; re-running skips the fetch.
 func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) (string, error) {
-	path := SidecarPath(outDir, rawURL)
-	if _, err := os.Stat(path); err == nil {
-		return path, nil
+	fetchURL := rewriteArxivURL(rawURL)
+	// Skip-on-exists is checked twice: once eagerly with the .md
+	// guess for the common HTML case, and once after the fetch for
+	// the PDF case (which we can't know until we see the body).
+	mdPath := SidecarPath(outDir, rawURL)
+	if _, err := os.Stat(mdPath); err == nil {
+		return mdPath, nil
 	}
-	body, _, err := safefetch.Fetch(ctx, rawURL, opts)
+	pdfPath := pdfSidecarPath(outDir, rawURL)
+	if _, err := os.Stat(pdfPath); err == nil {
+		return pdfPath, nil
+	}
+	body, finalURL, err := safefetch.Fetch(ctx, fetchURL, opts)
 	if err != nil {
 		return "", fmt.Errorf("ingest: %w", err)
 	}
+	// finalURL reflects the post-redirect URL — a server that 302s to
+	// a .pdf is just as much a PDF source as one that serves it
+	// directly. fetchURL (pre-redirect) catches the case where a
+	// .pdf URL serves with octet-stream and never redirects.
+	if isPDF(body, fetchURL) || isPDF(nil, finalURL) {
+		if err := fsutil.WriteFileAtomic(pdfPath, body, 0644); err != nil {
+			return "", fmt.Errorf("ingest: write %s: %w", pdfPath, err)
+		}
+		return pdfPath, nil
+	}
 	md := htmlToMarkdown(body)
 	out := fmt.Sprintf("---\nsource_url: %q\n---\n\n%s\n", rawURL, md)
-	if err := fsutil.WriteFileAtomic(path, []byte(out), 0644); err != nil {
-		return "", fmt.Errorf("ingest: write %s: %w", path, err)
+	if err := fsutil.WriteFileAtomic(mdPath, []byte(out), 0644); err != nil {
+		return "", fmt.Errorf("ingest: write %s: %w", mdPath, err)
 	}
-	return path, nil
+	return mdPath, nil
+}
+
+// arxivAbsRe matches arXiv abstract URLs and captures the paper id
+// (with optional version) so we can rewrite to the PDF endpoint.
+// Examples: https://arxiv.org/abs/2401.12345, .../abs/2401.12345v2,
+// .../abs/cs/0601001 (pre-2007 cross-list ids).
+var arxivAbsRe = regexp.MustCompile(`^(https?://arxiv\.org)/abs/([^?#]+)`)
+
+// rewriteArxivURL converts an arXiv abstract URL into its PDF
+// equivalent so ingest always lands the paper itself, not the HTML
+// landing page. Non-arXiv URLs pass through unchanged.
+func rewriteArxivURL(rawURL string) string {
+	if m := arxivAbsRe.FindStringSubmatch(rawURL); m != nil {
+		id := strings.TrimSuffix(m[2], ".pdf")
+		return m[1] + "/pdf/" + id + ".pdf"
+	}
+	return rawURL
+}
+
+// isPDF reports whether the response should be treated as a PDF.
+// Checks the magic-bytes prefix (authoritative) plus a URL-suffix
+// fallback (catches servers that serve PDFs with octet-stream or
+// generic content types).
+func isPDF(body []byte, finalURL string) bool {
+	if len(body) >= 5 && string(body[:5]) == "%PDF-" {
+		return true
+	}
+	return strings.HasSuffix(strings.ToLower(finalURL), ".pdf")
+}
+
+// pdfSidecarPath mirrors SidecarPath but lands the URL under a `.pdf`
+// extension so schema.ClassifyFile tags it as a paper and the PDF
+// extractor (not the markdown reader) picks it up.
+func pdfSidecarPath(outDir, rawURL string) string {
+	h := sha1.Sum([]byte(rawURL))
+	hex := hex.EncodeToString(h[:8])
+	stem := urlStem(rawURL)
+	if stem == "" {
+		stem = "url"
+	}
+	return filepath.Join(outDir, "ingested", stem+"-"+hex+".pdf")
 }
 
 // SidecarPath returns where a URL's ingested markdown lives. Uses a
