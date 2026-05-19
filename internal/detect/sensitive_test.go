@@ -156,3 +156,52 @@ func TestCollectFilesSkipsSensitiveInSubdirectory(t *testing.T) {
 		t.Fatalf("benign nested file missing — walk shouldn't bail on sensitive siblings: got %v", got)
 	}
 }
+
+func TestIsSensitiveExpandedCloudAndInfraPaths(t *testing.T) {
+	// Path-anchored cloud / infra credential stores. The basenames are
+	// generic (`config`, `credentials`) — anchoring on the parent
+	// directory keeps everyday `config.go` / `credentials.go` source
+	// out of the match set.
+	sensitive := []string{
+		".aws/credentials",
+		"home/me/.aws/config",
+		".kube/config",
+		"deeply/nested/.kube/config",
+		".docker/config.json",
+		".gnupg/private-keys-v1.d/abc.key",
+		".npmrc",
+		".pypirc",
+		".gem/credentials",
+		".cargo/credentials.toml",
+		"infra/main.tfstate",
+		"main.tfstate.backup",
+		"vars.tfvars",
+		"prod.tfvars.json",
+		"gogfy-firebase-adminsdk-12345.json",
+		"apikey.txt",
+		"access-token.env",
+		"client_secret.json",
+	}
+	for _, p := range sensitive {
+		if !IsSensitive(p) {
+			t.Errorf("expected sensitive: %q", p)
+		}
+	}
+
+	// Negative cases: source files with similar-looking names should
+	// stay in the corpus. (Note: `internal/credentials.go` would still
+	// match the pre-existing `credential|...` pattern by basename — a
+	// known upstream-graphify trade-off — so it's not listed here.)
+	benign := []string{
+		"cmd/config.go",
+		"src/kube.go",
+		"docs/terraform-guide.md",
+		"app/firebase.go", // no "-adminsdk-" segment
+		"config.yaml",     // bare; only path-anchored .docker/config.json / .kube/config / .aws/config match
+	}
+	for _, p := range benign {
+		if IsSensitive(p) {
+			t.Errorf("unexpected sensitive flag on benign path: %q", p)
+		}
+	}
+}
