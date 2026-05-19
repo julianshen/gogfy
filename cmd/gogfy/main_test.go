@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/julianshen/gogfy/internal/export"
 	"github.com/julianshen/gogfy/internal/llm"
@@ -1724,4 +1727,121 @@ func TestLoadPriorGodNodePromptDerivesFromGraph(t *testing.T) {
 	if !strings.Contains(got, "DistributedLedger") {
 		t.Errorf("expected hub label folded into prompt, got %q", got)
 	}
+}
+
+// fakeTranscriber is a minimal in-memory transcribe.Client for testing
+// runTranscribeJobs without touching the network.
+type fakeTranscriber struct {
+	mu       sync.Mutex
+	inFlight int
+	peak     int
+	failPath string
+	delay    time.Duration
+}
+
+func (f *fakeTranscriber) Name() string { return "fake" }
+
+func (f *fakeTranscriber) Transcribe(ctx context.Context, req transcribe.Request) (transcribe.Response, error) {
+	f.mu.Lock()
+	f.inFlight++
+	if f.inFlight > f.peak {
+		f.peak = f.inFlight
+	}
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.inFlight--
+		f.mu.Unlock()
+	}()
+	if f.delay > 0 {
+		time.Sleep(f.delay)
+	}
+	if req.Filename == f.failPath {
+		return transcribe.Response{}, errors.New("synthetic failure")
+	}
+	return transcribe.Response{
+		Text:             "transcript of " + req.Filename,
+		DurationSeconds:  60,
+		EstimatedUSDCost: 0.006,
+	}, nil
+}
+
+func TestRunTranscribeJobsHonorsConcurrencyCap(t *testing.T) {
+	ft := &fakeTranscriber{delay: 20 * time.Millisecond}
+	jobs := []transcribeJob{
+		{path: "a.mp3", audio: []byte("a")},
+		{path: "b.mp3", audio: []byte("b")},
+		{path: "c.mp3", audio: []byte("c")},
+		{path: "d.mp3", audio: []byte("d")},
+	}
+	res := runTranscribeJobs(context.Background(), ft, jobs, 2, "")
+	if len(res) != 4 {
+		t.Fatalf("expected 4 results, got %d", len(res))
+	}
+	if ft.peak > 2 {
+		t.Errorf("concurrency cap violated: peak in-flight %d > 2", ft.peak)
+	}
+	if ft.peak < 2 {
+		// With 4 jobs at 20ms each and a cap of 2, at least one
+		// moment should have 2 in flight — otherwise we're effectively
+		// serial and the cap isn't doing anything.
+		t.Errorf("expected peak in-flight 2 (parallelism working); got %d", ft.peak)
+	}
+}
+
+func TestRunTranscribeJobsPreservesInputOrder(t *testing.T) {
+	ft := &fakeTranscriber{}
+	jobs := []transcribeJob{
+		{path: "first.mp3"}, {path: "second.mp3"}, {path: "third.mp3"},
+	}
+	res := runTranscribeJobs(context.Background(), ft, jobs, 4, "")
+	for i, j := range jobs {
+		if res[i].path != j.path {
+			t.Errorf("position %d: got %q want %q", i, res[i].path, j.path)
+		}
+	}
+}
+
+func TestRunTranscribeJobsPerJobErrorIsolated(t *testing.T) {
+	ft := &fakeTranscriber{failPath: "bad.mp3"}
+	jobs := []transcribeJob{
+		{path: "ok.mp3"}, {path: "bad.mp3"}, {path: "also-ok.mp3"},
+	}
+	res := runTranscribeJobs(context.Background(), ft, jobs, 2, "")
+	if res[0].err != nil || res[2].err != nil {
+		t.Errorf("non-failing jobs should succeed: %+v", res)
+	}
+	if res[1].err == nil {
+		t.Error("failing job should report error")
+	}
+}
+
+func TestRunTranscribeJobsPropagatesPrompt(t *testing.T) {
+	var seen []string
+	var mu sync.Mutex
+	ft := &captureTranscriber{record: func(req transcribe.Request) {
+		mu.Lock()
+		seen = append(seen, req.Prompt)
+		mu.Unlock()
+	}}
+	jobs := []transcribeJob{{path: "a.mp3"}, {path: "b.mp3"}}
+	runTranscribeJobs(context.Background(), ft, jobs, 2, "topic-hint")
+	if len(seen) != 2 {
+		t.Fatalf("expected 2 captured requests, got %d", len(seen))
+	}
+	for _, p := range seen {
+		if p != "topic-hint" {
+			t.Errorf("prompt not propagated to worker: %q", p)
+		}
+	}
+}
+
+type captureTranscriber struct {
+	record func(transcribe.Request)
+}
+
+func (c *captureTranscriber) Name() string { return "capture" }
+func (c *captureTranscriber) Transcribe(ctx context.Context, req transcribe.Request) (transcribe.Response, error) {
+	c.record(req)
+	return transcribe.Response{Text: "x"}, nil
 }

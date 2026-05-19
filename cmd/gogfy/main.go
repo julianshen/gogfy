@@ -679,6 +679,60 @@ func buildLLMClient(backend string) (llm.Client, error) {
 	return nil, fmt.Errorf("unknown LLM backend %q (supported: anthropic, openai, ollama, gemini, kimi)", backend)
 }
 
+// transcribeJob bundles a file path with its pre-read audio bytes
+// for the parallel fan-out. mimeType is precomputed from the
+// extension so the workers don't need filepath access.
+type transcribeJob struct {
+	path     string
+	audio    []byte
+	mimeType string
+}
+
+// transcribeResult pairs a job's path with its outcome so the caller
+// can log per-file failures and still account for costs of successful
+// peers. Errors are returned (not logged inside the worker) so the
+// main goroutine remains the single owner of stderr output.
+type transcribeResult struct {
+	path string
+	resp transcribe.Response
+	err  error
+}
+
+// transcribeConcurrency caps in-flight Whisper requests. Tighter than
+// semanticConcurrency because Whisper's per-account rate limits are
+// stricter and each request is heavier (multipart upload + minute-
+// scale server-side decode).
+const transcribeConcurrency = 2
+
+// runTranscribeJobs fans out Transcribe calls with bounded concurrency
+// and returns results in input order so downstream semantic-job
+// construction is deterministic regardless of worker scheduling.
+func runTranscribeJobs(ctx context.Context, client transcribe.Client, jobs []transcribeJob, limit int, prompt string) []transcribeResult {
+	if limit <= 0 {
+		limit = 1
+	}
+	out := make([]transcribeResult, len(jobs))
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for i, j := range jobs {
+		wg.Add(1)
+		go func(i int, j transcribeJob) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			resp, err := client.Transcribe(ctx, transcribe.Request{
+				Filename: filepath.Base(j.path),
+				MimeType: j.mimeType,
+				Audio:    j.audio,
+				Prompt:   prompt,
+			})
+			out[i] = transcribeResult{path: j.path, resp: resp, err: err}
+		}(i, j)
+	}
+	wg.Wait()
+	return out
+}
+
 // loadPriorGodNodePrompt reads <out>/graph.json (if it exists from a
 // previous run) and derives a Whisper prompt biased by the corpus's
 // top god nodes. Missing/unreadable/empty graph all return the
@@ -1301,6 +1355,7 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		whisperPrompt = loadPriorGodNodePrompt(out)
 	}
 	var semanticJobs []semanticJob
+	var transcribeJobs []transcribeJob
 	var transcribeCost struct {
 		files   int
 		seconds float64
@@ -1318,29 +1373,23 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		// silently drop it. When a transcribe backend is configured we
 		// turn the audio into a semantic-text job; otherwise skip.
 		if transcribeClient != nil && transcribe.IsTranscribable(ext) {
+			// Defer the actual Transcribe call to the parallel pass
+			// below. Reading the bytes here keeps the file-walk and
+			// network-fan-out phases separated so a slow disk doesn't
+			// stall the http fan-out (and vice versa). Trades higher
+			// peak memory (all media held until fan-out finishes) for
+			// that separation — acceptable at current corpus scales;
+			// revisit if hundreds of hours of audio land in one run.
 			audio, err := os.ReadFile(f)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: read failed: %v\n", f, err)
 				continue
 			}
-			tResp, err := transcribeClient.Transcribe(context.Background(), transcribe.Request{
-				Filename: filepath.Base(f),
-				MimeType: mime.TypeByExtension(ext),
-				Audio:    audio,
-				Prompt:   whisperPrompt,
+			transcribeJobs = append(transcribeJobs, transcribeJob{
+				path:     f,
+				audio:    audio,
+				mimeType: mime.TypeByExtension(ext),
 			})
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: %v\n", f, err)
-				continue
-			}
-			transcribeCost.files++
-			transcribeCost.seconds += tResp.DurationSeconds
-			transcribeCost.usd += tResp.EstimatedUSDCost
-			if tResp.Text != "" {
-				semanticJobs = append(semanticJobs, semanticJob{
-					path: f, src: []byte(tResp.Text), kind: "text",
-				})
-			}
 			continue
 		}
 		ex, ok := supportedExtensions[ext]
@@ -1425,6 +1474,28 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		for _, e := range res.Edges {
 			if err := builder.AddEdge(e); err != nil {
 				return fmt.Errorf("add edge: %w", err)
+			}
+		}
+	}
+
+	// Transcription fan-out runs before runSemanticJobs because each
+	// transcribed text becomes a semantic-text job. Bounded concurrency
+	// keeps us under Whisper's per-account rate limit while still
+	// giving real wall-clock speedup over the prior synchronous loop.
+	if transcribeClient != nil && len(transcribeJobs) > 0 {
+		tResults := runTranscribeJobs(context.Background(), transcribeClient, transcribeJobs, transcribeConcurrency, whisperPrompt)
+		for _, r := range tResults {
+			if r.err != nil {
+				fmt.Fprintf(os.Stderr, "gogfy: transcribe skipped for %s: %v\n", r.path, r.err)
+				continue
+			}
+			transcribeCost.files++
+			transcribeCost.seconds += r.resp.DurationSeconds
+			transcribeCost.usd += r.resp.EstimatedUSDCost
+			if r.resp.Text != "" {
+				semanticJobs = append(semanticJobs, semanticJob{
+					path: r.path, src: []byte(r.resp.Text), kind: "text",
+				})
 			}
 		}
 	}
