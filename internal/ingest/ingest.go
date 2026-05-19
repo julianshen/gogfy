@@ -162,9 +162,30 @@ func safeStem(s string) string {
 // own regex. Headings keep their level via a numbered capture and a
 // post-match map.
 var (
-	scriptRe     = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</\s*script\s*>`)
-	styleRe      = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</\s*style\s*>`)
-	noscriptRe   = regexp.MustCompile(`(?is)<noscript\b[^>]*>.*?</\s*noscript\s*>`)
+	scriptRe   = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</\s*script\s*>`)
+	styleRe    = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</\s*style\s*>`)
+	noscriptRe = regexp.MustCompile(`(?is)<noscript\b[^>]*>.*?</\s*noscript\s*>`)
+	// Boilerplate regions — common HTML5 semantic tags that wrap site
+	// chrome (navigation, footers, sidebars, page headers). Dropped
+	// before the main pass so their text doesn't pollute the markdown
+	// corpus. Real <article>/<main>-aware readability would be
+	// stronger, but for typical blog/docs HTML this drops 80% of the
+	// noise with a tiny amount of code.
+	navRe    = regexp.MustCompile(`(?is)<nav\b[^>]*>.*?</\s*nav\s*>`)
+	footerRe = regexp.MustCompile(`(?is)<footer\b[^>]*>.*?</\s*footer\s*>`)
+	asideRe  = regexp.MustCompile(`(?is)<aside\b[^>]*>.*?</\s*aside\s*>`)
+	// <header> at the top level is usually the site header (logo +
+	// nav). It's tag-overloaded — articles also use <header> for a
+	// title block — but the article-narrowing pass below extracts
+	// <article>/<main> first, so by the time headerRe fires we're
+	// looking at outer chrome whenever an article wrapper existed.
+	headerRe = regexp.MustCompile(`(?is)<header\b[^>]*>.*?</\s*header\s*>`)
+	// articleRe / mainRe capture the principal content region when
+	// the page uses semantic HTML5. Narrowing to this region before
+	// the rest of the conversion drops sidebars/comments/related-
+	// links sections in one shot.
+	articleRe    = regexp.MustCompile(`(?is)<article\b[^>]*>(.*?)</\s*article\s*>`)
+	mainRe       = regexp.MustCompile(`(?is)<main\b[^>]*>(.*?)</\s*main\s*>`)
 	h1Re         = regexp.MustCompile(`(?is)<h1\b[^>]*>(.*?)</\s*h1\s*>`)
 	h2Re         = regexp.MustCompile(`(?is)<h2\b[^>]*>(.*?)</\s*h2\s*>`)
 	h3Re         = regexp.MustCompile(`(?is)<h3\b[^>]*>(.*?)</\s*h3\s*>`)
@@ -189,10 +210,19 @@ var headingLevels = []struct {
 }
 
 func htmlToMarkdown(html []byte) string {
-	s := string(html)
+	s := narrowToArticle(string(html))
 	s = scriptRe.ReplaceAllString(s, "")
 	s = styleRe.ReplaceAllString(s, "")
 	s = noscriptRe.ReplaceAllString(s, "")
+	// Drop site chrome (nav/footer/aside/header) before paragraph &
+	// heading conversion so their text doesn't get folded into the
+	// markdown body. Order: scripts/styles first (they may contain
+	// `</nav>` strings inside string literals that would confuse the
+	// boilerplate regex), then boilerplate regions, then content.
+	s = navRe.ReplaceAllString(s, "")
+	s = footerRe.ReplaceAllString(s, "")
+	s = asideRe.ReplaceAllString(s, "")
+	s = headerRe.ReplaceAllString(s, "")
 	for _, h := range headingLevels {
 		prefix := h.prefix
 		s = h.re.ReplaceAllStringFunc(s, func(m string) string {
@@ -225,6 +255,38 @@ func htmlToMarkdown(html []byte) string {
 	s = decodeBasicEntities(s)
 	s = multiBlankRe.ReplaceAllString(s, "\n\n")
 	return strings.TrimSpace(s)
+}
+
+// narrowToArticle returns the inner content of the first <article>
+// element if present, otherwise the first <main> element, otherwise
+// the input unchanged. Lets the rest of the conversion ignore the
+// sidebars/comments/related-content blocks that surround the article
+// region on a typical blog/docs page.
+//
+// Picks the LARGEST matching block when there are several (some sites
+// nest article tags for cards or related-posts widgets) so we don't
+// accidentally narrow down to a thumbnail caption.
+func narrowToArticle(s string) string {
+	if region := largestMatch(articleRe, s); region != "" {
+		return region
+	}
+	if region := largestMatch(mainRe, s); region != "" {
+		return region
+	}
+	return s
+}
+
+// largestMatch returns the longest captured group across all matches
+// of re in s. Empty result when the regex doesn't match at all.
+func largestMatch(re *regexp.Regexp, s string) string {
+	matches := re.FindAllStringSubmatch(s, -1)
+	best := ""
+	for _, m := range matches {
+		if len(m) >= 2 && len(m[1]) > len(best) {
+			best = m[1]
+		}
+	}
+	return best
 }
 
 // stripTags removes HTML tags from a span without touching entities —
