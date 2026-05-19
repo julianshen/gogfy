@@ -279,3 +279,155 @@ func TestNarrowToArticlePicksLargestBlock(t *testing.T) {
 		t.Errorf("smaller blocks should not be selected: %q", got)
 	}
 }
+
+func TestIsTweetURL(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"https://twitter.com/foo/status/12345", true},
+		{"https://x.com/foo/status/12345", true},
+		{"https://www.x.com/foo/status/12345", true},
+		{"https://mobile.twitter.com/foo/status/12345", true},
+		{"http://X.com/foo/status/1", true},
+		{"https://twitter.com/foo", false},        // profile, not status
+		{"https://example.com/status/12345", false},
+		{"", false},
+		// Host-spoofing / suffix attacks must not match.
+		{"https://twitter.com.evil.com/foo/status/1", false},
+		{"https://evil.com/twitter.com/foo/status/1", false},
+		{"https://eviltwitter.com/foo/status/1", false},
+		// "statuses" plural is GitHub-style, not a tweet.
+		{"https://twitter.com/foo/statuses/12345", false},
+	}
+	for _, tc := range cases {
+		if got := IsTweetURL(tc.in); got != tc.want {
+			t.Errorf("IsTweetURL(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestParseOGTagsBothAttributeOrderings(t *testing.T) {
+	// Some pages emit property-first, others content-first. Both
+	// orderings must be picked up so we don't miss the metadata on a
+	// site with non-standard ordering.
+	html := []byte(`
+<meta property="og:title" content="Property First Title"/>
+<meta content="Content First Description" name="og:description">
+<meta property="og:image" content="https://example.com/cover.png">
+`)
+	got := parseOGTags(html)
+	if got.Title != "Property First Title" {
+		t.Errorf("title: %q", got.Title)
+	}
+	if got.Description != "Content First Description" {
+		t.Errorf("description: %q", got.Description)
+	}
+	if got.ImageURL != "https://example.com/cover.png" {
+		t.Errorf("image: %q", got.ImageURL)
+	}
+}
+
+func TestParseOGTagsTwitterCardFallback(t *testing.T) {
+	// twitter:* used when og:* missing for the same field.
+	html := []byte(`
+<meta name="twitter:title" content="Tweet Title">
+<meta name="twitter:description" content="Tweet desc">
+`)
+	got := parseOGTags(html)
+	if got.Title != "Tweet Title" {
+		t.Errorf("twitter:title not picked: %+v", got)
+	}
+	if got.Description != "Tweet desc" {
+		t.Errorf("twitter:description not picked: %+v", got)
+	}
+}
+
+func TestParseOGTagsOGWinsOverTwitter(t *testing.T) {
+	// When both og:title and twitter:title are present, og:title is
+	// canonical per OpenGraph spec.
+	html := []byte(`
+<meta property="og:title" content="OG Title">
+<meta name="twitter:title" content="Twitter Title">
+`)
+	got := parseOGTags(html)
+	if got.Title != "OG Title" {
+		t.Errorf("og: should win over twitter:, got %q", got.Title)
+	}
+}
+
+func TestOGTagsEmpty(t *testing.T) {
+	if !(OGTags{}).Empty() {
+		t.Error("zero value should be empty")
+	}
+	if (OGTags{Title: "x"}).Empty() {
+		t.Error("any non-empty field means not empty")
+	}
+}
+
+func TestIngestPrependsOGMetadataBlock(t *testing.T) {
+	// OG meta tags survive even after readability narrowing because
+	// parseOGTags scans the full body (not the narrowed region).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `
+<html><head>
+<meta property="og:title" content="Alice posted: Hello, world">
+<meta property="og:description" content="A delightful greeting.">
+</head><body><article><p>Body text.</p></article></body></html>`)
+	}))
+	defer srv.Close()
+
+	out := t.TempDir()
+	opts := safefetch.Options{Resolver: publicResolver()}
+	path, err := Ingest(context.Background(), srv.URL+"/article", out, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(path)
+	for _, want := range []string{
+		"> **OpenGraph metadata**",
+		"Alice posted: Hello, world",
+		"delightful greeting",
+		"Body text",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("expected %q in sidecar, got: %s", want, body)
+		}
+	}
+}
+
+func TestParseOGTagsIgnoresCompoundAttributeNames(t *testing.T) {
+	// data-property, aria-name, etc. share the suffix "property" /
+	// "name" — earlier regex matched these by accident. Word-boundary
+	// requirement on the attribute name closes the false-match path.
+	html := []byte(`
+<meta data-property="og:title" content="Should Not Match">
+<meta aria-name="og:description" content="Also Should Not Match">
+<meta property="og:image" content="https://real.example.com/image.png">
+`)
+	got := parseOGTags(html)
+	if got.Title != "" {
+		t.Errorf("data-property should not be picked up: %q", got.Title)
+	}
+	if got.Description != "" {
+		t.Errorf("aria-name should not be picked up: %q", got.Description)
+	}
+	if got.ImageURL != "https://real.example.com/image.png" {
+		t.Errorf("real og:image should match: %q", got.ImageURL)
+	}
+}
+
+func TestParseOGTagsStripsNewlinesInValues(t *testing.T) {
+	// Embedded \n in a title would break out of the markdown
+	// blockquote in Format() and let attacker-controlled content
+	// (including frontmatter --- markers) leak. Newlines are
+	// replaced with a single space.
+	html := []byte("<meta property=\"og:title\" content=\"line1\nline2\r\n---\nlooks like frontmatter\">")
+	got := parseOGTags(html)
+	if strings.ContainsAny(got.Title, "\r\n") {
+		t.Errorf("newlines should be stripped from values: %q", got.Title)
+	}
+	if !strings.Contains(got.Title, "line1") || !strings.Contains(got.Title, "line2") {
+		t.Errorf("content text should be preserved (just newlines replaced): %q", got.Title)
+	}
+}
