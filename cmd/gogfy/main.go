@@ -627,6 +627,34 @@ func manifestCommand(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+// dedupLLMAdapter bridges the pipeline's generic llm.Client to the
+// dedup package's narrow LLMBackend interface. The dedup pass3
+// asks a yes/no "same concept?" question per ambiguous label pair;
+// we wrap that as a strict-JSON system prompt so the response is
+// machine-parseable regardless of which backend is in use.
+type dedupLLMAdapter struct {
+	client llm.Client
+}
+
+const dedupSystemPrompt = `You judge whether two short labels refer to the same real-world concept in a codebase.
+Respond with strict JSON exactly: {"same": true} or {"same": false}.
+No commentary, no extra fields.`
+
+func (a *dedupLLMAdapter) AreSameConcept(labelA, labelB string) (bool, error) {
+	resp, err := a.client.Generate(context.Background(), llm.Request{
+		System:    dedupSystemPrompt,
+		User:      fmt.Sprintf("Label A: %q\nLabel B: %q\nSame concept?", labelA, labelB),
+		MaxTokens: 32,
+	})
+	if err != nil {
+		return false, err
+	}
+	// Tolerate whitespace / leading prose — the deduper treats errors
+	// as "skip the merge" so a robust scan beats a strict parse.
+	return strings.Contains(strings.ToLower(resp.Text), `"same": true`) ||
+		strings.Contains(strings.ToLower(resp.Text), `"same":true`), nil
+}
+
 // buildMergeCommand folds a freshly-extracted graph (`next`) into a
 // prior graph.json, pruning entries whose SourceFile is no longer
 // listed in --files. This is the incremental counterpart to
@@ -1753,6 +1781,14 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	// Entity deduplication (three-pass: exact → fuzzy → LLM tiebreaker)
 	if !opts.NoDedup {
 		deduper := dedup.NewDeduplicator()
+		// Pass 3 (LLM tiebreaker) only fires when the user has already
+		// opted into LLM usage via --semantic. Reusing the semantic
+		// client keeps the cost story simple: one --backend flag, one
+		// cost report. If --semantic wasn't set, the deduper falls back
+		// to pass 1 + pass 2 only.
+		if llmClient != nil {
+			deduper.LLMBackend = &dedupLLMAdapter{client: llmClient}
+		}
 		// Build community map for pass 2 community boost
 		commMap := make(map[string]string, len(nodes))
 		for _, n := range nodes {
