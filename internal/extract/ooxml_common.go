@@ -2,6 +2,7 @@ package extract
 
 import (
 	"encoding/xml"
+	"path"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ const (
 	relTypeHyperlink = "/hyperlink"
 	relTypeWorksheet = "/worksheet"
 	relTypeSlide     = "/slide"
+	relTypeTable     = "/table"
 )
 
 // resolveOOXMLPartPath turns a Target attribute from an OOXML _rels file
@@ -25,7 +27,10 @@ func resolveOOXMLPartPath(partRoot, target string) string {
 	if rest, ok := strings.CutPrefix(target, "/"); ok {
 		return rest
 	}
-	return partRoot + target
+	// Target may use parent-dir references (../tables/table1.xml from a
+	// worksheet's _rels file). path.Clean normalizes them so the result
+	// matches the actual zip entry name.
+	return path.Clean(partRoot + target)
 }
 
 // parseOOXMLRels parses an OOXML _rels file into Id→Target. If wantSuffix
