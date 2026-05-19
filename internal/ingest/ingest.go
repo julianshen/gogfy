@@ -62,7 +62,19 @@ func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) 
 		return pdfPath, nil
 	}
 	md := htmlToMarkdown(body)
-	out := fmt.Sprintf("---\nsource_url: %q\n---\n\n%s\n", rawURL, md)
+	// Pull OpenGraph / Twitter-Card metadata before-narrowing pruned
+	// the <head> region — pages where the body is JS-rendered (notably
+	// X/Twitter status pages) still carry title/description/image in
+	// og:* meta tags, and that's often the only signal worth keeping.
+	og := parseOGTags(body)
+	if !og.Empty() {
+		md = og.Format() + "\n" + md
+	}
+	tweetLabel := ""
+	if IsTweetURL(rawURL) {
+		tweetLabel = "kind: tweet\n"
+	}
+	out := fmt.Sprintf("---\nsource_url: %q\n%s---\n\n%s\n", rawURL, tweetLabel, md)
 	if err := fsutil.WriteFileAtomic(mdPath, []byte(out), 0644); err != nil {
 		return "", fmt.Errorf("ingest: write %s: %w", mdPath, err)
 	}
