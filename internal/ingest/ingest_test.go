@@ -192,3 +192,90 @@ func TestRewriteArxivURL(t *testing.T) {
 		}
 	}
 }
+
+func TestHTMLToMarkdownDropsBoilerplateTags(t *testing.T) {
+	html := []byte(`
+<nav><a href="/">Home</a> <a href="/about">About</a></nav>
+<header>Site Header Logo</header>
+<p>Real article paragraph.</p>
+<aside>Related Posts</aside>
+<footer>Copyright 2025</footer>
+`)
+	got := htmlToMarkdown(html)
+	if !strings.Contains(got, "Real article paragraph") {
+		t.Errorf("article text dropped: %q", got)
+	}
+	for _, junk := range []string{"Home", "About", "Site Header", "Related Posts", "Copyright"} {
+		if strings.Contains(got, junk) {
+			t.Errorf("boilerplate %q survived conversion: %q", junk, got)
+		}
+	}
+}
+
+func TestHTMLToMarkdownNarrowsToArticle(t *testing.T) {
+	// Sidebar/comments outside <article> should be dropped even
+	// without explicit boilerplate tags — narrowing to <article> is
+	// the bigger lift than nav-stripping for typical blog markup.
+	html := []byte(`
+<div class="sidebar"><p>Sponsor: Buy Now!</p></div>
+<article>
+  <h1>How Distributed Consensus Works</h1>
+  <p>Paxos is a family of protocols for solving consensus.</p>
+</article>
+<div class="comments"><p>nice post +1</p></div>
+`)
+	got := htmlToMarkdown(html)
+	if !strings.Contains(got, "How Distributed Consensus Works") {
+		t.Errorf("article heading dropped: %q", got)
+	}
+	if !strings.Contains(got, "Paxos") {
+		t.Errorf("article body dropped: %q", got)
+	}
+	for _, junk := range []string{"Sponsor", "nice post"} {
+		if strings.Contains(got, junk) {
+			t.Errorf("out-of-article noise %q survived: %q", junk, got)
+		}
+	}
+}
+
+func TestHTMLToMarkdownFallsBackToMainThenWholeDoc(t *testing.T) {
+	mainOnly := []byte(`
+<div class="ads">Buy Now</div>
+<main>
+  <p>Body text.</p>
+</main>
+<footer>foot</footer>
+`)
+	got := htmlToMarkdown(mainOnly)
+	if !strings.Contains(got, "Body text") {
+		t.Errorf("main body dropped: %q", got)
+	}
+	if strings.Contains(got, "Buy Now") {
+		t.Errorf("pre-main ad survived: %q", got)
+	}
+
+	// Plain HTML without article/main should still convert (existing
+	// behavior). This is a regression guard.
+	plain := []byte(`<p>Hello</p>`)
+	if got := htmlToMarkdown(plain); !strings.Contains(got, "Hello") {
+		t.Errorf("plain HTML regressed: %q", got)
+	}
+}
+
+func TestNarrowToArticlePicksLargestBlock(t *testing.T) {
+	// Some sites use <article> for both the main post and "card"
+	// previews of related posts. Picking the largest block avoids
+	// narrowing to a thumbnail caption.
+	html := `
+<article>Card preview short.</article>
+<article>This is the full article body with substantially more content than any of the related-post cards on the page.</article>
+<article>Another small card.</article>
+`
+	got := narrowToArticle(html)
+	if !strings.Contains(got, "substantially more content") {
+		t.Errorf("expected largest article block, got %q", got)
+	}
+	if strings.Contains(got, "Card preview") || strings.Contains(got, "Another small") {
+		t.Errorf("smaller blocks should not be selected: %q", got)
+	}
+}
