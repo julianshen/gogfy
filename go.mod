@@ -1,6 +1,6 @@
 module github.com/julianshen/gogfy
 
-go 1.25.0
+go 1.26
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
@@ -33,11 +33,17 @@ require (
 
 require (
 	github.com/UserNobody14/tree-sitter-dart v0.0.0-20260508020638-507c5546dc73 // indirect
+	github.com/bitly/go-simplejson v0.5.1 // indirect
 	github.com/dgryski/go-minhash v0.0.0-20190315135803-ad340ca03076 // indirect
 	github.com/dgryski/go-spooky v0.0.0-20170606183049-ed3d087f40e2 // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
+	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c // indirect
+	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
+	github.com/google/pprof v0.0.0-20260302011040-a15ffb7f9dcc // indirect
 	github.com/julianshen/tree-sitter-erlang v0.0.0-20260510145358-80fab4f46bdf // indirect
 	github.com/julianshen/tree-sitter-r v1.2.1-0.20260510134556-9a03ef5f3473 // indirect
 	github.com/julianshen/tree-sitter-swift v0.0.0-20260510074952-3d85c1637e38 // indirect
+	github.com/kkdai/youtube/v2 v2.10.6 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/stadelmanma/tree-sitter-fortran v0.6.0 // indirect
@@ -46,6 +52,7 @@ require (
 	github.com/yuin/goldmark v1.8.2 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 )
 
 // stadelmanma/tree-sitter-fortran's binding_test.go imports a non-existent
