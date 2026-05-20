@@ -1966,3 +1966,126 @@ func (fakeUnpricedClient) Name() string { return "fake-unpriced" }
 func (fakeUnpricedClient) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {
 	return llm.Response{}, nil
 }
+
+func TestCICommandGreenWhenNoThresholdsTripped(t *testing.T) {
+	// Base and head identical → diff is empty → gate passes
+	// regardless of which thresholds were set.
+	dir := t.TempDir()
+	graph := export.GraphExport{
+		Nodes: []schema.Node{{ID: "n", Label: "x"}},
+		Edges: []schema.Edge{},
+	}
+	writeGraphFile(t, dir+"/base.json", graph)
+	writeGraphFile(t, dir+"/head.json", graph)
+
+	var stdout bytes.Buffer
+	err := ciCommand([]string{dir + "/base.json", dir + "/head.json", "--max-removed-nodes", "0"}, &stdout, io.Discard)
+	if err != nil {
+		t.Fatalf("expected green, got %v", err)
+	}
+	if !strings.Contains(stdout.String(), "green") {
+		t.Errorf("missing 'green' result in stdout: %s", stdout.String())
+	}
+}
+
+func TestCICommandFailsWhenRemovedNodesExceedThreshold(t *testing.T) {
+	// Head dropped a node that base had → 1 removed node. With
+	// --max-removed-nodes=0 the gate fails.
+	dir := t.TempDir()
+	base := export.GraphExport{
+		Nodes: []schema.Node{{ID: "a"}, {ID: "b"}},
+	}
+	head := export.GraphExport{
+		Nodes: []schema.Node{{ID: "a"}},
+	}
+	writeGraphFile(t, dir+"/base.json", base)
+	writeGraphFile(t, dir+"/head.json", head)
+
+	var stdout bytes.Buffer
+	err := ciCommand([]string{dir + "/base.json", dir + "/head.json", "--max-removed-nodes", "0"}, &stdout, io.Discard)
+	if !errors.Is(err, errCIGateFailed) {
+		t.Errorf("expected errCIGateFailed, got %v", err)
+	}
+	if !strings.Contains(stdout.String(), "FAILED") {
+		t.Errorf("missing 'FAILED' marker in markdown summary: %s", stdout.String())
+	}
+}
+
+func TestCICommandCountsNewAmbiguousEdges(t *testing.T) {
+	// Head has a new AMBIGUOUS edge that base didn't. With
+	// --max-new-ambiguous=0 the gate fails on the resolution-
+	// quality signal.
+	dir := t.TempDir()
+	base := export.GraphExport{
+		Nodes: []schema.Node{{ID: "a"}, {ID: "b"}},
+		Edges: []schema.Edge{},
+	}
+	head := export.GraphExport{
+		Nodes: []schema.Node{{ID: "a"}, {ID: "b"}},
+		Edges: []schema.Edge{{Source: "a", Target: "b", Relation: "calls", Confidence: schema.Ambiguous}},
+	}
+	writeGraphFile(t, dir+"/base.json", base)
+	writeGraphFile(t, dir+"/head.json", head)
+
+	var stdout bytes.Buffer
+	err := ciCommand([]string{dir + "/base.json", dir + "/head.json", "--max-new-ambiguous", "0"}, &stdout, io.Discard)
+	if !errors.Is(err, errCIGateFailed) {
+		t.Errorf("expected gate failure on new AMBIGUOUS, got %v", err)
+	}
+	if !strings.Contains(stdout.String(), "new-ambiguous") {
+		t.Errorf("breach line missing 'new-ambiguous': %s", stdout.String())
+	}
+}
+
+func TestCICommandReportsAllBreachesNotJustFirst(t *testing.T) {
+	// Both nodes-removed AND edges-removed → summary must list both
+	// so the PR comment is fully actionable in one round.
+	dir := t.TempDir()
+	base := export.GraphExport{
+		Nodes: []schema.Node{{ID: "a"}, {ID: "b"}},
+		Edges: []schema.Edge{{Source: "a", Target: "b", Relation: "calls"}},
+	}
+	head := export.GraphExport{
+		Nodes: []schema.Node{{ID: "a"}},
+		Edges: []schema.Edge{},
+	}
+	writeGraphFile(t, dir+"/base.json", base)
+	writeGraphFile(t, dir+"/head.json", head)
+
+	var stdout bytes.Buffer
+	_ = ciCommand([]string{
+		dir + "/base.json", dir + "/head.json",
+		"--max-removed-nodes", "0",
+		"--max-removed-edges", "0",
+	}, &stdout, io.Discard)
+	if !strings.Contains(stdout.String(), "nodes-removed") || !strings.Contains(stdout.String(), "edges-removed") {
+		t.Errorf("expected both nodes-removed AND edges-removed breaches in summary: %s", stdout.String())
+	}
+}
+
+func TestCICommandPermissiveByDefault(t *testing.T) {
+	// No --max-* flags → any diff passes. The user has to opt into
+	// gates; the default 'gogfy ci a.json b.json' is just a diff
+	// reporter.
+	dir := t.TempDir()
+	base := export.GraphExport{Nodes: []schema.Node{{ID: "a"}, {ID: "b"}}}
+	head := export.GraphExport{Nodes: []schema.Node{}}
+	writeGraphFile(t, dir+"/base.json", base)
+	writeGraphFile(t, dir+"/head.json", head)
+
+	var stdout bytes.Buffer
+	if err := ciCommand([]string{dir + "/base.json", dir + "/head.json"}, &stdout, io.Discard); err != nil {
+		t.Errorf("expected permissive default to exit 0, got %v", err)
+	}
+}
+
+func writeGraphFile(t *testing.T, path string, g export.GraphExport) {
+	t.Helper()
+	data, err := json.Marshal(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
