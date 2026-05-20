@@ -135,10 +135,7 @@ func buildImportScope(edges []schema.Edge) map[string]map[string]struct{} {
 		if !ok || tk != "import" {
 			continue
 		}
-		bare := tkey
-		if i := strings.LastIndexByte(bare, '.'); i >= 0 {
-			bare = bare[i+1:]
-		}
+		bare := lastImportSegment(tkey)
 		if bare == "" {
 			continue
 		}
@@ -146,14 +143,75 @@ func buildImportScope(edges []schema.Edge) map[string]map[string]struct{} {
 			out[key] = map[string]struct{}{}
 		}
 		// Two entries per import: the bare name gates `imports[calledName]`
-		// so call narrowing fires, and the dotted root lets the candidate
-		// file-stem match (auth.py for `from auth import login`).
+		// so call narrowing fires, and the dotted/sliced root lets the
+		// candidate file-stem match (auth.py for `from auth import login`).
 		out[key][bare] = struct{}{}
-		if i := strings.IndexByte(tkey, '.'); i > 0 {
-			out[key][tkey[:i]] = struct{}{}
+		if root := firstImportSegment(tkey); root != "" && root != bare {
+			out[key][root] = struct{}{}
 		}
 	}
 	return out
+}
+
+// lastImportSegment extracts the user-facing name from an import-target
+// string. Handles three conventions:
+//
+//   - Python / Java dotted: `auth.login`, `com.example.Foo` → last
+//     dot-separated segment (`login`, `Foo`).
+//   - Go path-style: `github.com/foo/bar` → last slash-separated
+//     segment (`bar`), which is what unaliased Go imports bind as
+//     the package name at call sites.
+//   - Mixed (`gopkg.in/yaml.v2`): the slash wins over the dot —
+//     callers actually write `yaml.Marshal(...)`, not `v2.Marshal(...)`,
+//     because Go's package name is `yaml` regardless of the major
+//     version suffix in the path. So we slash-split first, then
+//     dot-split the trailing segment and drop the suffix.
+func lastImportSegment(s string) string {
+	if i := strings.LastIndexByte(s, '/'); i >= 0 {
+		s = s[i+1:]
+	}
+	if i := strings.LastIndexByte(s, '.'); i >= 0 {
+		// `yaml.v2` → `yaml` (Go-style versioned-package convention).
+		// `auth.login` → `login` (Python attribute access convention).
+		// Disambiguate: if the suffix looks like a major-version tag
+		// (`v\d+`), strip it; otherwise keep the suffix as the bare
+		// name.
+		tail := s[i+1:]
+		if isVersionTag(tail) {
+			s = s[:i]
+		} else {
+			s = tail
+		}
+	}
+	return s
+}
+
+// firstImportSegment returns the leftmost segment under the same
+// rules — useful for file-stem narrowing where the import target
+// shape is `dir/file.py` style and the matchable hint is `dir`.
+func firstImportSegment(s string) string {
+	if i := strings.IndexByte(s, '/'); i > 0 {
+		return s[:i]
+	}
+	if i := strings.IndexByte(s, '.'); i > 0 {
+		return s[:i]
+	}
+	return ""
+}
+
+// isVersionTag matches Go's `vN` major-version path suffix
+// convention (`yaml.v2`, `mongo.v3`). Anything else stays as the
+// bare-name candidate.
+func isVersionTag(s string) bool {
+	if len(s) < 2 || s[0] != 'v' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // callerFile extracts the source file path from a function/method node
