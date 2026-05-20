@@ -372,3 +372,44 @@ func TestCallsImportScopeNonFunctionCallerFallsBack(t *testing.T) {
 		t.Fatalf("expected 2 fan-out edges (no narrowing), got %d", callCount)
 	}
 }
+
+func TestLastImportSegmentHandlesGoPath(t *testing.T) {
+	// Go's path-style imports — the user-facing package name is the
+	// last slash-separated segment, NOT a dot-split. The naive
+	// LastIndexByte('.') would yield "com" for github.com/foo/bar.
+	cases := map[string]string{
+		"github.com/foo/bar":     "bar",
+		"github.com/foo/bar/baz": "baz",
+		"net/http":               "http",
+		"auth.login":             "login",
+		"com.example.Foo":        "Foo",
+		"gopkg.in/yaml.v2":       "yaml",
+		"gopkg.in/redis.v8":      "redis",
+		"single":                 "single",
+		"":                       "",
+	}
+	for in, want := range cases {
+		if got := lastImportSegment(in); got != want {
+			t.Errorf("lastImportSegment(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestIsVersionTagOnlyMatchesGoMajor(t *testing.T) {
+	// `v2`, `v3`, `v10` are Go major-version path suffixes — strip
+	// them so the package name (`yaml`, not `v2`) is what we keep.
+	// Anything else (including `var`, `version`, plain digits) should
+	// not match.
+	matches := []string{"v0", "v1", "v2", "v42"}
+	for _, m := range matches {
+		if !isVersionTag(m) {
+			t.Errorf("expected %q to be a version tag", m)
+		}
+	}
+	nonMatches := []string{"", "v", "vfoo", "var", "version", "2v", "1"}
+	for _, m := range nonMatches {
+		if isVersionTag(m) {
+			t.Errorf("did not expect %q to match version tag", m)
+		}
+	}
+}
