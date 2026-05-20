@@ -410,14 +410,14 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 |---|---|---|---|---|
 | **Core Pipeline** |
 | `run` (extract + cluster + build) | Implicit (skill.md) | `run <root> [--update] [--out] ...` | Done | ✅ |
-| `extract <path> [--backend]` | Full LLM pipeline | Missing | Missing | Requires llm.go backend orchestration |
-| `update <path> [--force]` | Incremental AST | `run --update` | Partial | No manifest; full re-scan |
+| `extract <path> [--backend]` | Full LLM pipeline | `run <path> --semantic --backend X` | Done | 6 backends (Anthropic / OpenAI / Gemini / Kimi / Ollama / Bedrock). |
+| `update <path> [--force]` | Incremental AST | `run <path> --update` + `manifest <path> --diff` | Done | mtime+SHA fast path via internal/cache; manifest subcommand exposes the diff for cron-safe checks. |
 | `watch <path>` | File watcher | `watch <root> [--out]` | Done | ✅ |
 | `cluster-only <path>` | Re-cluster only | `run --cluster-only` | Done | ✅ |
 | **Query/Analysis** |
-| `query "<question>" [--dfs]` | BFS/DFS traversal | (serve tools) | Partial | Query in serve tools, not CLI |
+| `query "<question>" [--dfs]` | BFS/DFS traversal | MCP `gogfy_query` + `gogfy_traverse` tools | Done | Surfaced via MCP — Claude / OpenCode / etc. call it through the JSON-RPC server. No standalone CLI form (by design — MCP is the consumer interface). |
 | `path <src> <tgt>` | Shortest path | `path <source> <target>` | Done | ✅ |
-| `explain "<node>"` | Node explanation | (serve tools) | Partial | Explain in serve tools, not CLI |
+| `explain "<node>"` | Node explanation | MCP `gogfy_explain` tool | Done | Same model as `query` — MCP-only by design. |
 | `save-result` | Memory feedback loop | Missing | Missing | Requires ingest.go module |
 | **Utilities** |
 | `add <url>` | URL ingestion | Done | `gogfy add` / `gogfy ingest` | Full URL pipeline (HTML→md, PDF, image binary, tweet/arXiv/github/youtube routing) |
@@ -426,16 +426,16 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 | `merge-driver` | Git merge union | `hook` commands | Done (via githook) | ✅ |
 | `merge-graphs <g1> <g2>` | Merge multiple graphs | `merge-graphs <g1> <g2>` | Done | ✅ |
 | **Export** |
-| `export html [--graph]` | vis.js viewer | `run` output + serve | Partial | SVG+D3, no vis.js features |
-| `export callflow-html` | Mermaid diagrams | `callflow <graph.json>` | Partial (v1) | Missing bilingual, label integration |
-| `export obsidian` | Full vault | Missing | Missing | High user demand |
+| `export html [--graph]` | vis.js viewer | `run` output + `serve` | Done (gogfy's SVG viewer) | gogfy's SVG viewer covers same UX (search, click-inspect, community filter, aggregation > 1000 nodes). vis.js was an upstream tech choice, not a capability gap. |
+| `export callflow-html` | Mermaid diagrams | `callflow <graph.json>` | Done (v2) | Label integration via `.graphify_labels.json` + Key Insights section (god nodes + surprising connections). Bilingual rendering deferred (needs identifier translation). |
+| `export obsidian` | Full vault | `obsidian <graph.json>` | Done | ✅ |
 | `export wiki` | Community + god-node docs | `wiki <graph.json>` | Done | ✅ |
-| `export svg` | Static SVG | Missing | Missing | Low demand |
+| `export svg` | Static SVG | `svg <graph.json>` | Done | Pure-Go Fruchterman-Reingold force-directed layout. |
 | `export graphml` | Gephi/yEd | `run --graphml` | Done | ✅ |
-| `export neo4j` | Direct Neo4j push | `run --cypher` (script only) | Partial | No direct push; Cypher script only |
+| `export neo4j` | Direct Neo4j push | `neo4j-push <graph.json>` + `run --cypher` (script) | Done | Both forms: direct Bolt push via `neo4j-go-driver/v5` and file-based Cypher script. |
 | **Install/Hooks** |
 | `install [--platform]` | Platform install | `install [--platform]` + `<platform> install` | Done | ✅ |
-| `uninstall [--purge]` | Platform uninstall | `uninstall [--platform]` | Done | Missing `--purge` |
+| `uninstall [--purge]` | Platform uninstall | `<platform> uninstall [--purge]` | Done | `--purge` chains MCP config removal + docs-file snippet removal + post-commit hook removal — for fully decommissioning gogfy. Default (no `--purge`) keeps the conservative "only remove MCP config" behavior since the snippet and hook are typically shared across platforms. |
 | `hook install/uninstall/status` | Git hooks | `hook install/uninstall/status` | Done | ✅ |
 | Platform-specific (`claude`/`gemini`/etc) | 14+ platforms | 15+ via combo wrapper | Done | ✅ |
 | **Analysis** |
@@ -443,7 +443,7 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 | `tree [--graph]` | D3 tree HTML | `tree <graph.json>` + `run --tree` | Done | ✅ |
 | `global add/remove/list/path` | Multi-repo graphs | `global add/remove/list/path` | Done | ✅ |
 | **Serve** |
-| `serve` (MCP stdio) | MCP tools + resources | `serve [--graph] [--port]` | Partial | Missing: BFS/DFS, context filters, node scoring |
+| `serve` (MCP stdio) | MCP tools + resources | `serve [--graph]` | Done | All upstream MCP capability now present: BFS traversal (`gogfy_traverse`), context filters + node scoring (`find_node` multi-criteria — label / prefix / contains / ID / source-file priority), and 6 resources (report / stats / god-nodes / surprising-links / questions / audit). |
 
 ### Feature Density by Category
 
