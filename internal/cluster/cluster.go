@@ -4,12 +4,19 @@ package cluster
 import (
 	"fmt"
 	"hash/fnv"
+	"io"
+	"os"
 	"sort"
 	"strconv"
 
 	"github.com/julianshen/gogfy/internal/schema"
 	leiden "github.com/vsuryav/leiden-go"
 )
+
+// stderrLogger receives non-fatal cluster diagnostics (e.g. the
+// Leiden-to-Louvain fallback message). Tests override to capture and
+// assert; production leaves the default (os.Stderr).
+var stderrLogger io.Writer = os.Stderr
 
 // Clusterer is the interface for algorithms that assign communities to nodes.
 type Clusterer interface {
@@ -259,7 +266,13 @@ func (c *LeidenClusterer) Cluster(nodes []schema.Node, edges []schema.Edge) ([]s
 
 	result, err := leiden.Leiden(graph, config)
 	if err != nil {
-		return nil, fmt.Errorf("leiden clustering failed: %w", err)
+		// Fall back to Louvain rather than aborting. Leiden errors on
+		// pathological inputs (certain disconnected-component shapes,
+		// edge-weight underflow) where Louvain still produces a
+		// reasonable partition. Better to ship slightly-lower-quality
+		// communities than to fail the whole run.
+		fmt.Fprintf(stderrLogger, "cluster: leiden failed (%v), falling back to Louvain\n", err)
+		return NewLouvainClusterer().Cluster(nodes, edges)
 	}
 
 	// Build initial communities from Leiden result.
