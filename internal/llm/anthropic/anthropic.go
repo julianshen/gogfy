@@ -99,6 +99,13 @@ func NewWithKey(key string, opts ...Option) *Client {
 // cost report.
 func (c *Client) Name() string { return "anthropic-" + c.model }
 
+// EstimateCost implements llm.CostEstimator for pre-flight pricing.
+// Delegates to the existing private estimateCost so the table is
+// the single source of truth — runtime and pre-flight always agree.
+func (c *Client) EstimateCost(inputTokens, outputTokens int) float64 {
+	return estimateCost(c.model, inputTokens, outputTokens)
+}
+
 // Generate posts a single-message request to /v1/messages and parses
 // the response. Errors from the API (HTTP non-200) are wrapped with
 // the response body so users can diagnose rate limits / auth issues.

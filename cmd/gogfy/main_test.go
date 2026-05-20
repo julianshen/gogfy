@@ -1913,3 +1913,56 @@ func TestValidateGraphPathRejectsObviousAttacks(t *testing.T) {
 		}
 	}
 }
+
+func TestEstimateSemanticCostAggregatesAcrossJobs(t *testing.T) {
+	// Pre-flight totals must include every queued job. A single-
+	// backend client with a known cost rate gives us a deterministic
+	// expected output.
+	jobs := []semanticJob{
+		{path: "/a.md", src: []byte("hello world this is a test")},  // 26 bytes
+		{path: "/b.md", src: []byte("another test file for budget")}, // 28 bytes
+	}
+	client := &fakePricedClient{centsPerThousand: 100} // $1.00 per 1k tokens
+	pf := estimateSemanticCost(client, jobs, 4096)
+	if pf.jobs != 2 {
+		t.Errorf("expected 2 jobs, got %d", pf.jobs)
+	}
+	if pf.inputTokens == 0 {
+		t.Errorf("input tokens not aggregated")
+	}
+	if pf.estimatedUSD <= 0 {
+		t.Errorf("expected positive estimate at $1/1k rate, got $%v", pf.estimatedUSD)
+	}
+}
+
+func TestEstimateSemanticCostZeroForClientWithoutEstimator(t *testing.T) {
+	// A client that doesn't implement CostEstimator → estimate is
+	// 0. Pre-flight callers can then make their own decision
+	// (typically: just inform the user, don't block).
+	jobs := []semanticJob{{path: "/a.md", src: []byte("x")}}
+	client := &fakeUnpricedClient{}
+	pf := estimateSemanticCost(client, jobs, 4096)
+	if pf.estimatedUSD != 0 {
+		t.Errorf("expected 0 for unpriced client, got %v", pf.estimatedUSD)
+	}
+	if pf.inputTokens == 0 {
+		t.Errorf("token estimate should still be computed even without pricing")
+	}
+}
+
+type fakePricedClient struct{ centsPerThousand int }
+
+func (fakePricedClient) Name() string { return "fake-priced" }
+func (fakePricedClient) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {
+	return llm.Response{}, nil
+}
+func (c fakePricedClient) EstimateCost(in, out int) float64 {
+	return float64(in+out) * float64(c.centsPerThousand) / 1000.0 / 100.0
+}
+
+type fakeUnpricedClient struct{}
+
+func (fakeUnpricedClient) Name() string { return "fake-unpriced" }
+func (fakeUnpricedClient) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {
+	return llm.Response{}, nil
+}

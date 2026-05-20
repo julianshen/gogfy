@@ -100,6 +100,11 @@ func NewWithKey(key string, opts ...Option) *Client {
 // Name returns the backend identifier for the cost report.
 func (c *Client) Name() string { return "kimi-" + c.model }
 
+// EstimateCost implements llm.CostEstimator for pre-flight pricing.
+func (c *Client) EstimateCost(inputTokens, outputTokens int) float64 {
+	return estimateCost(c.model, inputTokens, outputTokens)
+}
+
 // Generate posts a chat-completions request and extracts the first
 // choice's message content.
 func (c *Client) Generate(ctx context.Context, req llm.Request) (llm.Response, error) {

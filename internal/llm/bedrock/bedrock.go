@@ -139,6 +139,13 @@ func NewWithCredentials(accessKey, secretKey, sessionToken string, opts ...Optio
 // Name returns "bedrock-{model}" for cost reports and log lines.
 func (c *Client) Name() string { return "bedrock-" + c.model }
 
+// EstimateCost implements llm.CostEstimator for pre-flight pricing.
+// Bedrock per-token rates are usually within a few % of direct-
+// Anthropic; delegate to the local cost table.
+func (c *Client) EstimateCost(inputTokens, outputTokens int) float64 {
+	return estimateCost(c.model, inputTokens, outputTokens)
+}
+
 // Generate posts a single-turn request to Bedrock's InvokeModel
 // endpoint. The body is the Anthropic Messages-API shape (minus the
 // model field, which lives in the path); the response is parsed

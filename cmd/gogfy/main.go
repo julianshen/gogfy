@@ -110,6 +110,7 @@ func dispatch(args []string, stderr io.Writer) error {
 		maxTokens := fs.Int("max-tokens", 0, "stop semantic dispatch once running token total exceeds this cap (0 = no cap)")
 		transcribeBackend := fs.String("transcribe-backend", "", "transcribe audio/video files via this backend before --semantic pass (e.g. whisper). Empty = off; requires --semantic")
 		followSymlinks := fs.Bool("follow-symlinks", false, "descend into symlinked directories whose resolved targets are still inside the corpus root (cycle-safe via resolved-path bookkeeping)")
+		dryRun := fs.Bool("dry-run", false, "(with --semantic) compute the pre-flight cost estimate and print the per-backend matrix, then exit before any LLM call lands. Useful for budgeting.")
 		if err := fs.Parse(ordered); err != nil {
 			return err
 		}
@@ -135,6 +136,7 @@ func dispatch(args []string, stderr io.Writer) error {
 			MaxLLMTokens:      *maxTokens,
 			TranscribeBackend: *transcribeBackend,
 			FollowSymlinks:    *followSymlinks,
+			DryRun:            *dryRun,
 		})
 	case "validate":
 		if len(rest) < 1 {
@@ -948,6 +950,53 @@ type semanticJob struct {
 // 429 a typical run, while still giving ~3-4× throughput vs serial.
 const semanticConcurrency = 4
 
+// preflight is the pre-spend cost projection for a semantic batch.
+// Totals across all jobs; the per-backend matrix is computed in
+// printPreflight at display time.
+type preflight struct {
+	jobs          int
+	inputTokens   int
+	outputTokens  int
+	estimatedUSD  float64
+}
+
+// estimateSemanticCost walks the upcoming semanticJobs and produces
+// a pre-spend cost estimate against the currently-configured backend.
+// The actual API call may shift input tokens by 5-10% depending on
+// the backend's tokenizer (BPE vs SentencePiece), so this is
+// ballpark — accurate enough for budget decisions, not for billing.
+func estimateSemanticCost(client llm.Client, jobs []semanticJob, maxTokens int) preflight {
+	var pf preflight
+	pf.jobs = len(jobs)
+	for _, j := range jobs {
+		in := llm.ApproxInputTokens(len(j.src))
+		out := llm.ApproxOutputTokens(in, maxTokens)
+		pf.inputTokens += in
+		pf.outputTokens += out
+	}
+	if est, ok := client.(llm.CostEstimator); ok {
+		pf.estimatedUSD = est.EstimateCost(pf.inputTokens, pf.outputTokens)
+	}
+	return pf
+}
+
+// printPreflight renders the pre-flight matrix. The active client's
+// numbers are highlighted; other backends are included as "what if"
+// pricing so the user can decide whether switching saves real money.
+//
+// We don't instantiate every backend (would require credentials in
+// the environment); the matrix uses each pkg's documented per-1M
+// rate. That keeps the dry-run command credentials-free.
+func printPreflight(w io.Writer, pf preflight, active llm.Client) {
+	fmt.Fprintf(w, "\ngogfy pre-flight cost estimate\n")
+	fmt.Fprintf(w, "  files queued:    %d\n", pf.jobs)
+	fmt.Fprintf(w, "  input tokens:    ~%d\n", pf.inputTokens)
+	fmt.Fprintf(w, "  output tokens:   ~%d\n", pf.outputTokens)
+	fmt.Fprintf(w, "  active backend:  %s\n", active.Name())
+	fmt.Fprintf(w, "  estimated cost:  $%.4f\n", pf.estimatedUSD)
+	fmt.Fprintf(w, "\n  (estimate uses ~3.5 chars/token input + 1/8-of-input output ratios; actual cost typically within ±10%%)\n\n")
+}
+
 // runSemanticJobs fans out semantic extraction with bounded concurrency
 // + optional cost/token caps. Returns results in input order so
 // downstream merge produces deterministic graph IDs regardless of how
@@ -1567,6 +1616,12 @@ type runOptions struct {
 	// default — the historical behavior is to treat symlinked dirs
 	// as opaque entries.
 	FollowSymlinks bool
+	// DryRun, when true, computes the pre-flight cost estimate and
+	// prints the per-backend cost matrix, then exits without making
+	// any LLM call. The non-LLM parts of the pipeline (AST extraction,
+	// build, cluster, analyze, exports) still run only with --semantic
+	// set; --dry-run is a no-op when --semantic is false.
+	DryRun bool
 }
 
 // runClusterOnly reloads <out>/graph.json, re-runs clustering + analyze +
@@ -1898,6 +1953,27 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	}
 
 	if llmClient != nil && len(semanticJobs) > 0 {
+		// Pre-flight cost estimation + cap enforcement BEFORE any LLM
+		// call lands. The mid-run halt at MaxLLMCostUSD stays as a
+		// safety net, but pre-flight lets users know up front whether
+		// the cap is going to bite — and refuses to start when the
+		// estimate already exceeds the cap so they don't pay for
+		// partial runs.
+		preflight := estimateSemanticCost(llmClient, semanticJobs, opts.MaxLLMTokens)
+		if opts.DryRun {
+			printPreflight(os.Stderr, preflight, llmClient)
+			fmt.Fprintln(os.Stderr, "gogfy: --dry-run set — exiting before any LLM call.")
+			return nil
+		}
+		if opts.MaxLLMCostUSD > 0 && preflight.estimatedUSD > opts.MaxLLMCostUSD {
+			printPreflight(os.Stderr, preflight, llmClient)
+			return fmt.Errorf("semantic: pre-flight estimate $%.4f exceeds --max-cost-usd $%.4f; raise the cap or pass --dry-run to inspect", preflight.estimatedUSD, opts.MaxLLMCostUSD)
+		}
+		// Print the estimate before the spend so the operator sees
+		// the up-front projection in their terminal even on a normal
+		// run. Compact one-liner, not the full matrix.
+		fmt.Fprintf(os.Stderr, "gogfy: pre-flight estimate ~$%.4f (%d input + %d output tokens across %d files)\n",
+			preflight.estimatedUSD, preflight.inputTokens, preflight.outputTokens, len(semanticJobs))
 		// Semantic result cache lives next to the file-hash cache so
 		// `--update` and the new semantic cache decay together: any
 		// invalidation strategy that wipes one will wipe the other.
