@@ -179,3 +179,47 @@ func TestNodeDisplayLabelFallsBackToID(t *testing.T) {
 		t.Errorf("without-label: got %q want raw-id", withoutLabel.DisplayLabel())
 	}
 }
+
+func TestSanitizeTextStripsControlChars(t *testing.T) {
+	// Inputs from extractors / LLM responses can carry newlines, tabs,
+	// or ANSI escape sequences. All must come out — they otherwise
+	// break Mermaid identifiers, corrupt terminal output via control
+	// codes, and inject HTML structure in the viewer.
+	cases := []struct {
+		in, want string
+	}{
+		{"clean label", "clean label"},
+		{"with\nnewline", "withnewline"},
+		{"with\ttabs\there", "withtabshere"},
+		{"\x1b[31mred\x1b[0m", "[31mred[0m"},                 // ESC stripped, brackets stay
+		{"  trim me  ", "trim me"},                           // outer whitespace trimmed
+		{"\x00\x01nullbyte", "nullbyte"},                     // NUL + SOH stripped
+		{"", ""},                                             // empty stays empty
+		{"\n\n\n", ""},                                       // all-control collapses to empty
+	}
+	for _, c := range cases {
+		if got := SanitizeText(c.in); got != c.want {
+			t.Errorf("SanitizeText(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestSanitizeTextCapsLength(t *testing.T) {
+	long := ""
+	for i := 0; i < MaxLabelRunes+100; i++ {
+		long += "x"
+	}
+	got := SanitizeText(long)
+	if rc := len([]rune(got)); rc != MaxLabelRunes {
+		t.Errorf("expected length capped at %d, got %d", MaxLabelRunes, rc)
+	}
+}
+
+func TestSanitizeTextPreservesUnicode(t *testing.T) {
+	// Multi-byte runes must stay intact — the rune-counting cap should
+	// not slice mid-rune. CJK + emoji are the realistic input.
+	in := "識別子 — 🚀 module"
+	if got := SanitizeText(in); got != in {
+		t.Errorf("unicode label changed: got %q want %q", got, in)
+	}
+}

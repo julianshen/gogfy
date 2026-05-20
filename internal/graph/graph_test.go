@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/julianshen/gogfy/internal/schema"
@@ -150,5 +151,32 @@ func TestGraphMutationProtection(t *testing.T) {
 	nodes2 := g.Nodes()
 	if nodes2[0].Label != "A" {
 		t.Fatal("Graph.Nodes() should return a copy, not the internal slice")
+	}
+}
+
+func TestAddNodeSanitizesLabelAndSourceFile(t *testing.T) {
+	// Builder.AddNode is the chokepoint where extractor / semantic /
+	// rationale output funnels into the graph. Sanitizing here means
+	// no per-extractor remembering — a malicious or noisy upstream
+	// can't bypass the policy by going around one site.
+	b := NewBuilder()
+	dirty := schema.Node{
+		ID:         "go:function:/a.go:foo",
+		Label:      "Foo\x1b[31m red\x1b[0m\nname",
+		SourceFile: "/a.go\x00malicious",
+	}
+	if err := b.AddNode(dirty); err != nil {
+		t.Fatal(err)
+	}
+	g := b.Build()
+	got := g.Nodes()[0]
+	if strings.ContainsAny(got.Label, "\x1b\n\x00") {
+		t.Errorf("Label retained control chars: %q", got.Label)
+	}
+	if strings.ContainsAny(got.SourceFile, "\x1b\n\x00") {
+		t.Errorf("SourceFile retained control chars: %q", got.SourceFile)
+	}
+	if got.ID != "go:function:/a.go:foo" {
+		t.Errorf("ID must not be sanitized — extractor grammar depends on it: %q", got.ID)
 	}
 }

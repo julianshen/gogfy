@@ -49,7 +49,16 @@ func NewBuilder() *Builder {
 
 // AddNode adds a node to the builder, returning an error if validation fails.
 // Duplicate IDs are silently ignored (idempotent).
+//
+// Label and SourceFile are sanitized via schema.SanitizeText: control
+// characters stripped (defends terminal / Mermaid / HTML renderers
+// from injected ANSI escape sequences) and length capped at
+// MaxLabelRunes. ID is NOT sanitized — IDs follow a fixed
+// `<lang>:<kind>:<path>:<name>` grammar maintained by extractors and
+// changing them mid-flight would break edge endpoint matches.
 func (b *Builder) AddNode(n schema.Node) error {
+	n.Label = schema.SanitizeText(n.Label)
+	n.SourceFile = schema.SanitizeText(n.SourceFile)
 	if err := n.Validate(); err != nil {
 		return err
 	}

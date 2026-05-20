@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
-	"unicode"
 
 	"github.com/julianshen/gogfy/internal/fsutil"
 	"github.com/julianshen/gogfy/internal/schema"
@@ -59,21 +57,7 @@ func Generate(nodes []schema.Node, edges []schema.Edge) map[string]string {
 // result at maxLabelRunes. An empty result after stripping returns "" — the
 // wiki layer falls back to "Community <cid>" when a label is missing or
 // blank, so this stays compatible.
-func sanitize(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		if unicode.IsControl(r) {
-			continue
-		}
-		b.WriteRune(r)
-	}
-	out := strings.TrimSpace(b.String())
-	if rs := []rune(out); len(rs) > maxLabelRunes {
-		out = string(rs[:maxLabelRunes])
-	}
-	return out
-}
+func sanitize(s string) string { return schema.SanitizeText(s) }
 
 // Save writes labels to path. encoding/json sorts map[string]T keys, and
 // fsutil.WriteFileAtomic guarantees crash-safe replacement.
