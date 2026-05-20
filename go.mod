@@ -46,6 +46,7 @@ require (
 	github.com/kkdai/youtube/v2 v2.10.6 // indirect
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
+	github.com/neo4j/neo4j-go-driver/v5 v5.28.4 // indirect
 	github.com/stadelmanma/tree-sitter-fortran v0.6.0 // indirect
 	github.com/tree-sitter/tree-sitter-elixir v0.0.0-00010101000000-000000000000 // indirect
 	github.com/xrash/smetrics v0.0.0-20250705151800-55b8f293f342 // indirect
