@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -181,5 +182,72 @@ func TestRunErrorsOnMissingRoot(t *testing.T) {
 	close(stop)
 	if err := Run(missing, Options{Logger: &bytes.Buffer{}}, stop, func([]string) error { return nil }); err == nil {
 		t.Fatal("expected error for missing root")
+	}
+}
+
+func TestRunLogsRebuildDuration(t *testing.T) {
+	// The "rebuild finished in Xms" / "rebuild failed in Xms ..."
+	// log line gives users a feel for whether the cache machinery is
+	// saving time. A regression that drops the duration would make
+	// silent-watch UX worse.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "seed.go"), []byte("package x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	var log bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_ = Run(root, Options{
+			Extensions: []string{".go"},
+			Debounce:   30 * time.Millisecond,
+			Logger:     &log,
+		}, stop, func(changed []string) error {
+			defer func() { close(done) }()
+			return nil
+		})
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(root, "seed.go"), []byte("package x\nfunc f() {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("rebuild did not fire within 2s")
+	}
+	// Give the goroutine a moment to flush the post-rebuild log line.
+	time.Sleep(50 * time.Millisecond)
+	if !bytes.Contains(log.Bytes(), []byte("rebuild finished in")) {
+		t.Errorf("expected 'rebuild finished in <duration>' in log, got:\n%s", log.String())
+	}
+}
+
+func TestStartupLogIncludesDirectoryCount(t *testing.T) {
+	// The startup line should advertise the directory count and
+	// extension filter size — gives the user immediate feedback
+	// that the watcher actually started and what it's watching.
+	root := t.TempDir()
+	stop := make(chan struct{})
+	var log bytes.Buffer
+	go func() {
+		_ = Run(root, Options{
+			Extensions: []string{".go", ".py"},
+			Debounce:   30 * time.Millisecond,
+			Logger:     &log,
+		}, stop, func(changed []string) error { return nil })
+	}()
+	time.Sleep(150 * time.Millisecond)
+	close(stop)
+	output := log.String()
+	if !strings.Contains(output, "watching") {
+		t.Errorf("missing 'watching' verb in startup line: %s", output)
+	}
+	if !strings.Contains(output, "directories") {
+		t.Errorf("missing directory count in startup line: %s", output)
+	}
+	if !strings.Contains(output, "extensions=2") {
+		t.Errorf("missing extension count in startup line: %s", output)
 	}
 }

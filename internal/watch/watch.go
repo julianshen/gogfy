@@ -64,7 +64,12 @@ func Run(root string, opts Options, stop <-chan struct{}, rebuild RebuildFunc) e
 	if err := addRecursive(w, root); err != nil {
 		return fmt.Errorf("watch %s: %w", root, err)
 	}
-	fmt.Fprintf(opts.Logger, "gogfy: watching %s\n", root)
+	// Count watched paths so the startup line gives users a sense
+	// of the scope. Silent watch mode previously left people
+	// wondering "did this actually start watching anything?"
+	watchedCount := w.WatchList()
+	fmt.Fprintf(opts.Logger, "gogfy: watching %s (%d directories, debounce %v, extensions=%d)\n",
+		root, len(watchedCount), opts.Debounce, len(extSet))
 
 	pending := map[string]struct{}{}
 	timer := time.NewTimer(time.Hour)
@@ -89,8 +94,18 @@ func Run(root string, opts Options, stop <-chan struct{}, rebuild RebuildFunc) e
 		fmt.Fprintf(opts.Logger, "gogfy: %d file(s) changed, rebuilding\n", len(paths))
 		rebuilding = true
 		go func() {
-			if err := rebuild(paths); err != nil {
-				fmt.Fprintf(opts.Logger, "gogfy: rebuild failed: %v\n", err)
+			// Track duration so users see whether the cache+manifest
+			// path is actually saving time. Without this, a 30s
+			// rebuild feels identical to a 0.3s no-op rebuild and
+			// users can't tell whether the incremental machinery is
+			// doing its job.
+			start := time.Now()
+			err := rebuild(paths)
+			elapsed := time.Since(start)
+			if err != nil {
+				fmt.Fprintf(opts.Logger, "gogfy: rebuild failed in %v: %v\n", elapsed.Truncate(time.Millisecond), err)
+			} else {
+				fmt.Fprintf(opts.Logger, "gogfy: rebuild finished in %v\n", elapsed.Truncate(time.Millisecond))
 			}
 			rebuildDone <- struct{}{}
 		}()
