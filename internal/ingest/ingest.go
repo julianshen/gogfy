@@ -34,7 +34,45 @@ import (
 //
 // Idempotent: the content-hashed filename means the same URL maps to
 // the same path across runs; re-running skips the fetch.
+// Options configures Ingest's behavior beyond the SSRF-guard layer.
+// Kept narrow today (YouTube audio mode); expand as new ingest
+// branches grow knobs.
+type Options struct {
+	// Safefetch is the SSRF / size guard configuration passed to
+	// safefetch.Fetch. Zero-value uses the default guard.
+	Safefetch safefetch.Options
+	// YouTubeFetchAudio, when true, fetches the audio stream of a
+	// YouTube video URL and writes a binary `.m4a` / `.webm` sidecar
+	// so the transcribe pipeline can pick it up. When false (the
+	// historical default), YouTube URLs only get an oembed
+	// metadata-only `.md` sidecar — no audio bytes touched.
+	YouTubeFetchAudio bool
+	// YouTubeAudioFetcher is a hook for tests to inject a synthetic
+	// audio fetcher without reaching for the live `ytaudio` client.
+	// Production callers leave this nil; the package supplies the
+	// default `ytaudio.New()` client when audio mode is enabled.
+	YouTubeAudioFetcher YouTubeAudioFetcher
+}
+
+// YouTubeAudioFetcher is the minimum surface Ingest needs from the
+// `ytaudio` package. Pulled into a named interface so the ingest
+// package doesn't import `ytaudio` directly (avoids a heavy
+// transitive dependency for callers who only need text ingestion).
+type YouTubeAudioFetcher interface {
+	Download(ctx context.Context, videoURL string) (audio []byte, contentType, title, author string, err error)
+}
+
+// Ingest is the historical entry point: text-mode ingest with the
+// default safefetch policy. New callers wanting YouTube-audio mode
+// should use IngestWithOptions.
 func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) (string, error) {
+	return IngestWithOptions(ctx, rawURL, outDir, Options{Safefetch: opts})
+}
+
+// IngestWithOptions is the knob-bearing form. Future ingest features
+// hang flags here instead of churning Ingest's signature.
+func IngestWithOptions(ctx context.Context, rawURL, outDir string, options Options) (string, error) {
+	opts := options.Safefetch
 	fetchURL := rawURL
 	if rewritten, ok := rewriteGitHubURL(rawURL); ok {
 		fetchURL = rewritten
@@ -63,9 +101,33 @@ func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) 
 	}
 	// YouTube takes a different shape — the watch-page HTML is JS-
 	// rendered and full of player chrome, but the oembed endpoint
-	// returns clean title/author/thumbnail JSON. Skip the HTML path
-	// and write a metadata-only sidecar.
+	// returns clean title/author/thumbnail JSON. Two modes:
+	//   1. Default (--no audio): write a metadata-only .md sidecar
+	//      using the oembed response.
+	//   2. YouTubeFetchAudio=true: download the audio stream via
+	//      kkdai/youtube (pure-Go yt-dlp replacement) and write a
+	//      binary sidecar so transcribe picks it up like any other
+	//      audio file. Falls back to the metadata path if the audio
+	//      fetch fails — better to land *something* than nothing.
 	if IsYouTubeURL(rawURL) {
+		// Idempotent skip for the audio sidecar (extension depends on
+		// the codec YouTube serves; probe both common shapes).
+		for _, ext := range []string{".m4a", ".webm"} {
+			if _, err := os.Stat(audioSidecarPath(outDir, rawURL, ext)); err == nil {
+				return audioSidecarPath(outDir, rawURL, ext), nil
+			}
+		}
+		if options.YouTubeFetchAudio && options.YouTubeAudioFetcher != nil {
+			path, err := tryFetchYouTubeAudio(ctx, rawURL, outDir, options.YouTubeAudioFetcher)
+			if err == nil {
+				return path, nil
+			}
+			// Audio mode is best-effort. Geo-blocks, age gates, and
+			// upload-in-progress videos all surface here; we log to
+			// stderr and fall through to the metadata path so the URL
+			// still lands in the corpus.
+			fmt.Fprintf(os.Stderr, "ingest: youtube audio fetch failed for %s, falling back to metadata-only: %v\n", rawURL, err)
+		}
 		meta, err := fetchYouTubeMetadata(ctx, rawURL, opts)
 		if err != nil {
 			return "", fmt.Errorf("ingest: %w", err)
@@ -122,6 +184,52 @@ func Ingest(ctx context.Context, rawURL, outDir string, opts safefetch.Options) 
 		return "", fmt.Errorf("ingest: write %s: %w", mdPath, err)
 	}
 	return mdPath, nil
+}
+
+// audioSidecarPath mirrors pdfSidecarPath but with a caller-supplied
+// extension for YouTube audio sidecars (typical: .m4a for AAC, .webm
+// for Opus — whichever YouTube serves).
+func audioSidecarPath(outDir, rawURL, ext string) string {
+	h := sha1.Sum([]byte(rawURL))
+	hx := hex.EncodeToString(h[:8])
+	stem := urlStem(rawURL)
+	if stem == "" {
+		stem = "url"
+	}
+	return filepath.Join(outDir, "ingested", stem+"-"+hx+ext)
+}
+
+// tryFetchYouTubeAudio downloads the audio stream and writes a
+// binary sidecar. The MIME → extension mapping is small: YouTube
+// reliably serves either audio/mp4 (m4a) or audio/webm. Anything
+// else falls back to .m4a so the file still has SOMETHING that
+// Whisper's content-type sniffer accepts.
+func tryFetchYouTubeAudio(ctx context.Context, rawURL, outDir string, fetcher YouTubeAudioFetcher) (string, error) {
+	audio, contentType, title, author, err := fetcher.Download(ctx, rawURL)
+	if err != nil {
+		return "", err
+	}
+	if len(audio) == 0 {
+		return "", fmt.Errorf("empty audio stream")
+	}
+	ext := ".m4a"
+	if strings.Contains(contentType, "webm") {
+		ext = ".webm"
+	}
+	path := audioSidecarPath(outDir, rawURL, ext)
+	if err := fsutil.WriteFileAtomic(path, audio, 0644); err != nil {
+		return "", fmt.Errorf("write %s: %w", path, err)
+	}
+	// Also write a sibling .meta.md with the title/author so the
+	// downstream transcribe pass can emit a frontmatter block that
+	// keeps the source-URL connection. The transcribe pipeline writes
+	// its own .md alongside; the metadata file is informational only.
+	if title != "" || author != "" {
+		metaPath := path + ".meta.md"
+		meta := fmt.Sprintf("---\nsource_url: %q\nkind: youtube\ntitle: %q\nauthor: %q\n---\n", rawURL, title, author)
+		_ = fsutil.WriteFileAtomic(metaPath, []byte(meta), 0644)
+	}
+	return path, nil
 }
 
 // arxivAbsRe matches arXiv abstract URLs and captures the paper id

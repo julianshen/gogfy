@@ -45,6 +45,7 @@ import (
 	"github.com/julianshen/gogfy/internal/llm/bedrock"
 	"github.com/julianshen/gogfy/internal/llm/kimi"
 	"github.com/julianshen/gogfy/internal/manifest"
+	"github.com/julianshen/gogfy/internal/ytaudio"
 	"github.com/julianshen/gogfy/internal/llm/ollama"
 	"github.com/julianshen/gogfy/internal/llm/openai"
 	"github.com/julianshen/gogfy/internal/transcribe"
@@ -538,20 +539,26 @@ func renderDiff(w io.Writer, d graphdiff.Diff) {
 // ordinary document — semantic extraction can then process it like
 // any local markdown file.
 func ingestCommand(args []string, stderr io.Writer) error {
-	ordered, err := reorderFlags(args, []string{"out"}, nil)
+	ordered, err := reorderFlags(args, []string{"out"}, []string{"audio"})
 	if err != nil {
 		return err
 	}
 	fs := flag.NewFlagSet("ingest", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	out := fs.String("out", "graphify-out", "output directory (sidecar lands under <out>/ingested/)")
+	audio := fs.Bool("audio", false, "for YouTube URLs, download the audio stream (pure-Go, no yt-dlp) so transcribe can pick it up; falls back to metadata-only on geo-block / age-gate / takedown")
 	if err := fs.Parse(ordered); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
 		return fmt.Errorf("ingest: expected one <url> argument, got %d", fs.NArg())
 	}
-	path, err := ingest.Ingest(context.Background(), fs.Arg(0), *out, safefetch.Options{})
+	ingestOpts := ingest.Options{Safefetch: safefetch.Options{}}
+	if *audio {
+		ingestOpts.YouTubeFetchAudio = true
+		ingestOpts.YouTubeAudioFetcher = ytaudio.NewIngestFetcher(ytaudio.New())
+	}
+	path, err := ingest.IngestWithOptions(context.Background(), fs.Arg(0), *out, ingestOpts)
 	if err != nil {
 		return fmt.Errorf("ingest: %w", err)
 	}
