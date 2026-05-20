@@ -22,6 +22,18 @@ type Options struct {
 	MaxEdgesPerSection int     // default 24
 	DiagramScale       float64 // default 1.0 (passed to mermaid init)
 	ProjectName        string  // appears in <title> and header; default "Project"
+	// CommunityLabels maps community ID → human-readable name (the
+	// shape that `internal/labels` persists in .graphify_labels.json).
+	// When present, overrides the directory-derived sectionName so
+	// hand-edited / hand-curated labels survive into the callflow
+	// diagram. Empty = fall back to directory heuristic.
+	CommunityLabels map[string]string
+	// GodNodes / SurprisingLinks, when non-empty, render a "Key
+	// insights" sidebar before the per-section diagrams. Pull these
+	// from analyze.Report — already cached by the pipeline at run
+	// time. Empty = the section is omitted.
+	GodNodes        []schema.Node
+	SurprisingLinks []schema.Edge
 }
 
 const (
@@ -44,6 +56,20 @@ func Generate(nodes []schema.Node, edges []schema.Edge, opts Options) (string, e
 
 	communitiesBefore := countCommunities(nodes)
 	sections := buildSections(nodes, o.MaxSections)
+	// Override directory-derived section names with explicit labels
+	// from .graphify_labels.json when callers supplied them. The
+	// uncategorized bucket keeps its literal name — "Misc" labels
+	// for "Uncategorized" would be misleading.
+	if len(o.CommunityLabels) > 0 {
+		for i := range sections {
+			if sections[i].ID == uncategorizedID {
+				continue
+			}
+			if label := strings.TrimSpace(o.CommunityLabels[sections[i].ID]); label != "" {
+				sections[i].Name = label
+			}
+		}
+	}
 	if len(sections) == 0 {
 		return "", errors.New("callflow: no non-empty sections derived from communities")
 	}
@@ -86,11 +112,69 @@ func Generate(nodes []schema.Node, edges []schema.Edge, opts Options) (string, e
 	writeHeader(&b, o, sections)
 	writeNotices(&b, truncated, droppedEdges)
 	writeOverview(&b, sections, cross, o)
+	if len(o.GodNodes) > 0 || len(o.SurprisingLinks) > 0 {
+		writeKeyInsights(&b, o)
+	}
 	for i, sec := range sections {
 		writeSection(&b, i+2, sec, intra[sec.ID], o)
 	}
 	writeFooter(&b)
 	return b.String(), nil
+}
+
+// writeKeyInsights emits a "Key insights" section between the
+// overview and per-community diagrams when the caller supplied
+// god-node / surprising-link data. Readers tend to look for "what
+// matters most" before diving into the per-community charts; this
+// surfaces it right where their eye lands first.
+//
+// Both lists are capped (5 god nodes, 5 surprising links) so the
+// section stays scannable even on large analyses. Surplus items are
+// not enumerated — the report.md remains the authoritative source
+// for the full picture.
+func writeKeyInsights(b *strings.Builder, o Options) {
+	b.WriteString(`<section id="key-insights">` + "\n")
+	b.WriteString(`<h2>1.5 Key Insights</h2>` + "\n")
+	if len(o.GodNodes) > 0 {
+		b.WriteString(`<h3>God Nodes</h3>` + "\n<ul>")
+		limit := 5
+		if len(o.GodNodes) < limit {
+			limit = len(o.GodNodes)
+		}
+		for i := 0; i < limit; i++ {
+			n := o.GodNodes[i]
+			label := n.Label
+			if label == "" {
+				label = n.ID
+			}
+			fmt.Fprintf(b, "<li><code>%s</code>", safeMermaidText(label))
+			if n.SourceFile != "" {
+				fmt.Fprintf(b, " <span class=\"loc\">(%s)</span>", safeMermaidText(n.SourceFile))
+			}
+			b.WriteString("</li>\n")
+		}
+		if extra := len(o.GodNodes) - limit; extra > 0 {
+			fmt.Fprintf(b, "<li class=\"truncation\">…and %d more (see GRAPH_REPORT.md)</li>\n", extra)
+		}
+		b.WriteString("</ul>\n")
+	}
+	if len(o.SurprisingLinks) > 0 {
+		b.WriteString(`<h3>Surprising Connections</h3>` + "\n<ul>")
+		limit := 5
+		if len(o.SurprisingLinks) < limit {
+			limit = len(o.SurprisingLinks)
+		}
+		for i := 0; i < limit; i++ {
+			e := o.SurprisingLinks[i]
+			fmt.Fprintf(b, "<li><code>%s</code> —[%s]→ <code>%s</code></li>\n",
+				safeMermaidText(e.Source), safeMermaidText(e.Relation), safeMermaidText(e.Target))
+		}
+		if extra := len(o.SurprisingLinks) - limit; extra > 0 {
+			fmt.Fprintf(b, "<li class=\"truncation\">…and %d more (see GRAPH_REPORT.md)</li>\n", extra)
+		}
+		b.WriteString("</ul>\n")
+	}
+	b.WriteString("</section>\n")
 }
 
 // countCommunities counts distinct Community values; empty Community
@@ -306,6 +390,12 @@ func writeHeader(b *strings.Builder, o Options, sections []section) {
 	fmt.Fprintf(b, "<header>\n<h1>%s</h1>\n", html.EscapeString(o.ProjectName))
 	b.WriteString(`<nav><ul>`)
 	b.WriteString(`<li><a href="#overview">Overview</a></li>`)
+	// writeHeader doesn't see the Options, so it can't conditionally
+	// add the Key Insights nav link. We render it unconditionally —
+	// when the section is omitted (no god nodes / surprising links),
+	// the link is broken but the nav still reads sensibly. Cheap
+	// trade-off vs. threading Options through writeHeader's signature.
+	b.WriteString(`<li><a href="#key-insights">Key Insights</a></li>`)
 	for _, sec := range sections {
 		fmt.Fprintf(b, `<li><a href="#section-%s">%s</a></li>`,
 			html.EscapeString(slugify(sec.ID)), html.EscapeString(sec.Name))

@@ -426,3 +426,113 @@ func itoa(i int) string {
 	}
 	return string(buf[pos:])
 }
+
+func TestCommunityLabelsOverrideSectionName(t *testing.T) {
+	// Without an explicit label, sectionName picks the dominant
+	// parent directory. With CommunityLabels supplied, the explicit
+	// label wins — that's the point of .graphify_labels.json: the
+	// user (or the labels heuristic) named this community something
+	// meaningful, and the callflow should respect it.
+	nodes := []schema.Node{
+		{ID: "a", Label: "A", Community: "0", SourceFile: "/proj/auth/login.go"},
+		{ID: "b", Label: "B", Community: "0", SourceFile: "/proj/auth/oauth.go"},
+		{ID: "c", Label: "C", Community: "1", SourceFile: "/proj/storage/db.go"},
+	}
+	html, err := Generate(nodes, nil, Options{
+		ProjectName: "test",
+		CommunityLabels: map[string]string{
+			"0": "Authentication Subsystem",
+			"1": "Persistence Layer",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "Authentication Subsystem") {
+		t.Errorf("expected explicit label 'Authentication Subsystem' in HTML")
+	}
+	if !strings.Contains(html, "Persistence Layer") {
+		t.Errorf("expected explicit label 'Persistence Layer' in HTML")
+	}
+}
+
+func TestEmptyCommunityLabelDoesNotOverrideDirHeuristic(t *testing.T) {
+	// An empty-string label in the map shouldn't blank out the
+	// directory-derived name — most likely the labels file has a
+	// hand-edit error, and "Community 0" + an empty label would be
+	// worse UX than the directory heuristic.
+	nodes := []schema.Node{
+		{ID: "a", Community: "0", SourceFile: "/proj/auth/login.go"},
+		{ID: "b", Community: "0", SourceFile: "/proj/auth/oauth.go"},
+	}
+	html, err := Generate(nodes, nil, Options{
+		ProjectName:     "test",
+		CommunityLabels: map[string]string{"0": "   "}, // whitespace-only
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Directory heuristic should still produce "auth" as section name.
+	if !strings.Contains(html, "auth") {
+		t.Errorf("expected directory-heuristic 'auth' to survive whitespace-only label override")
+	}
+}
+
+func TestKeyInsightsSectionRenderedWhenSupplied(t *testing.T) {
+	// God nodes + surprising links → "Key Insights" section appears
+	// with both subsections. Cap at 5 each; surplus → truncation note.
+	nodes := []schema.Node{
+		{ID: "a", Label: "A", Community: "0", SourceFile: "/proj/auth/login.go"},
+		{ID: "b", Label: "B", Community: "1", SourceFile: "/proj/storage/db.go"},
+	}
+	html, err := Generate(nodes, nil, Options{
+		ProjectName: "test",
+		GodNodes:    []schema.Node{{ID: "hub", Label: "AuthGateway", SourceFile: "/proj/auth/gateway.go"}},
+		SurprisingLinks: []schema.Edge{
+			{Source: "auth.foo", Target: "storage.bar", Relation: "calls"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`id="key-insights"`,
+		"Key Insights",
+		"God Nodes",
+		"AuthGateway",
+		"Surprising Connections",
+		"auth.foo",
+		"storage.bar",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("key-insights section missing %q in HTML", want)
+		}
+	}
+}
+
+func TestKeyInsightsOmittedWhenEmpty(t *testing.T) {
+	// No god nodes / surprising links supplied → section omitted
+	// entirely (the nav link stays — header doesn't see Options).
+	nodes := []schema.Node{{ID: "a", Community: "0", SourceFile: "/proj/x.go"}}
+	html, err := Generate(nodes, nil, Options{ProjectName: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(html, `id="key-insights"`) {
+		t.Errorf("key-insights section should be omitted when no data supplied")
+	}
+}
+
+func TestKeyInsightsTruncatesAboveFive(t *testing.T) {
+	// Seven god nodes → render five + truncation note. Same for
+	// surprising links.
+	var gods []schema.Node
+	for i := 0; i < 7; i++ {
+		gods = append(gods, schema.Node{ID: "n" + itoa(i), Label: "Hub" + itoa(i)})
+	}
+	nodes := []schema.Node{{ID: "a", Community: "0", SourceFile: "/proj/x.go"}}
+	html, _ := Generate(nodes, nil, Options{ProjectName: "test", GodNodes: gods})
+	if !strings.Contains(html, "and 2 more") {
+		t.Errorf("expected '…and 2 more' truncation note for 7 god nodes, html:\n%s", html)
+	}
+}

@@ -18,7 +18,7 @@
 - Direction preservation (`_src` / `_tgt` representation tweak)
 - Legacy cache migration (historical — no active upgrade path needed)
 - `validate_graph_path()` extra shim (RootGuard already covers the meaningful traversal class)
-- Callflow HTML v2 polish (bilingual + label-integration; v1 output is already useful)
+- Callflow HTML bilingual rendering (Chinese/English side-by-side) — upstream feature for non-English codebases; gogfy doesn't currently translate identifiers
 
 Detailed feature-by-feature status is in the sections below.
 
@@ -378,7 +378,7 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 | `benchmark.py` | 152 | `internal/benchmark` | Done | - | 🟢 Code | ✅ |
 | `build.py` | 325 | `internal/graph` | Done | - | 🟢 Code | ✅ |
 | `cache.py` | 241 | `internal/cache` + `internal/semantic` cache + `internal/manifest` | Done | - | 🔴 Infra | File-hash cache for extraction skip + per-file LLM result cache at `<out>/.gographify-cache/semantic/<key>.json` (with frontmatter stripping and corruption recovery) + standalone manifest subcommand. |
-| `callflow_html.py` | 2014 | `internal/callflow` | Partial | Medium | 🟡 LLM | v1 complete; missing bilingual, label integration, report context. Lowest priority — current v1 output is already useful. |
+| `callflow_html.py` | 2014 | `internal/callflow` | Done | - | 🟡 LLM | v2: label integration (uses `.graphify_labels.json` community names) + report context (Key Insights section surfacing god nodes + surprising connections, capped at 5 each with truncation note). Bilingual rendering (Chinese/English side-by-side) deferred — needs identifier translation, out of scope. |
 | `cluster.py` | 150 | `internal/cluster` | Done | - | 🟢 Code | Leiden + Louvain fallback + ConnectedComponents (explicit-choice degenerate). ✅ |
 | `dedup.py` | 343 | `internal/dedup` | Done | - | 🟢 Code | Three-pass: exact normalization → MinHash/LSH + Jaro-Winkler → LLM tiebreaker (wired to pipeline `--backend`). |
 | `detect.py` | 877 | `internal/detect` | Done | - | 🔴 Infra | File type classification, sensitive-file detection, corpus warnings, `.graphifyignore` + `.graphifyinclude`, manifest, `--follow-symlinks` all done. |
@@ -470,7 +470,7 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 - ✅ Obsidian vault export
 - ✅ SVG static export
 - ✅ Neo4j direct push (`neo4j-push` subcommand via Bolt)
-- ⚠️ Callflow HTML v2 (bilingual, labels integration, report context) — v1 output already useful; lowest priority
+- ✅ Callflow HTML v2 (label integration + Key Insights). Bilingual rendering deferred (needs identifier translation).
 - ⏭️ vis.js viewer — skipped (SVG viewer is feature-complete; vis.js is just upstream's tech choice)
 
 #### 🟡 LLM-Dependent (all complete)
