@@ -147,7 +147,7 @@
 | SVG static export | **Done** | `gogfy svg <graph.json> [--out path.svg]` writes a self-contained .svg (no JavaScript, no D3). `internal/export.StaticSVG` runs a small Fruchterman-Reingold force-directed pass in pure Go (deterministic — seeded PRNG + ID-sorted layout — for stable CI snapshots) then emits circles + lines + optional labels. Nodes colored by community for visual structure. Suitable for embedding in docs / PRs / README files; opens in any SVG viewer. Layout is O(iters · N²); pre-aggregate to community level for very large corpora. |
 | Neo4j direct push | Missing | Upstream can push directly to Neo4j via Python driver |
 | Callflow HTML | **Done (v1)** | gogfy `callflow` subcommand: section-level overview + per-section Mermaid LR. v1 omits bilingual/labels-file/GRAPH_REPORT integration. |
-| Node limit / aggregation | Missing | Upstream auto-aggregates to community-level view when graph exceeds 5000 nodes |
+| Node limit / aggregation | **Done** | `internal/export.ExportHTML` auto-aggregates to a community-level meta-graph above `defaultMaxNodes` (1000 nodes, vs. upstream's 5000 — lower because the SVG layout stutters earlier on typical hardware). `aggregateByCommunity` collapses each community into a single node and each cross-community edge pair into a single weighted meta-edge; intra-community edges are dropped (the wiki + Obsidian artifacts preserve full detail). Negative `MaxNodes` is the opt-out sentinel for offline / CI captures that want full fidelity. |
 | Confidence score defaults | **Done** | `Confidence.Score()` maps Extracted=1.0, Inferred=0.5, Ambiguous=0.25; `Edge.MarshalJSON` emits a derived `confidence_score` field next to the existing int. Additive — int Confidence stays authoritative for round-trip. |
 | Built-at commit metadata | **Done** | `GraphExport.BuiltAtCommit` (json `built_at_commit`, omitempty for backwards compat) populated from `gitmeta.HeadShortSHA` at both runPipeline and runClusterOnly export sites. Cross-tool consumers can detect a stale snapshot against a fresh repo. |
 
@@ -173,7 +173,7 @@
 | SSRF-guarded socket | **Done** | `validateHost` resolves the URL's hostname BEFORE the request and rejects any IP in private/loopback/link-local/cloud-metadata ranges. Redirects re-run the check at every hop so a server can't bounce to an internal address. Resolves all IPs (not just first) to defeat DNS rebinding. |
 | Safe fetch | **Done** | `internal/safefetch` ships SSRF guard + 10 MiB default size cap + 30s timeout + 5-redirect cap. Drop-in replacement for raw `http.Get` for user-supplied URLs. |
 | Path traversal guard | Partial | gogfy has RootGuard; upstream also has `validate_graph_path()` |
-| Label sanitization | Partial | `internal/labels` strips control chars and caps at 256 runes for community names; node Label/SourceFile fields not yet sanitized at ingest. |
+| Label sanitization | **Done** | `schema.SanitizeText` (canonical sanitizer — strips Unicode control chars including ANSI escape, NUL, tab, newline; caps at `MaxLabelRunes`=256; multi-byte-rune safe). `graph.Builder.AddNode` runs Node.Label and Node.SourceFile through it — single chokepoint covers extractor / semantic / rationale outputs, so a noisy or malicious upstream can't bypass the policy by going around one site. `ID` is intentionally NOT sanitized (extractor grammar relies on the exact form). `internal/labels` now delegates to the schema function so there's one rule everywhere. |
 
 ---
 

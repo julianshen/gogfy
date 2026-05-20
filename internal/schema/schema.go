@@ -5,7 +5,43 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"unicode"
 )
+
+// MaxLabelRunes caps Node.Label / Hyperedge labels at a width that
+// matches the labels-package convention and the bounds Mermaid /
+// frontend renderers tolerate without wrapping. Exported so callers
+// computing display widths can stay in sync.
+const MaxLabelRunes = 256
+
+// SanitizeText strips control characters (newlines, NULs, tabs, ANSI
+// escape sequence bytes, etc.) from s and caps the result at
+// MaxLabelRunes runes. Used at ingest boundaries to defend renderers
+// (terminal output, Mermaid, GraphViz, HTML) and report consumers
+// from injected escape codes or excessively long labels.
+//
+// Whitespace trimming is intentional — a label like "  Foo  " from a
+// noisy extractor should collapse to "Foo" before consumers compare it.
+//
+// An all-control-char input becomes an empty string. Validate() flags
+// empty labels at the schema layer, so the caller still gets a clean
+// failure rather than a silently-empty node row in the graph.
+func SanitizeText(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := strings.TrimSpace(b.String())
+	if rs := []rune(out); len(rs) > MaxLabelRunes {
+		out = string(rs[:MaxLabelRunes])
+	}
+	return out
+}
 
 // jsonMarshalEdge is a package-local indirection so Edge.MarshalJSON
 // can encode the shadow struct without recursing into itself.
