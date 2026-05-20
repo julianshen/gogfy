@@ -13,6 +13,7 @@ import (
 	"slices"
 	"mime"
 	"strings"
+	"time"
 
 	"os/signal"
 	"syscall"
@@ -174,6 +175,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return ingestCommand(rest, stderr)
 	case "manifest":
 		return manifestCommand(rest, os.Stdout, stderr)
+	case "cache":
+		return cacheCommand(rest, os.Stdout, stderr)
 	case "svg":
 		return svgCommand(rest, stderr)
 	case "neo4j-push":
@@ -589,6 +592,98 @@ func ingestCommand(args []string, stderr io.Writer) error {
 		return fmt.Errorf("ingest: %w", err)
 	}
 	fmt.Fprintf(stderr, "ingest: wrote %s\n", path)
+	return nil
+}
+
+// cacheCommand exposes the on-disk caches the pipeline maintains.
+// Two sub-verbs:
+//
+//	gogfy cache stats [--out DIR]              # entry counts, sizes, oldest/newest
+//	gogfy cache clear [--out DIR] [--older-than DUR] [--all]
+//
+// Today only the semantic LLM result cache has rich stats / clear
+// support — that's the cost-driving one. The file-hash cache is a
+// single small JSON; users who want it gone can rm it directly.
+func cacheCommand(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("cache: expected sub-verb (stats|clear)")
+	}
+	verb, rest := args[0], args[1:]
+	switch verb {
+	case "stats":
+		return cacheStatsCommand(rest, stdout, stderr)
+	case "clear":
+		return cacheClearCommand(rest, stdout, stderr)
+	default:
+		return fmt.Errorf("cache: unknown sub-verb %q (want stats|clear)", verb)
+	}
+}
+
+// cacheStatsCommand prints a human-readable summary of the semantic
+// cache: entry count, total bytes on disk, oldest and newest write
+// timestamps. Useful for "how much cache do I have?" and "is the
+// cache being touched at all?" diagnostics.
+func cacheStatsCommand(args []string, stdout, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"out"}, nil)
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("cache stats", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outDir := fs.String("out", "graphify-out", "graph output directory (cache lives under <out>/.gographify-cache/)")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	semCache := semantic.NewCache(filepath.Join(*outDir, ".gographify-cache", "semantic"))
+	stats, err := semCache.Stats()
+	if err != nil {
+		return fmt.Errorf("cache stats: %w", err)
+	}
+	fmt.Fprintf(stdout, "semantic LLM cache (%s)\n", stats.Dir)
+	if stats.Entries == 0 {
+		fmt.Fprintln(stdout, "  (empty — no cached extractions yet)")
+		return nil
+	}
+	fmt.Fprintf(stdout, "  entries:      %d\n", stats.Entries)
+	fmt.Fprintf(stdout, "  size on disk: %.2f MB\n", float64(stats.BytesOnDisk)/(1024*1024))
+	fmt.Fprintf(stdout, "  oldest write: %s\n", stats.OldestWrite.Format(time.RFC3339))
+	fmt.Fprintf(stdout, "  newest write: %s\n", stats.NewestWrite.Format(time.RFC3339))
+	return nil
+}
+
+// cacheClearCommand removes cache entries. --older-than DUR limits
+// to age; --all wipes everything. Mutually exclusive — passing both
+// is a config error.
+func cacheClearCommand(args []string, stdout, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"out", "older-than"}, []string{"all"})
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("cache clear", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outDir := fs.String("out", "graphify-out", "graph output directory")
+	olderThan := fs.Duration("older-than", 0, "only remove entries whose mtime is older than this duration (e.g. 168h for 'one week')")
+	all := fs.Bool("all", false, "remove every entry — equivalent to rm-rf'ing the cache directory")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if *olderThan > 0 && *all {
+		return fmt.Errorf("cache clear: --older-than and --all are mutually exclusive")
+	}
+	if *olderThan == 0 && !*all {
+		return fmt.Errorf("cache clear: pass --older-than DUR or --all (refusing to act ambiguously)")
+	}
+	semCache := semantic.NewCache(filepath.Join(*outDir, ".gographify-cache", "semantic"))
+	var removed int
+	if *all {
+		removed, err = semCache.ClearAll()
+	} else {
+		removed, err = semCache.ClearOlderThan(time.Now().Add(-*olderThan))
+	}
+	if err != nil {
+		return fmt.Errorf("cache clear: %w", err)
+	}
+	fmt.Fprintf(stdout, "cache clear: removed %d entries\n", removed)
 	return nil
 }
 
