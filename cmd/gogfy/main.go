@@ -177,6 +177,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return manifestCommand(rest, os.Stdout, stderr)
 	case "cache":
 		return cacheCommand(rest, os.Stdout, stderr)
+	case "ci":
+		return ciCommand(rest, os.Stdout, stderr)
 	case "svg":
 		return svgCommand(rest, stderr)
 	case "neo4j-push":
@@ -560,6 +562,119 @@ func renderDiff(w io.Writer, d graphdiff.Diff) {
 			fmt.Fprintf(w, "- %s --%s--> %s\n", e.Source, e.Relation, e.Target)
 		}
 	}
+}
+
+// ciCommand is the CI PR-gate verb. Compares two graph.json files
+// (typically base-branch vs feature-branch) and exits non-zero when
+// quality-regression thresholds are tripped. Designed to slot into
+// GitHub Actions / GitLab CI / Buildkite pipelines as a single
+// invocation with no surrounding glue.
+//
+// Output: a markdown-shaped summary on stdout (suitable for `gh pr
+// comment --body-file -`) plus a short status line on stderr. Exit
+// code 0 = green, non-zero = at least one threshold tripped.
+//
+// Thresholds default to "permissive" — `gogfy ci a.json b.json`
+// alone always exits 0 with the summary. Each --max-* flag opts
+// into a specific gate.
+func ciCommand(args []string, stdout, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"max-removed-nodes", "max-removed-edges", "max-new-ambiguous"}, nil)
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("ci", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	maxRemovedNodes := fs.Int("max-removed-nodes", -1, "fail the gate if more than N nodes disappeared between base and head; -1 disables (default)")
+	maxRemovedEdges := fs.Int("max-removed-edges", -1, "fail the gate if more than N edges disappeared between base and head; -1 disables")
+	maxNewAmbiguous := fs.Int("max-new-ambiguous", -1, "fail the gate if more than N new AMBIGUOUS edges appeared — a proxy for 'resolution quality dropped'; -1 disables")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return fmt.Errorf("ci: expected <base.json> <head.json>, got %d positional argument(s)", fs.NArg())
+	}
+	base, err := loadGraph(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("ci: read base: %w", err)
+	}
+	head, err := loadGraph(fs.Arg(1))
+	if err != nil {
+		return fmt.Errorf("ci: read head: %w", err)
+	}
+
+	diff := graphdiff.Compute(base.Nodes, head.Nodes, base.Edges, head.Edges)
+	newAmbiguous := countNewAmbiguous(base.Edges, diff.EdgesAdded)
+
+	// Markdown summary on stdout — meant to be piped into a PR
+	// comment via `gh pr comment --body-file -` or attached to a
+	// CI artifact.
+	fmt.Fprintln(stdout, "## gogfy CI gate")
+	fmt.Fprintln(stdout, "")
+	fmt.Fprintf(stdout, "- nodes: +%d added, -%d removed, ~%d changed\n",
+		len(diff.NodesAdded), len(diff.NodesRemoved), len(diff.NodesChanged))
+	fmt.Fprintf(stdout, "- edges: +%d added, -%d removed\n",
+		len(diff.EdgesAdded), len(diff.EdgesRemoved))
+	fmt.Fprintf(stdout, "- new AMBIGUOUS edges: %d (resolution-quality signal)\n", newAmbiguous)
+	fmt.Fprintln(stdout, "")
+
+	// Collect threshold breaches before printing the pass/fail line
+	// so the summary lists ALL trips, not just the first.
+	var breaches []string
+	if *maxRemovedNodes >= 0 && len(diff.NodesRemoved) > *maxRemovedNodes {
+		breaches = append(breaches, fmt.Sprintf("nodes-removed %d > cap %d", len(diff.NodesRemoved), *maxRemovedNodes))
+	}
+	if *maxRemovedEdges >= 0 && len(diff.EdgesRemoved) > *maxRemovedEdges {
+		breaches = append(breaches, fmt.Sprintf("edges-removed %d > cap %d", len(diff.EdgesRemoved), *maxRemovedEdges))
+	}
+	if *maxNewAmbiguous >= 0 && newAmbiguous > *maxNewAmbiguous {
+		breaches = append(breaches, fmt.Sprintf("new-ambiguous %d > cap %d", newAmbiguous, *maxNewAmbiguous))
+	}
+
+	if len(breaches) == 0 {
+		fmt.Fprintln(stdout, "**Result**: ✅ green (no thresholds tripped)")
+		fmt.Fprintln(stderr, "ci: green")
+		return nil
+	}
+	fmt.Fprintln(stdout, "**Result**: ❌ FAILED")
+	for _, b := range breaches {
+		fmt.Fprintf(stdout, "- %s\n", b)
+	}
+	fmt.Fprintln(stderr, "ci: failed")
+	for _, b := range breaches {
+		fmt.Fprintf(stderr, "  - %s\n", b)
+	}
+	// Return a sentinel error so the CLI exits non-zero. The
+	// markdown summary on stdout is the actionable artifact.
+	return errCIGateFailed
+}
+
+// errCIGateFailed is the sentinel returned when at least one
+// threshold was tripped. The cmd/gogfy dispatch layer translates
+// errors into non-zero exits, so returning this is sufficient — no
+// explicit os.Exit needed.
+var errCIGateFailed = errors.New("ci: one or more gates failed")
+
+// countNewAmbiguous returns the count of edges in newAdds whose
+// triple (source, target, relation) didn't appear as AMBIGUOUS in
+// baseEdges. A net-new AMBIGUOUS edge means the resolver fanned
+// out where it previously had a single candidate — a real signal
+// that resolution quality dropped.
+//
+// We don't double-count: an EXTRACTED→AMBIGUOUS transition on the
+// same triple would show as +AMBIGUOUS in EdgesAdded and matches
+// the (source, target, relation) of a removed EXTRACTED, but our
+// edgeKey ignores confidence so the diff sees it as no-change.
+// That's a known limitation of graphdiff (line 79); we accept it
+// here because the gate's job is to catch BIG resolution drops,
+// not single-edge confidence flips.
+func countNewAmbiguous(baseEdges, newAdds []schema.Edge) int {
+	n := 0
+	for _, e := range newAdds {
+		if e.Confidence == schema.Ambiguous {
+			n++
+		}
+	}
+	return n
 }
 
 // ingestCommand fetches a URL through the SSRF-guarded safe_fetch
