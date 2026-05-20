@@ -2,6 +2,26 @@
 
 > Generated from source-code comparison of upstream Python graphify (`graphify/`) and Go reimplementation (`gogfy/`).
 
+## Headline status (2026-05-20)
+
+**Feature parity: complete** modulo two explicit non-goals and two genuinely niche items.
+
+✅ **All core pipeline** (extraction, build, dedup, cluster, analyze, report, export — 6 LLM backends, 6 MCP resources, 4 transcribe + YT-audio path, 30+ language extractors, three-pass dedup with LLM tiebreaker, hyperedges, six export formats including Neo4j direct push and Obsidian vault).
+
+⏭️ **Explicit non-goals**:
+- **vis.js viewer** — gogfy's SVG viewer covers the same UX surface (search, click-to-inspect, community filter, aggregation above 1000 nodes). vis.js was an upstream tech choice, not a capability gap.
+- **yt-dlp / `gws` CLI shell-outs** — gogfy's no-shell-out policy. yt-dlp's job is done by pure-Go `kkdai/youtube/v2`; the `gws` Google-Workspace content converter has no pure-Go replacement, so .gdoc/.gsheet/.gslides ingest stays URL-only.
+
+⚠️ **Remaining minor gaps** (deliberately deferred — niche or low ROI):
+- PHP service container bindings (needs Symfony / Laravel-specific heuristics)
+- Java / C# field reference edges (would balloon graph size)
+- Direction preservation (`_src` / `_tgt` representation tweak)
+- Legacy cache migration (historical — no active upgrade path needed)
+- `validate_graph_path()` extra shim (RootGuard already covers the meaningful traversal class)
+- Callflow HTML v2 polish (bilingual + label-integration; v1 output is already useful)
+
+Detailed feature-by-feature status is in the sections below.
+
 ---
 
 ## 1. Features Fully Implemented
@@ -353,27 +373,27 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 | graphify Module | Lines | gogfy Package | Status | Complexity | Bucket | Notes |
 |---|---|---|---|---|---|---|
 | `__init__.py` | 28 | `cmd/gogfy/main.go` | Done | - | - | Lazy imports; gogfy uses direct imports |
-| `__main__.py` | 2697 | `cmd/gogfy/main.go` + `internal/installer` | Partial | Medium | 🔴 Infra | Missing: extract, add, query, explain, clone, ingest, transcribe, platform hooks |
-| `analyze.py` | 575 | `internal/analyze` | Partial | Medium | 🟢 Code | Missing: semantic similarity bonus, cross-file mode switching |
+| `__main__.py` | 2697 | `cmd/gogfy/main.go` + `internal/installer` | Done | - | 🔴 Infra | extract (`run`), add (alias for `ingest`), query/explain (MCP), ingest, transcribe (`--transcribe-backend`), platform hooks (15+ installers) all wired. `clone` is the only upstream subcommand not exposed — `git clone && gogfy run` covers the use case. |
+| `analyze.py` | 575 | `internal/analyze` | Done | - | 🟢 Code | Semantic similarity bonus (1.5× score boost when relation == `semantically_similar_to`) and cross-file/cross-community mode switching both done. |
 | `benchmark.py` | 152 | `internal/benchmark` | Done | - | 🟢 Code | ✅ |
 | `build.py` | 325 | `internal/graph` | Done | - | 🟢 Code | ✅ |
-| `cache.py` | 241 | `internal/cache` | Partial | Small | 🔴 Infra | Missing: ast/ vs semantic/ split, frontmatter stripping |
-| `callflow_html.py` | 2014 | `internal/callflow` | Partial | Medium | 🟡 LLM | v1 complete; missing bilingual, label integration, report context |
-| `cluster.py` | 150 | `internal/cluster` | Done | - | 🟢 Code | ✅ |
-| `dedup.py` | 343 | `internal/dedup` | Partial | Large | 🟢 Code | Missing: MinHash, LSH, Jaro-Winkler, LLM tiebreaker |
-| `detect.py` | 877 | `internal/detect` | Partial | Small | 🔴 Infra | Missing: file type classification, sensitive file detection, corpus warnings, manifest, symlink follow |
-| `export.py` | 1264 | `internal/export` | Partial | Large | 🔵 Artifact | Missing: obsidian vault, neo4j push, SVG static, vis.js viewer |
-| `extract.py` | 5947 | `internal/extract` | Partial | Medium | 🟡 LLM | Missing: docstring/rationale edges, cross-file resolution, semantic extraction |
+| `cache.py` | 241 | `internal/cache` + `internal/semantic` cache + `internal/manifest` | Done | - | 🔴 Infra | File-hash cache for extraction skip + per-file LLM result cache at `<out>/.gographify-cache/semantic/<key>.json` (with frontmatter stripping and corruption recovery) + standalone manifest subcommand. |
+| `callflow_html.py` | 2014 | `internal/callflow` | Partial | Medium | 🟡 LLM | v1 complete; missing bilingual, label integration, report context. Lowest priority — current v1 output is already useful. |
+| `cluster.py` | 150 | `internal/cluster` | Done | - | 🟢 Code | Leiden + Louvain fallback + ConnectedComponents (explicit-choice degenerate). ✅ |
+| `dedup.py` | 343 | `internal/dedup` | Done | - | 🟢 Code | Three-pass: exact normalization → MinHash/LSH + Jaro-Winkler → LLM tiebreaker (wired to pipeline `--backend`). |
+| `detect.py` | 877 | `internal/detect` | Done | - | 🔴 Infra | File type classification, sensitive-file detection, corpus warnings, `.graphifyignore` + `.graphifyinclude`, manifest, `--follow-symlinks` all done. |
+| `export.py` | 1264 | `internal/export` + `internal/neo4jpush` + `internal/obsidian` | Done | - | 🔵 Artifact | HTML viewer, GraphML, Cypher file, Neo4j direct push (`neo4j-push` subcommand), static SVG, Obsidian vault all done. vis.js viewer skipped — gogfy's SVG viewer is feature-complete. |
+| `extract.py` | 5947 | `internal/extract` + `internal/rationale` + `internal/resolve` + `internal/semantic` | Done | - | 🟡 LLM | Docstring/rationale edges with function attribution, cross-file resolution (Python dotted / Java dotted / Go path-style / Go versioned), semantic extraction (6 backends) all done. |
 | `global_graph.py` | 155 | `internal/globalgraph` | Done | - | 🟢 Code | ✅ |
-| `google_workspace.py` | 223 | (missing) | Missing | Medium | 🔵 Artifact | Convert .gdoc/.gsheet/.gslides shortcuts |
+| `google_workspace.py` | 223 | `internal/extract` (GoogleWorkspaceExtractor) | Done (URL-only) | - | 🔵 Artifact | Parses .gdoc/.gsheet/.gslides shortcut JSON into doc-typed module nodes. Full content conversion (via `gws` CLI) deferred — no-shell-out policy. |
 | `hooks.py` | 282 | `internal/githook` | Done | - | 🔴 Infra | ✅ |
-| `ingest.py` | 331 | (missing) | Missing | Medium | 🔵 Artifact | URL fetcher, HTML-to-markdown, tweet/arXiv/github/youtube extraction |
-| `llm.py` | 954 | (missing) | Missing | Large | 🟡 LLM | 6 backends (Claude, OpenAI, Gemini, Kimi, Ollama, Bedrock), token est, adaptive retry, cost |
-| `manifest.py` | 4 | (missing) | Missing | Small | 🔴 Infra | mtime + MD5 tracking for incremental detection |
-| `report.py` | 196 | `internal/report` | Partial | Small | 🟢 Code | Done: Summary, Corpus, Communities, Ambiguous, Knowledge Gaps. Missing: token cost, commit hash |
-| `security.py` | 242 | `internal/security` | Partial | Small | 🔴 Infra | Missing: URL validation, SSRF guard, safe_fetch |
-| `serve.py` | 582 | `internal/serve` | Partial | Small | 🔴 Infra | Missing: BFS/DFS traversal, context filters, node scoring |
-| `transcribe.py` | 184 | (missing) | Missing | Medium | 🔵 Artifact | faster-whisper + yt-dlp pipeline, whisper prompt from god nodes |
+| `ingest.py` | 331 | `internal/ingest` + `internal/ytaudio` | Done | - | 🔵 Artifact | URL fetcher, HTML→markdown, tweet/arXiv/github URL detection, YouTube oembed metadata + pure-Go audio download (`--audio` flag), readability narrowing, OpenGraph metadata, PDF + image binary sidecars. |
+| `llm.py` | 954 | `internal/llm` | Done | - | 🟡 LLM | 6 backends — Anthropic / OpenAI / Gemini / Kimi / Ollama / Bedrock (pure-Go SigV4). Cost estimation + adaptive retry. |
+| `manifest.py` | 4 | `internal/manifest` | Done | - | 🔴 Infra | `gogfy manifest <root>` writes mtime+SHA snapshot; `--diff` mode prints added/removed/modified. |
+| `report.py` | 196 | `internal/report` | Done | - | 🟢 Code | Summary, Corpus, Communities, Ambiguous, Knowledge Gaps, token-cost (`SemanticCost`), commit hash (`BuiltAtCommit`) — all sections present. |
+| `security.py` | 242 | `internal/security` + `internal/safefetch` | Done | - | 🔴 Infra | RootGuard, file-size caps, SSRF guard with redirect re-validation, `safefetch.Fetch` for all URL-bearing flows. |
+| `serve.py` | 582 | `internal/serve` | Done | - | 🔴 Infra | BFS traversal tool (`gogfy_traverse`), context filters (find_node multi-criteria scoring), node scoring (label/prefix/contains/ID/source-file priority), 6 MCP resources (report + stats / god-nodes / surprising-links / questions / audit). |
+| `transcribe.py` | 184 | `internal/transcribe` + `internal/ytaudio` | Done | - | 🔵 Artifact | Whisper backend, parallel fan-out, prompt builder from god-nodes, YouTube audio extraction via pure-Go `kkdai/youtube/v2`. |
 | `tree_html.py` | 580 | `internal/tree` | Done | - | 🔵 Artifact | ✅ |
 | `validate.py` | 72 | `cmd/gogfy/main.go` | Done | - | 🔴 Infra | ✅ |
 | `watch.py` | 456 | `internal/watch` | Done | - | 🟢 Code | ✅ |
@@ -427,43 +447,43 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 
 ### Feature Density by Category
 
-#### 🟢 Pure Code Reach (15/27 features complete)
+#### 🟢 Pure Code Reach (all complete)
 - ✅ 30+ language extractors
 - ✅ AST-based extraction for code
-- ✅ Graph build + deduplication (basic)
-- ✅ Community detection (Leiden)
+- ✅ Graph build + deduplication (three-pass: exact normalization → MinHash/LSH + Jaro-Winkler → LLM tiebreaker)
+- ✅ Community detection (Leiden, Louvain fallback, ConnectedComponents explicit)
 - ✅ God node analysis
-- ✅ Cross-file call resolution (synthetic targets)
-- ✅ Report generation (basic)
-- ⚠️ Entity deduplication (schema-based only; missing MinHash/Jaro-Winkler)
-- ⚠️ Surprising connection scoring (simple; missing semantic bonus)
-- ⚠️ File type classification (missing)
-- ⚠️ Sensitive file detection (missing)
+- ✅ Cross-file call resolution (Python dotted / Java dotted / Go path-style / Go versioned-package)
+- ✅ Report generation (Summary, Corpus, Communities, Ambiguous, Knowledge Gaps, Token Cost, Commit Hash)
+- ✅ Surprising connection scoring (semantic similarity bonus + cross-file fallback)
+- ✅ File type classification (extension-based)
+- ✅ Sensitive file detection (extended beyond upstream — terraform/cloud/k8s/package-manager creds)
 
-#### 🔵 New Artifact Types (7/11 complete)
+#### 🔵 New Artifact Types (all complete except vis.js)
 - ✅ JSON export
-- ✅ HTML interactive viewer (SVG)
+- ✅ HTML interactive viewer (SVG, search, click-to-inspect, community filter, aggregated meta-graph above 1000 nodes)
 - ✅ GraphML export
 - ✅ Cypher export (Neo4j script)
 - ✅ Wiki export (per-community + god-node)
 - ✅ D3 tree HTML (filesystem hierarchy)
 - ✅ Callflow HTML (v1, Mermaid diagrams)
-- ⚠️ Callflow HTML v2 (bilingual, labels integration, report context)
-- ❌ Obsidian vault (high demand)
-- ❌ SVG static export
-- ❌ Neo4j direct push
+- ✅ Obsidian vault export
+- ✅ SVG static export
+- ✅ Neo4j direct push (`neo4j-push` subcommand via Bolt)
+- ⚠️ Callflow HTML v2 (bilingual, labels integration, report context) — v1 output already useful; lowest priority
+- ⏭️ vis.js viewer — skipped (SVG viewer is feature-complete; vis.js is just upstream's tech choice)
 
-#### 🟡 LLM-Dependent (0/10 complete)
-- ❌ Semantic extraction (docs, images, PDFs, videos) — **NONE**
-- ❌ LLM backend orchestration (Claude, OpenAI, Gemini, Kimi, Ollama, Bedrock)
-- ❌ Token estimation (tiktoken-based)
-- ❌ Adaptive retry on truncation
-- ❌ Chunk packing by token budget
-- ❌ Docstring/rationale edge extraction
-- ❌ Semantic similarity scoring (analyze)
-- ❌ Entity deduplication tiebreaker
-- ❌ Cross-file import resolution (two-pass)
-- ❌ Transcription (faster-whisper, yt-dlp)
+#### 🟡 LLM-Dependent (all complete)
+- ✅ Semantic extraction (markdown + PDF + images, 6 backends)
+- ✅ LLM backend orchestration (Anthropic / OpenAI / Gemini / Kimi / Ollama / Bedrock with pure-Go SigV4)
+- ✅ Token estimation + cost reporting
+- ✅ Adaptive retry on truncation
+- ✅ Chunk packing by token budget
+- ✅ Docstring/rationale edge extraction (with function attribution)
+- ✅ Semantic similarity scoring (analyze)
+- ✅ Entity deduplication LLM tiebreaker
+- ✅ Cross-file import resolution (two-pass)
+- ✅ Transcription (Whisper backend, parallel fan-out, YouTube audio via pure-Go kkdai/youtube)
 
 #### 🔴 Infrastructure (8/13 complete)
 - ✅ Git hooks (post-commit, merge-driver)
@@ -475,23 +495,25 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 - ✅ Platform installer (15+ platforms)
 - ✅ Merge driver (union merge)
 - ⚠️ Cache (missing ast/ vs semantic/ split)
-- ⚠️ Security (missing URL validation, SSRF guard, safe_fetch)
-- ❌ Incremental manifest (mtime + MD5)
-- ❌ Google Workspace conversion
-- ❌ URL ingestion (webpage, tweet, arXiv, github, youtube)
+- ✅ URL validation, SSRF guard, safe_fetch (`internal/safefetch` + RootGuard chain)
+- ✅ Incremental manifest (`gogfy manifest` subcommand — mtime + SHA-256 + diff mode)
+- ✅ Google Workspace conversion (URL-only — content via gws CLI deferred per no-shell-out)
+- ✅ URL ingestion (webpage, tweet, arXiv, github, YouTube oembed + audio via pure-Go kkdai/youtube)
 
-### Top 10 Highest-Value Gaps (Ranked by user_value × inverse_complexity)
+### Top 10 Highest-Value Gaps — historical, all now closed
 
-1. **Semantic LLM extraction** (3 PRs, 🟡 HIGH) — Enables `gogfy run --backend openai` for docs/images/PDFs. Foundation for cost-aware extraction.
-2. **Artifact ingestion (URL + transcription)** (2 PRs, 🔵 HIGH) — Enables `gogfy add <url>` (webpage, tweet, arXiv, youtube, PDF). Completes artifact workflow.
-3. **Obsidian vault export** (3 PRs, 🔵 HIGH) — .md per node + wikilinks + YAML frontmatter + Dataview queries. Highest user demand for artifact type.
-4. **File type classification** (1 PR, 🟢 MEDIUM) — CODE/DOCUMENT/PAPER/IMAGE/VIDEO. Foundation for report fidelity + sensitive file detection.
-5. **Incremental manifest** (2 PRs, 🟢 MEDIUM) — mtime + MD5 tracking. 10-50x speedup on large codebases (10K+ files).
-6. **Cross-file import resolution** (2 PRs, 🟢 MEDIUM) — Two-pass for Python/Java. Reduces synthetic `call:` nodes, improves precision.
-7. **Google Workspace conversion** (2 PRs, 🔵 MEDIUM) — .gdoc/.gsheet/.gslides → markdown/JSON. Enables hybrid code+docs workflows.
-8. **Advanced analysis scoring** (2 PRs, 🟢 MEDIUM) — Composite surprise score with cross-file, cross-repo, peripheral→hub bonuses. Improves ranking quality.
-9. **HTML viewer parity (vis.js)** (3 PRs, 🔵 MEDIUM) — Physics engine, search, community filter, click-to-inspect. UX enhancement.
-10. **Entity deduplication v2** (3 PRs, 🟢 MEDIUM) — MinHash/LSH + Jaro-Winkler. Reduces spurious nodes; improves edge quality.
+This list was the original prioritization at the start of the parity push. Kept for historical context; everything below is now ✅ unless noted.
+
+1. **Semantic LLM extraction** ✅ — 6 backends, `--backend X` flag, cost-aware via `--max-cost-usd` / `--max-tokens`.
+2. **Artifact ingestion (URL + transcription)** ✅ — `gogfy ingest <url>` with tweet / arXiv / GitHub / YouTube / generic-HTML / PDF / image routing; YouTube audio via `--audio`.
+3. **Obsidian vault export** ✅ — `internal/obsidian` writes per-node .md + wikilinks + YAML frontmatter.
+4. **File type classification** ✅ — `schema.ClassifyFile` (CODE/DOCUMENT/PAPER/IMAGE/VIDEO).
+5. **Incremental manifest** ✅ — `internal/manifest`.
+6. **Cross-file import resolution** ✅ — generic resolver with Python/Java/Go-path-style import-segment narrowing.
+7. **Google Workspace conversion** ✅ (URL-only) — content-via-gws-CLI deferred.
+8. **Advanced analysis scoring** ✅ — composite surprise score with cross-file fallback, semantic-similarity bonus, peripheral→hub bonus.
+9. **HTML viewer parity (vis.js)** ⏭️ — explicitly skipped; gogfy's SVG viewer (search, click-to-inspect, community filter, aggregated meta-graph above 1000 nodes) is feature-complete. vis.js was upstream's tech choice, not a capability gap.
+10. **Entity deduplication v2** ✅ — Three-pass via `internal/dedup`: exact normalization + MinHash/LSH + Jaro-Winkler + LLM tiebreaker (wired to pipeline `--backend`).
 
 ### LLM-Dependent Features (Separate Policy Decision)
 
