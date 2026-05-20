@@ -137,8 +137,27 @@ func (a *Analyzer) Analyze(nodes []schema.Node, edges []schema.Edge) Report {
 	}
 }
 
-// rankSurprising returns cross-community edges ordered by descending
-// composite surprise score. Components (graphify-parity):
+// minCommunitiesForCrossCommunityMode is the threshold below which
+// rankSurprising falls back to a cross-FILE filter instead of
+// cross-community. On small corpora (under ~50 nodes), Leiden often
+// produces a single community holding everything — cross-community
+// then matches no edges and the Surprising Connections section
+// vanishes. The cross-file fallback rescues that case by treating
+// edges whose endpoints live in different source files as
+// candidates. Upstream graphify (`_cross_file_surprises` vs
+// `_cross_community_surprises`) does the same.
+const minCommunitiesForCrossCommunityMode = 2
+
+// rankSurprising returns surprising edges ordered by descending
+// composite surprise score. Two candidate-eligibility modes:
+//
+//   - Cross-community (default, used when ≥2 distinct communities
+//     exist): edges whose endpoints are in different Leiden
+//     communities.
+//   - Cross-file (fallback for trivial-community graphs): edges
+//     whose endpoints are in different SourceFiles.
+//
+// Composite scoring is the same in both modes:
 //
 //   - Confidence bonus: AMBIGUOUS=3, INFERRED=2, EXTRACTED=1. Cross-
 //     language INFERRED `calls` is zeroed — usually resolver pollution,
@@ -160,11 +179,21 @@ func rankSurprising(edges []schema.Edge, nodeMap map[string]schema.Node, degree 
 		tieScore  float64
 		idx       int
 	}
+	// Decide candidate-filter mode based on how many distinct
+	// communities the graph has. Computed once per call (not per
+	// edge) to keep the hot loop tight.
+	communities := map[string]struct{}{}
+	for _, n := range nodeMap {
+		if n.Community != "" {
+			communities[n.Community] = struct{}{}
+		}
+	}
+	useCrossFile := len(communities) < minCommunitiesForCrossCommunityMode
 	ranked := make([]scored, 0, len(edges))
 	for i, e := range edges {
 		src := nodeMap[e.Source]
 		dst := nodeMap[e.Target]
-		if src.Community == "" || dst.Community == "" || src.Community == dst.Community {
+		if !candidateEdge(src, dst, useCrossFile) {
 			continue
 		}
 		ds := math.Log2(float64(degree[e.Source]) + 2)
@@ -191,6 +220,25 @@ func rankSurprising(edges []schema.Edge, nodeMap map[string]schema.Node, degree 
 		out[i] = r.edge
 	}
 	return out
+}
+
+// candidateEdge decides whether an edge is eligible as a surprise
+// candidate under the chosen mode. Cross-file mode (small corpora,
+// trivial community structure): different SourceFiles. Cross-
+// community mode (the common case): different Community IDs and
+// both ends actually have a community assignment (a node with empty
+// Community is from a sub-pass that ran before clustering and
+// shouldn't be cross-classified).
+func candidateEdge(src, dst schema.Node, useCrossFile bool) bool {
+	if useCrossFile {
+		// In cross-file mode a missing SourceFile (synthetic node)
+		// disqualifies — "different from nothing" isn't a real signal.
+		return src.SourceFile != "" && dst.SourceFile != "" && src.SourceFile != dst.SourceFile
+	}
+	if src.Community == "" || dst.Community == "" {
+		return false
+	}
+	return src.Community != dst.Community
 }
 
 // surpriseScore computes the integer composite. Caller has already
