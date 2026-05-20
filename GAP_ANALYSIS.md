@@ -115,7 +115,7 @@
 |---------|--------|----------------|
 | Community splitting | **Done** | Oversized communities (>25% of graph, min 10) and low-cohesion communities (<0.05, min 50) split with second Leiden pass |
 | Cohesion scoring | **Done** | `cohesionScore()` computes intra-community edges / max possible |
-| Louvain fallback | Partial | gogfy has ConnectedComponents fallback; upstream tries graspologic Leiden then networkx Louvain |
+| Louvain fallback | **Done** | New `internal/cluster.LouvainClusterer` (pure-Go, ~150 lines) implements modularity-optimization community detection. `LeidenClusterer.Cluster` now falls back to Louvain on error rather than aborting — matches upstream's graspologic-Leiden → networkx-Louvain chain. Louvain is also user-selectable for callers wanting its slightly looser community boundaries. Deterministic via sorted-ID iteration + lex tie-break on candidate community; isolated-node graphs handled (each node → own community). `ConnectedComponentsClusterer` remains as the explicit-choice degenerate option. |
 | Community labels | **Done (heuristic)** | `internal/labels` derives names from top-degree member node label (no LLM dependency); `gogfy labels <graph.json>` writes `.graphify_labels.json`; `gogfy wiki` auto-loads it. Hand-edits preserved unless `--force`. |
 
 ### 2.5 Analysis
