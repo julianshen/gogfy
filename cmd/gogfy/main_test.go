@@ -1861,3 +1861,24 @@ func TestDispatchAddAliasesIngest(t *testing.T) {
 		t.Fatalf("expected error from ingestCommand (prefix \"ingest:\"), got %v", err)
 	}
 }
+
+func TestDeriveCloneDirnameHandlesURLForms(t *testing.T) {
+	// `gogfy clone <url>` should pick a sensible default destination
+	// directory from the URL. Cover the common URL shapes — HTTPS
+	// with / without .git suffix, SSH-style git@host:owner/repo,
+	// trailing slash, query string.
+	cases := map[string]string{
+		"https://github.com/foo/bar.git":     "bar",
+		"https://github.com/foo/bar":         "bar",
+		"https://github.com/foo/bar/":        "bar",
+		"https://github.com/foo/bar.git?x=1": "bar",
+		"git@github.com:foo/baz.git":         "baz",
+		"git@gitlab.example.com:team/proj":   "proj",
+		"./local-path/repo.git":              "repo",
+	}
+	for in, want := range cases {
+		if got := deriveCloneDirname(in); got != want {
+			t.Errorf("deriveCloneDirname(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

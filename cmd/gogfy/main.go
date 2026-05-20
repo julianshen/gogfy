@@ -47,6 +47,9 @@ import (
 	"github.com/julianshen/gogfy/internal/manifest"
 	"github.com/julianshen/gogfy/internal/neo4jpush"
 	"github.com/julianshen/gogfy/internal/ytaudio"
+
+	gogit "github.com/go-git/go-git/v5"
+	gogitplumb "github.com/go-git/go-git/v5/plumbing"
 	"github.com/julianshen/gogfy/internal/llm/ollama"
 	"github.com/julianshen/gogfy/internal/llm/openai"
 	"github.com/julianshen/gogfy/internal/transcribe"
@@ -173,6 +176,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return svgCommand(rest, stderr)
 	case "neo4j-push":
 		return neo4jPushCommand(rest, stderr)
+	case "clone":
+		return cloneCommand(rest, stderr)
 	case "wiki":
 		return wikiCommand(rest, stderr)
 	case "labels":
@@ -736,6 +741,91 @@ func buildMergeCommand(args []string, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stderr, "build-merge: wrote %s (%d nodes, %d edges)\n", *outPath, len(merged.Nodes), len(merged.Edges))
 	return nil
+}
+
+// cloneCommand clones a git repo to a local directory using
+// pure-Go go-git (no shell-out per project policy), then optionally
+// chains into `gogfy run` so the user gets a graph in one shot.
+// Mirrors upstream graphify's `graphify clone <url>` ergonomics.
+//
+// The chained run is opt-in via the absence of --no-run rather than
+// opt-out: a user who explicitly wanted a clone-only operation can
+// pass --no-run, and the "I want a graph from this URL right now"
+// crowd gets the one-command path by default.
+func cloneCommand(args []string, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"dir", "out", "branch"}, []string{"no-run"})
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("clone", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", "", "destination directory (default: derived from the last URL segment, minus '.git')")
+	branch := fs.String("branch", "", "checkout a specific branch (default: the repo's HEAD)")
+	out := fs.String("out", "graphify-out", "output directory passed to `gogfy run` (ignored with --no-run)")
+	noRun := fs.Bool("no-run", false, "clone only; don't chain into `gogfy run`")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("clone: expected one <git-url> argument, got %d", fs.NArg())
+	}
+	url := fs.Arg(0)
+	dest := *dir
+	if dest == "" {
+		dest = deriveCloneDirname(url)
+	}
+	if dest == "" {
+		return fmt.Errorf("clone: cannot derive a destination directory from URL %q (pass --dir)", url)
+	}
+	// go-git refuses to clone into a non-empty directory. Check up
+	// front so we can give a clearer error than the library's.
+	if entries, _ := os.ReadDir(dest); len(entries) > 0 {
+		return fmt.Errorf("clone: destination %q already exists and is non-empty; remove it or pass --dir", dest)
+	}
+	cloneOpts := &gogit.CloneOptions{
+		URL:      url,
+		Depth:    1, // shallow — analysis doesn't need history
+		Progress: stderr,
+	}
+	if *branch != "" {
+		cloneOpts.ReferenceName = gogitplumb.ReferenceName("refs/heads/" + *branch)
+		cloneOpts.SingleBranch = true
+	}
+	if _, err := gogit.PlainCloneContext(context.Background(), dest, false, cloneOpts); err != nil {
+		return fmt.Errorf("clone: %w", err)
+	}
+	fmt.Fprintf(stderr, "clone: cloned %s -> %s\n", url, dest)
+	if *noRun {
+		return nil
+	}
+	// Chain into the main pipeline with sensible defaults — same as
+	// `gogfy run <dest> --out <out>`. Users wanting non-default
+	// run-flags should clone with --no-run then invoke run themselves.
+	return runPipeline(dest, *out, false, false, runOptions{})
+}
+
+// deriveCloneDirname extracts a reasonable destination directory name
+// from a git URL. github.com/foo/bar.git → bar; bar.git → bar;
+// https://example.com/baz → baz. Returns "" when no segment is
+// extractable (caller will reject).
+func deriveCloneDirname(url string) string {
+	s := url
+	// Strip query / fragment.
+	if i := strings.IndexAny(s, "?#"); i >= 0 {
+		s = s[:i]
+	}
+	// Strip trailing slash so `https://host/foo/` yields `foo`.
+	s = strings.TrimRight(s, "/")
+	// Last segment after the rightmost slash.
+	if i := strings.LastIndexByte(s, '/'); i >= 0 {
+		s = s[i+1:]
+	}
+	// Also handle SSH-style `git@host:owner/repo`.
+	if i := strings.LastIndexByte(s, ':'); i >= 0 {
+		s = s[i+1:]
+	}
+	s = strings.TrimSuffix(s, ".git")
+	return s
 }
 
 // neo4jPushCommand pushes a graph.json directly to a running Neo4j

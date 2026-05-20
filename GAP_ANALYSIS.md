@@ -373,7 +373,7 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 | graphify Module | Lines | gogfy Package | Status | Complexity | Bucket | Notes |
 |---|---|---|---|---|---|---|
 | `__init__.py` | 28 | `cmd/gogfy/main.go` | Done | - | - | Lazy imports; gogfy uses direct imports |
-| `__main__.py` | 2697 | `cmd/gogfy/main.go` + `internal/installer` | Done | - | 🔴 Infra | extract (`run`), add (alias for `ingest`), query/explain (MCP), ingest, transcribe (`--transcribe-backend`), platform hooks (15+ installers) all wired. `clone` is the only upstream subcommand not exposed — `git clone && gogfy run` covers the use case. |
+| `__main__.py` | 2697 | `cmd/gogfy/main.go` + `internal/installer` | Done | - | 🔴 Infra | All upstream subcommands wired: extract (`run`), add (alias for `ingest`), query/explain (MCP), ingest, transcribe (`--transcribe-backend`), clone (pure-Go via `go-git/v5`, chains into `run` by default), platform hooks (15+ installers). |
 | `analyze.py` | 575 | `internal/analyze` | Done | - | 🟢 Code | Semantic similarity bonus (1.5× score boost when relation == `semantically_similar_to`) and cross-file/cross-community mode switching both done. |
 | `benchmark.py` | 152 | `internal/benchmark` | Done | - | 🟢 Code | ✅ |
 | `build.py` | 325 | `internal/graph` | Done | - | 🟢 Code | ✅ |
@@ -420,8 +420,8 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 | `explain "<node>"` | Node explanation | (serve tools) | Partial | Explain in serve tools, not CLI |
 | `save-result` | Memory feedback loop | Missing | Missing | Requires ingest.go module |
 | **Utilities** |
-| `add <url>` | URL ingestion | Missing | Missing | Requires ingest.go (URL fetch, HTML→md) |
-| `clone <github-url>` | Repo caching | Missing | Missing | Nice-to-have |
+| `add <url>` | URL ingestion | Done | `gogfy add` / `gogfy ingest` | Full URL pipeline (HTML→md, PDF, image binary, tweet/arXiv/github/youtube routing) |
+| `clone <github-url>` | Repo caching | Done | `gogfy clone <url> [--dir D] [--branch B] [--no-run]` | Pure-Go via go-git/v5; chains into `run` by default |
 | `check-update <path>` | Cron-safe update check | Missing | Missing | Low priority |
 | `merge-driver` | Git merge union | `hook` commands | Done (via githook) | ✅ |
 | `merge-graphs <g1> <g2>` | Merge multiple graphs | `merge-graphs <g1> <g2>` | Done | ✅ |
