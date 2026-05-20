@@ -16,6 +16,10 @@ import (
 type GraphExport struct {
 	Nodes []schema.Node `json:"nodes"`
 	Edges []schema.Edge `json:"edges"`
+	// Hyperedges are N-ary relationships (3+ participants) emitted
+	// by semantic extraction. omitempty so existing graph.json files
+	// without the field round-trip cleanly.
+	Hyperedges []schema.Hyperedge `json:"hyperedges,omitempty"`
 	// BuiltAtCommit, when non-empty, records the short git SHA of HEAD
 	// at the time graph.json was written. Lets a cross-tool consumer
 	// (wiki regenerator, downstream analysis script) detect a stale

@@ -109,6 +109,28 @@ type Edge struct {
 	Confidence Confidence
 }
 
+// Hyperedge represents an N-ary relationship (3+ participants)
+// that doesn't decompose cleanly into pairwise edges. Emitted by
+// semantic extraction when the LLM identifies a multi-party
+// relationship such as "X calls Y when Z" or "A, B, C collaborate
+// on D".
+//
+// Members lists the node IDs involved. Order is meaningful only
+// where Relation implies it (e.g., directed N-ary: caller → callees
+// under a condition); for symmetric relations (collaboration,
+// co-mention) order is just stable-insertion.
+//
+// Hyperedges live alongside binary edges rather than replacing them
+// — most graph algorithms (dedup, clustering, BFS) operate over
+// pairwise structure, so a hyperedge is also "shadowed" by binary
+// projections (each Member pair as a separate Edge) where useful.
+// That shadowing is the consumer's job, not the schema's.
+type Hyperedge struct {
+	Members    []string
+	Relation   string
+	Confidence Confidence
+}
+
 // Score returns a normalized [0..1] weight derived from the confidence
 // tier. Mirrors graphify's `confidence_score` so cross-tool consumers
 // reading graph.json can sort edges numerically without having to
