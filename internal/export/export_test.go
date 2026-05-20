@@ -439,3 +439,93 @@ func TestGraphExportBuiltAtCommitOmitemptyOnEmpty(t *testing.T) {
 		t.Fatalf("empty BuiltAtCommit must omitempty, got: %s", data)
 	}
 }
+
+func TestExportJSONStampsCurrentSchemaVersion(t *testing.T) {
+	// Every new graph.json must carry schema_version. Consumers that
+	// route on the field (future migration tooling, schema-aware
+	// loaders) need it to be present without an omitempty surprise.
+	data, _ := ExportJSON(GraphExport{Nodes: []schema.Node{}, Edges: []schema.Edge{}})
+	if !strings.Contains(string(data), `"schema_version": "`+CurrentSchemaVersion+`"`) {
+		t.Errorf("expected schema_version=%q in output: %s", CurrentSchemaVersion, data)
+	}
+}
+
+func TestExportJSONPreservesExplicitOldSchemaVersion(t *testing.T) {
+	// Downstream tooling that explicitly stamps an older version
+	// (e.g. for backwards-compat fixtures) shouldn't have its choice
+	// silently overwritten. The auto-stamp only fires when the field
+	// is empty.
+	data, _ := ExportJSON(GraphExport{SchemaVersion: "v1"})
+	if !strings.Contains(string(data), `"schema_version": "v1"`) {
+		t.Errorf("explicit v1 was overwritten: %s", data)
+	}
+}
+
+func TestLoadJSONDefaultsMissingSchemaVersionToV1(t *testing.T) {
+	// Pre-versioning graph.json files lack the field. They must
+	// continue to load — defaulting to "v1" — so existing deployments
+	// don't break after this PR ships.
+	dir := t.TempDir()
+	path := dir + "/graph.json"
+	if err := os.WriteFile(path, []byte(`{"nodes":[],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	g, err := LoadJSON(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.SchemaVersion != "v1" {
+		t.Errorf("missing version should default to v1, got %q", g.SchemaVersion)
+	}
+}
+
+func TestLoadJSONWarnsOnNewerSchema(t *testing.T) {
+	// A v999 file shouldn't error — old readers should still extract
+	// what they understand — but it SHOULD emit a one-shot warning so
+	// the operator knows their tooling is behind.
+	dir := t.TempDir()
+	path := dir + "/graph.json"
+	if err := os.WriteFile(path, []byte(`{"schema_version":"v999","nodes":[],"edges":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	prev := SchemaVersionWarner
+	SchemaVersionWarner = &buf
+	defer func() { SchemaVersionWarner = prev }()
+
+	if _, err := LoadJSON(path); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "newer than this build") {
+		t.Errorf("expected newer-schema warning, got %q", buf.String())
+	}
+	// Re-load the same path → no second warning (one-shot guarantee).
+	buf.Reset()
+	if _, err := LoadJSON(path); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "" {
+		t.Errorf("warning re-fired on second load: %q", buf.String())
+	}
+}
+
+func TestIsNewerSchemaHandlesNumericOrder(t *testing.T) {
+	// Lexicographic "v10" < "v2" would be wrong — we need numeric
+	// comparison after the 'v' prefix. Pin a few values that would
+	// trip naive string-compare.
+	cases := []struct {
+		got, want string
+		expected  bool
+	}{
+		{"v2", "v1", true},
+		{"v10", "v2", true}, // naive string compare says false
+		{"v1", "v2", false},
+		{"v2", "v2", false},
+		{"vbogus", "v2", true}, // unparseable → fall through to string compare; "vbogus" > "v2"
+	}
+	for _, c := range cases {
+		if got := isNewerSchema(c.got, c.want); got != c.expected {
+			t.Errorf("isNewerSchema(%q, %q) = %v, want %v", c.got, c.want, got, c.expected)
+		}
+	}
+}

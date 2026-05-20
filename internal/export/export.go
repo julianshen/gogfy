@@ -5,17 +5,44 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/julianshen/gogfy/internal/schema"
 )
 
+// CurrentSchemaVersion is the value ExportJSON stamps on every new
+// graph.json. Bump when the schema changes in a way older readers
+// can't transparently handle (e.g. new required fields, renamed
+// keys). Additive optional fields (the historical pattern — see
+// Hyperedges below) DON'T require a bump because old readers just
+// see the zero value.
+//
+// Versioning policy:
+//   - "v1"  — pre-versioning baseline. Implicit when SchemaVersion
+//             is missing in a loaded file.
+//   - "v2"  — adds Hyperedges (PR #120). Old "v1" readers see nil
+//             Hyperedges and behave correctly; new code may rely on
+//             the field being populated.
+//
+// LoadJSON warns when it encounters a NEWER version than this
+// constant — the file might use fields the current build can't
+// interpret. Older versions are accepted silently and transparently
+// upgraded in-memory.
+const CurrentSchemaVersion = "v2"
+
 // GraphExport is the serializable representation of a graph for export.
 type GraphExport struct {
-	Nodes []schema.Node `json:"nodes"`
-	Edges []schema.Edge `json:"edges"`
+	// SchemaVersion identifies the on-disk schema. Always emitted as
+	// the FIRST JSON field so consumers can route on it via a
+	// streaming reader without parsing the whole file. omitempty
+	// would defeat that — explicit value with no omitempty.
+	SchemaVersion string        `json:"schema_version"`
+	Nodes         []schema.Node `json:"nodes"`
+	Edges         []schema.Edge `json:"edges"`
 	// Hyperedges are N-ary relationships (3+ participants) emitted
 	// by semantic extraction. omitempty so existing graph.json files
 	// without the field round-trip cleanly.
@@ -28,14 +55,34 @@ type GraphExport struct {
 	BuiltAtCommit string `json:"built_at_commit,omitempty"`
 }
 
-// ExportJSON returns the graph as indented JSON bytes.
+// SchemaVersionWarner receives a one-shot warning when LoadJSON
+// reads a file from a NEWER schema than the current build. Tests
+// override to assert; production leaves the default (os.Stderr).
+var SchemaVersionWarner io.Writer = os.Stderr
+
+// ExportJSON returns the graph as indented JSON bytes. Stamps the
+// CurrentSchemaVersion on the result unless the caller has already
+// set a non-empty value (lets downstream tools rewrite a graph at
+// an older version explicitly, e.g. for backwards-compat fixtures).
 func ExportJSON(g GraphExport) ([]byte, error) {
+	if g.SchemaVersion == "" {
+		g.SchemaVersion = CurrentSchemaVersion
+	}
 	return json.MarshalIndent(g, "", "  ")
 }
 
 // LoadJSON reads and decodes a graph.json file. The "missing file"
 // error wraps os.ErrNotExist so callers can detect the first-run case
 // via errors.Is.
+//
+// Schema-version handling:
+//   - Missing/empty version → treat as "v1" (pre-versioning baseline)
+//     and continue. The historical files all parse cleanly under the
+//     additive-field rule.
+//   - Newer-than-current version → emit a one-shot warning on
+//     SchemaVersionWarner but DO NOT error. Old code reading a new
+//     graph still extracts what it understands; refusing to parse
+//     would create a worse failure mode than degraded output.
 func LoadJSON(path string) (GraphExport, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -45,7 +92,60 @@ func LoadJSON(path string) (GraphExport, error) {
 	if err := json.Unmarshal(data, &g); err != nil {
 		return GraphExport{}, fmt.Errorf("export: parse %s: %w", path, err)
 	}
+	if g.SchemaVersion == "" {
+		g.SchemaVersion = "v1"
+	}
+	if isNewerSchema(g.SchemaVersion, CurrentSchemaVersion) {
+		warnNewerSchemaOnce(path, g.SchemaVersion)
+	}
 	return g, nil
+}
+
+// isNewerSchema returns true when `got` represents a schema strictly
+// newer than `want`. Both values are expected to follow the "vN"
+// convention; non-conforming strings compare lexicographically as a
+// safety net so a misformed version doesn't crash.
+func isNewerSchema(got, want string) bool {
+	gn, gok := parseSchemaVersion(got)
+	wn, wok := parseSchemaVersion(want)
+	if gok && wok {
+		return gn > wn
+	}
+	return got > want
+}
+
+func parseSchemaVersion(s string) (int, bool) {
+	if len(s) < 2 || s[0] != 'v' {
+		return 0, false
+	}
+	n := 0
+	for i := 1; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+		n = n*10 + int(s[i]-'0')
+	}
+	return n, true
+}
+
+// warnNewerSchemaOnce prints the warning at most once per (path,
+// version) pair so a re-run loop doesn't spam stderr.
+var (
+	warnedSchemasMu sync.Mutex
+	warnedSchemas   = map[string]struct{}{}
+)
+
+func warnNewerSchemaOnce(path, version string) {
+	key := path + "|" + version
+	warnedSchemasMu.Lock()
+	defer warnedSchemasMu.Unlock()
+	if _, seen := warnedSchemas[key]; seen {
+		return
+	}
+	warnedSchemas[key] = struct{}{}
+	fmt.Fprintf(SchemaVersionWarner,
+		"gogfy: %s has schema_version %q — newer than this build (%q). Some fields may be ignored.\n",
+		path, version, CurrentSchemaVersion)
 }
 
 //go:embed template.html
