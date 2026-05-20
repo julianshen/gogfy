@@ -68,6 +68,7 @@ import (
 
 	"github.com/julianshen/gogfy/internal/labels"
 	"github.com/julianshen/gogfy/internal/obsidian"
+	"github.com/julianshen/gogfy/internal/site"
 	"github.com/julianshen/gogfy/internal/wiki"
 )
 
@@ -179,6 +180,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return cacheCommand(rest, os.Stdout, stderr)
 	case "ci":
 		return ciCommand(rest, os.Stdout, stderr)
+	case "site":
+		return siteCommand(rest, stderr)
 	case "svg":
 		return svgCommand(rest, stderr)
 	case "neo4j-push":
@@ -562,6 +565,70 @@ func renderDiff(w io.Writer, d graphdiff.Diff) {
 			fmt.Fprintf(w, "- %s --%s--> %s\n", e.Source, e.Relation, e.Target)
 		}
 	}
+}
+
+// siteCommand bundles the wiki output (per-community + per-god-node
+// markdown) into a self-contained static HTML site with client-side
+// full-text search. Output directory can be served as-is from
+// file://, GitHub Pages, S3, Netlify — no server process needed.
+//
+//	gogfy site <graph.json> [--out <site-dir>] [--wiki-dir <existing-wiki-dir>]
+//
+// By default it regenerates the wiki to a temp dir and then bundles
+// it; pass --wiki-dir to skip the regen step (useful when you've
+// hand-edited the wiki markdown and want to preserve those edits).
+func siteCommand(args []string, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"out", "wiki-dir"}, nil)
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("site", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outDir := fs.String("out", "graphify-out/site", "site output directory")
+	wikiDir := fs.String("wiki-dir", "", "use an existing wiki dir instead of regenerating from graph.json")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("site: expected <graph.json>, got %d positional argument(s)", fs.NArg())
+	}
+	graphPath := fs.Arg(0)
+
+	sourceWiki := *wikiDir
+	if sourceWiki == "" {
+		// Regenerate the wiki into a tempdir so we don't clobber an
+		// existing <out>/wiki the user might be hand-editing.
+		g, err := loadGraph(graphPath)
+		if err != nil {
+			return fmt.Errorf("site: %w", err)
+		}
+		tmp, err := os.MkdirTemp("", "gogfy-site-wiki-")
+		if err != nil {
+			return fmt.Errorf("site: tempdir: %w", err)
+		}
+		defer os.RemoveAll(tmp)
+		// Re-derive god nodes the way the wiki command does — same
+		// analyze.Report shape. Keeps the site's set of dedicated
+		// per-god-node pages aligned with the report.
+		report := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
+		if _, err := wiki.Generate(g.Nodes, g.Edges, tmp, wiki.Options{
+			GodNodes: report.GodNodes,
+		}); err != nil {
+			return fmt.Errorf("site: regenerate wiki: %w", err)
+		}
+		sourceWiki = tmp
+	}
+
+	if err := os.MkdirAll(*outDir, 0755); err != nil {
+		return fmt.Errorf("site: mkdir %s: %w", *outDir, err)
+	}
+	pages, err := site.Generate(sourceWiki, *outDir)
+	if err != nil {
+		return fmt.Errorf("site: %w", err)
+	}
+	fmt.Fprintf(stderr, "site: wrote %d pages to %s (open %s/index.html to browse)\n",
+		pages, *outDir, *outDir)
+	return nil
 }
 
 // ciCommand is the CI PR-gate verb. Compares two graph.json files
