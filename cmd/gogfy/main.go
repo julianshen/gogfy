@@ -264,6 +264,7 @@ func comboCommand(platform, verb string, args []string, stderr io.Writer) error 
 	workspace := fs.String("workspace", ".", "workspace root (defaults to cwd)")
 	bin := fs.String("gogfy-bin", "", "path or name of the gogfy binary (defaults to absolute path of running gogfy)")
 	outDir := fs.String("out", "graphify-out", "graph output directory")
+	purge := fs.Bool("purge", false, "(uninstall only) also remove the platform's docs-file snippet and the repo-wide post-commit hook. Use only when you're decommissioning gogfy entirely — these are typically shared across platforms.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -300,10 +301,25 @@ func comboCommand(platform, verb string, args []string, stderr io.Writer) error 
 			return fmt.Errorf("%s uninstall (mcp): %w", platform, err)
 		}
 		fmt.Fprintf(stderr, "gogfy: %s uninstall complete (MCP config removed).\n", platform)
-		fmt.Fprintf(stderr, "      The %s snippet and post-commit hook are repo-wide and may be shared\n", comboPlatformDocs(platform))
-		fmt.Fprintf(stderr, "      with other platforms; remove them explicitly with:\n")
-		fmt.Fprintf(stderr, "        gogfy uninstall-instructions --file %s\n", docsFile)
-		fmt.Fprintf(stderr, "        gogfy hook uninstall --repo %s\n", abs)
+		if *purge {
+			// --purge: also tear down the docs-file snippet and the
+			// post-commit hook. The flag exists for the
+			// "decommissioning gogfy entirely" path. We attempt both
+			// even if one fails — partial purge is better than half-
+			// torn-down state.
+			if err := instructionsCommand([]string{"--file", docsFile}, true, stderr); err != nil {
+				fmt.Fprintf(stderr, "gogfy: warning — snippet removal failed: %v\n", err)
+			}
+			if err := githook.Uninstall(abs); err != nil {
+				fmt.Fprintf(stderr, "gogfy: warning — hook removal failed: %v\n", err)
+			}
+			fmt.Fprintf(stderr, "gogfy: --purge complete (snippet + hook removed too).\n")
+		} else {
+			fmt.Fprintf(stderr, "      The %s snippet and post-commit hook are repo-wide and may be shared\n", comboPlatformDocs(platform))
+			fmt.Fprintf(stderr, "      with other platforms; remove them with --purge or explicitly via:\n")
+			fmt.Fprintf(stderr, "        gogfy uninstall-instructions --file %s\n", docsFile)
+			fmt.Fprintf(stderr, "        gogfy hook uninstall --repo %s\n", abs)
+		}
 		return nil
 	}
 
