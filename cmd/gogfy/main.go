@@ -45,6 +45,7 @@ import (
 	"github.com/julianshen/gogfy/internal/llm/bedrock"
 	"github.com/julianshen/gogfy/internal/llm/kimi"
 	"github.com/julianshen/gogfy/internal/manifest"
+	"github.com/julianshen/gogfy/internal/neo4jpush"
 	"github.com/julianshen/gogfy/internal/ytaudio"
 	"github.com/julianshen/gogfy/internal/llm/ollama"
 	"github.com/julianshen/gogfy/internal/llm/openai"
@@ -170,6 +171,8 @@ func dispatch(args []string, stderr io.Writer) error {
 		return manifestCommand(rest, os.Stdout, stderr)
 	case "svg":
 		return svgCommand(rest, stderr)
+	case "neo4j-push":
+		return neo4jPushCommand(rest, stderr)
 	case "wiki":
 		return wikiCommand(rest, stderr)
 	case "labels":
@@ -732,6 +735,54 @@ func buildMergeCommand(args []string, stderr io.Writer) error {
 		return fmt.Errorf("build-merge: write %s: %w", *outPath, err)
 	}
 	fmt.Fprintf(stderr, "build-merge: wrote %s (%d nodes, %d edges)\n", *outPath, len(merged.Nodes), len(merged.Edges))
+	return nil
+}
+
+// neo4jPushCommand pushes a graph.json directly to a running Neo4j
+// instance via the Bolt protocol, complementing the file-based
+// `--cypher` export (which produces a script for `cypher-shell -f`).
+// Credentials follow the NEO4J_* env chain with CLI overrides — same
+// pattern as the LLM backends.
+//
+// Idempotent (uses MERGE) so re-running over the same graph keeps
+// the Neo4j database in sync rather than duplicating nodes/edges.
+func neo4jPushCommand(args []string, stderr io.Writer) error {
+	ordered, err := reorderFlags(args, []string{"uri", "user", "password", "database"}, nil)
+	if err != nil {
+		return err
+	}
+	fs := flag.NewFlagSet("neo4j-push", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	uri := fs.String("uri", "", "Neo4j Bolt URI (defaults to NEO4J_URI). Example: neo4j://localhost:7687")
+	user := fs.String("user", "", "Neo4j username (defaults to NEO4J_USER, then 'neo4j')")
+	password := fs.String("password", "", "Neo4j password (defaults to NEO4J_PASSWORD)")
+	database := fs.String("database", "", "Neo4j database name (defaults to NEO4J_DATABASE, then the server default)")
+	batchSize := fs.Int("batch-size", 0, "transaction batch size for writes (default 500; lower if hitting memory pressure)")
+	if err := fs.Parse(ordered); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("neo4j-push: expected one <graph.json> argument, got %d", fs.NArg())
+	}
+	data, err := os.ReadFile(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("neo4j-push: read graph: %w", err)
+	}
+	var graph export.GraphExport
+	if err := json.Unmarshal(data, &graph); err != nil {
+		return fmt.Errorf("neo4j-push: parse graph: %w", err)
+	}
+	writes, err := neo4jpush.Push(context.Background(), graph, &neo4jpush.Options{
+		URI:       *uri,
+		Username:  *user,
+		Password:  *password,
+		Database:  *database,
+		BatchSize: *batchSize,
+	})
+	if err != nil {
+		return fmt.Errorf("neo4j-push: %w", err)
+	}
+	fmt.Fprintf(stderr, "neo4j-push: wrote %d entries (%d nodes, %d edges) via MERGE\n", writes, len(graph.Nodes), len(graph.Edges))
 	return nil
 }
 
