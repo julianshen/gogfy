@@ -1882,3 +1882,34 @@ func TestDeriveCloneDirnameHandlesURLForms(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateGraphPathRejectsObviousAttacks(t *testing.T) {
+	// Belt-and-suspenders defense. Documented in validateGraphPath:
+	// only the clearly-suspicious shapes are rejected; legitimate
+	// CI-script paths (absolute, ../-style, symlinks) pass through.
+	rejected := []string{
+		"",
+		"graph.txt",         // wrong extension
+		"graph",             // no extension
+		"GRAPH.JSON.bak",    // .json must be the actual suffix
+		"path\x00.json",     // NUL byte
+	}
+	for _, p := range rejected {
+		if err := validateGraphPath(p); err == nil {
+			t.Errorf("expected error for %q, got nil", p)
+		}
+	}
+	accepted := []string{
+		"graph.json",
+		"./graph.json",
+		"/abs/path/graph.json",
+		"../neighbor/graph.json",          // intentionally allowed
+		"out/sub-dir/graph.json",
+		"GRAPH.JSON",                       // case-insensitive suffix check
+	}
+	for _, p := range accepted {
+		if err := validateGraphPath(p); err != nil {
+			t.Errorf("expected accept for %q, got %v", p, err)
+		}
+	}
+}
