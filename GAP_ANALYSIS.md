@@ -192,30 +192,30 @@ Detailed feature-by-feature status is in the sections below.
 | URL validation | **Done** | `safefetch.Fetch` rejects non-http(s) schemes, validates hostname, optional suffix-allowlist. |
 | SSRF-guarded socket | **Done** | `validateHost` resolves the URL's hostname BEFORE the request and rejects any IP in private/loopback/link-local/cloud-metadata ranges. Redirects re-run the check at every hop so a server can't bounce to an internal address. Resolves all IPs (not just first) to defeat DNS rebinding. |
 | Safe fetch | **Done** | `internal/safefetch` ships SSRF guard + 10 MiB default size cap + 30s timeout + 5-redirect cap. Drop-in replacement for raw `http.Get` for user-supplied URLs. |
-| Path traversal guard | Partial | gogfy has RootGuard; upstream also has `validate_graph_path()` |
+| Path traversal guard | **Done** | Two layers: (1) `internal/security.RootGuard` blocks traversal at the *extraction* boundary (symlink resolution + within-root checks for every file collected). (2) `validateGraphPath` rejects clearly-suspicious graph.json paths at the *read-back* boundary (empty path, missing `.json` extension, embedded NUL byte). Intentionally permissive for `..`, absolute paths, and symlinks — CI scripts legitimately need those, and the read isn't sandboxed by a root. |
 | Label sanitization | **Done** | `schema.SanitizeText` (canonical sanitizer — strips Unicode control chars including ANSI escape, NUL, tab, newline; caps at `MaxLabelRunes`=256; multi-byte-rune safe). `graph.Builder.AddNode` runs Node.Label and Node.SourceFile through it — single chokepoint covers extractor / semantic / rationale outputs, so a noisy or malicious upstream can't bypass the policy by going around one site. `ID` is intentionally NOT sanitized (extractor grammar relies on the exact form). `internal/labels` now delegates to the schema function so there's one rule everywhere. |
 
 ---
 
 ## 3. Features Not Yet Implemented
 
-### 3.1 CLI Commands
-| Command | Upstream Location | Description |
-|---------|-------------------|-------------|
-| `graphify extract <path>` | `__main__.py` | Headless full extraction with LLM backends |
-| `graphify update <path>` | `__main__.py` | Incremental AST-only rebuild with manifest |
-| `graphify query "<question>"` | `__main__.py` | BFS/DFS graph traversal with token budget |
-| `graphify explain "<node>"` | `__main__.py` | Plain-language node explanation |
-| `graphify save-result` | `__main__.py` | Save Q&A to memory/ for feedback loop |
-| `graphify check-update` | `__main__.py` | Cron-safe update check |
-| `graphify benchmark` | `__main__.py` | Token reduction measurement (gogfy: `gogfy benchmark <graph.json>`) ✅ |
-| `graphify clone <github-url>` | `__main__.py` | Clone repos to cache |
-| `graphify add <url>` | `__main__.py` | Fetch URL into corpus |
-| `graphify export obsidian` | `__main__.py` | Obsidian vault export |
-| `graphify export svg` | `__main__.py` | Static SVG export |
-| `graphify export neo4j` | `__main__.py` | Direct Neo4j push |
-| `graphify export callflow-html` | `__main__.py` | Mermaid architecture HTML (gogfy: `gogfy callflow <graph.json>`) ✅ v1 |
-| `graphify hook-check` | `__main__.py` | Cross-platform no-op for hooks |
+### 3.1 CLI Commands (audit — most done)
+| Command | Upstream Location | gogfy Equivalent | Status |
+|---------|-------------------|------------------|--------|
+| `graphify extract <path>` | `__main__.py` | `gogfy run <path>` | ✅ Done |
+| `graphify update <path>` | `__main__.py` | `gogfy run <path> --update` | ✅ Done |
+| `graphify query "<question>"` | `__main__.py` | MCP `gogfy_query` + `gogfy_traverse` tools | ✅ Done |
+| `graphify explain "<node>"` | `__main__.py` | MCP `gogfy_explain` tool | ✅ Done |
+| `graphify save-result` | `__main__.py` | (deferred — niche feedback-loop feature) | ⚠️ Missing |
+| `graphify check-update` | `__main__.py` | `gogfy manifest <root> --diff` | ✅ Done |
+| `graphify benchmark` | `__main__.py` | `gogfy benchmark <graph.json>` | ✅ Done |
+| `graphify clone <github-url>` | `__main__.py` | `gogfy clone <url>` (pure-Go go-git) | ✅ Done |
+| `graphify add <url>` | `__main__.py` | `gogfy add <url>` (alias for `ingest`) | ✅ Done |
+| `graphify export obsidian` | `__main__.py` | `gogfy obsidian <graph.json>` | ✅ Done |
+| `graphify export svg` | `__main__.py` | `gogfy svg <graph.json>` | ✅ Done |
+| `graphify export neo4j` | `__main__.py` | `gogfy neo4j-push <graph.json>` | ✅ Done |
+| `graphify export callflow-html` | `__main__.py` | `gogfy callflow <graph.json>` | ✅ Done (v2 — labels + Key Insights) |
+| `graphify hook-check` | `__main__.py` | `gogfy hook status` | ✅ Done |
 
 ### 3.2 Core Pipeline Features
 | Feature | Upstream Location | Description |
@@ -422,7 +422,7 @@ This section provides an exhaustive comparison of all graphify modules and CLI c
 | **Utilities** |
 | `add <url>` | URL ingestion | Done | `gogfy add` / `gogfy ingest` | Full URL pipeline (HTML→md, PDF, image binary, tweet/arXiv/github/youtube routing) |
 | `clone <github-url>` | Repo caching | Done | `gogfy clone <url> [--dir D] [--branch B] [--no-run]` | Pure-Go via go-git/v5; chains into `run` by default |
-| `check-update <path>` | Cron-safe update check | Missing | Missing | Low priority |
+| `check-update <path>` | Cron-safe update check | Done | `gogfy manifest <root> --diff` | Prints added/removed/modified file lists vs prior `.gographify-manifest.json` snapshot without running the pipeline. Suitable for cron-driven "did anything change?" checks; mtime fast-path makes the walk cheap. |
 | `merge-driver` | Git merge union | `hook` commands | Done (via githook) | ✅ |
 | `merge-graphs <g1> <g2>` | Merge multiple graphs | `merge-graphs <g1> <g2>` | Done | ✅ |
 | **Export** |

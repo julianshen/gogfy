@@ -2695,7 +2695,43 @@ func artifactsExist(out string, noViz bool) bool {
 }
 
 func loadGraph(path string) (export.GraphExport, error) {
+	if err := validateGraphPath(path); err != nil {
+		return export.GraphExport{}, err
+	}
 	return export.LoadJSON(path)
+}
+
+// validateGraphPath is the gogfy counterpart to upstream graphify's
+// `validate_graph_path()`. Belt-and-suspenders defense for graph.json
+// paths supplied via CLI or config — rejects clearly-suspicious
+// shapes before opening the file. The corpus-walk RootGuard already
+// blocks traversal at the *extraction* boundary; this guards the
+// other side (read-back for report / wiki / callflow / etc.) where
+// no root is in scope.
+//
+// Policy:
+//   - Path must be non-empty.
+//   - Path must have `.json` extension (rejects accidental binary /
+//     other-format reads — graph.json is the contract).
+//   - Path must NOT contain a NUL byte (Unix legal; Go-string-legal;
+//     but no legitimate graph.json carries one and several syscalls
+//     truncate at NUL).
+//
+// Other forms (`..`, absolute paths, symlinks) are intentionally
+// NOT rejected — the user passed them explicitly, and a CI script
+// generating graphs under /tmp shouldn't have to special-case its
+// layout. Misuse is logged via the wrapping error, not blocked.
+func validateGraphPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("graph path is empty")
+	}
+	if strings.ContainsRune(path, 0) {
+		return fmt.Errorf("graph path contains NUL byte (rejected)")
+	}
+	if !strings.HasSuffix(strings.ToLower(path), ".json") {
+		return fmt.Errorf("graph path %q must have .json extension (graph.json is the contract)", path)
+	}
+	return nil
 }
 
 // atomicWrite is a thin wrapper kept for callers that don't import fsutil
