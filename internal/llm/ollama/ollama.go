@@ -82,6 +82,15 @@ func New(opts ...Option) (*Client, error) {
 // Name returns the backend identifier. Cost is always $0 here.
 func (c *Client) Name() string { return "ollama-" + c.model }
 
+// EstimateCost implements llm.CostEstimator. Ollama is local — cost
+// is structurally $0 regardless of token count, so the estimate is
+// always 0. Implemented anyway so the pre-flight cost matrix
+// includes Ollama as a row alongside the API-bearing backends; a
+// $0 row is informative ("running locally costs nothing").
+func (c *Client) EstimateCost(inputTokens, outputTokens int) float64 {
+	return 0
+}
+
 // Generate posts a single-shot generation request. Ollama's API
 // supports streaming, but the simpler non-streaming path is enough
 // for entity extraction (which produces small JSON outputs anyway).

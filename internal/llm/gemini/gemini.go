@@ -102,6 +102,11 @@ func NewWithKey(key string, opts ...Option) *Client {
 // Name returns the backend identifier for the cost report.
 func (c *Client) Name() string { return "gemini-" + c.model }
 
+// EstimateCost implements llm.CostEstimator for pre-flight pricing.
+func (c *Client) EstimateCost(inputTokens, outputTokens int) float64 {
+	return estimateCost(c.model, inputTokens, outputTokens)
+}
+
 // Generate sends a generateContent request and parses the response.
 // Gemini's wire shape splits "system" and "contents" — system goes
 // into a sibling top-level field, not a message with role=system.
