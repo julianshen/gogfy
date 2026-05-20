@@ -852,3 +852,72 @@ func TestGodNodesExcludesMethodStubsWithLeadingDot(t *testing.T) {
 		}
 	}
 }
+
+func TestSurprisingLinksCrossFileFallbackOnTrivialCommunity(t *testing.T) {
+	// Small-corpus case: Leiden collapses everything into one
+	// community. Cross-community filter would yield zero candidates;
+	// the cross-file fallback rescues by treating different
+	// SourceFiles as the eligibility signal.
+	nodes := []schema.Node{
+		{ID: "a", Label: "A", Community: "0", SourceFile: "/proj/a.go"},
+		{ID: "b", Label: "B", Community: "0", SourceFile: "/proj/b.go"},
+	}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b", Relation: "calls", Confidence: schema.Inferred},
+	}
+	report := NewAnalyzer().Analyze(nodes, edges)
+	if len(report.SurprisingLinks) != 1 {
+		t.Fatalf("expected cross-file fallback to surface 1 link, got %d", len(report.SurprisingLinks))
+	}
+	if report.SurprisingLinks[0].Source != "a" {
+		t.Errorf("expected a→b surprise, got %+v", report.SurprisingLinks[0])
+	}
+}
+
+func TestSurprisingLinksCrossCommunityModeWhenMultipleCommunities(t *testing.T) {
+	// Two communities exist → cross-community filter applies; a
+	// within-community edge does NOT surface as a surprise even
+	// though it crosses files.
+	nodes := []schema.Node{
+		{ID: "a", Community: "0", SourceFile: "/proj/a.go"},
+		{ID: "b", Community: "0", SourceFile: "/proj/b.go"}, // same community, different file
+		{ID: "c", Community: "1", SourceFile: "/proj/c.go"}, // different community
+	}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b", Relation: "calls", Confidence: schema.Inferred},
+		{Source: "a", Target: "c", Relation: "calls", Confidence: schema.Inferred},
+	}
+	report := NewAnalyzer().Analyze(nodes, edges)
+	// Only a→c should appear (a→b is within-community).
+	for _, s := range report.SurprisingLinks {
+		if s.Source == "a" && s.Target == "b" {
+			t.Errorf("within-community edge a→b should NOT be a surprise when ≥2 communities exist")
+		}
+	}
+	var foundAC bool
+	for _, s := range report.SurprisingLinks {
+		if s.Source == "a" && s.Target == "c" {
+			foundAC = true
+		}
+	}
+	if !foundAC {
+		t.Errorf("expected cross-community a→c surprise, got %+v", report.SurprisingLinks)
+	}
+}
+
+func TestCrossFileFallbackIgnoresSyntheticNodes(t *testing.T) {
+	// A node with no SourceFile (synthetic — semantic concept, etc.)
+	// must NOT surface as cross-file: "different from nothing" isn't
+	// a real signal.
+	nodes := []schema.Node{
+		{ID: "real", Community: "0", SourceFile: "/proj/a.go"},
+		{ID: "concept", Community: "0", SourceFile: ""}, // synthetic
+	}
+	edges := []schema.Edge{
+		{Source: "real", Target: "concept", Relation: "mentions", Confidence: schema.Inferred},
+	}
+	report := NewAnalyzer().Analyze(nodes, edges)
+	if len(report.SurprisingLinks) != 0 {
+		t.Errorf("synthetic-node edges must not surface in cross-file fallback, got %+v", report.SurprisingLinks)
+	}
+}
