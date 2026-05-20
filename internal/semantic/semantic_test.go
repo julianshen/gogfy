@@ -247,3 +247,102 @@ func (m *visionMock) Generate(_ context.Context, req llm.Request) (llm.Response,
 	m.gotImages = req.Images
 	return llm.Response{Text: m.Response}, nil
 }
+
+func TestExtractParsesHyperedgesFromResponse(t *testing.T) {
+	// A 3-member hyperedge in the response should land in Result.Hyperedges
+	// with all member IDs translated through the doc:entity:<path>:<id>
+	// scheme so they connect to the entities the LLM emitted alongside.
+	mock := &mockClient{
+		respText: `{
+			"entities": [
+				{"id": "alice", "type": "Person", "label": "Alice"},
+				{"id": "bob", "type": "Person", "label": "Bob"},
+				{"id": "carol", "type": "Person", "label": "Carol"},
+				{"id": "paper", "type": "Artifact", "label": "Joint paper"}
+			],
+			"relations": [],
+			"hyperedges": [
+				{"members": ["alice", "bob", "carol", "paper"], "type": "co_authored"}
+			]
+		}`,
+	}
+	res, err := Extract(context.Background(), mock, "/proj/notes.md", []byte("body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hyperedges) != 1 {
+		t.Fatalf("expected 1 hyperedge, got %d: %+v", len(res.Hyperedges), res.Hyperedges)
+	}
+	h := res.Hyperedges[0]
+	if h.Relation != "co_authored" {
+		t.Errorf("relation drift: %q", h.Relation)
+	}
+	if len(h.Members) != 4 {
+		t.Errorf("member count: got %d, want 4", len(h.Members))
+	}
+	// Members should be translated to doc:entity:<path>:<id>.
+	for _, m := range h.Members {
+		if !contains(m, "doc:entity:/proj/notes.md:") {
+			t.Errorf("hyperedge member not translated through doc:entity scheme: %q", m)
+		}
+	}
+}
+
+func TestExtractDropsPairwiseHyperedges(t *testing.T) {
+	// 2-member "hyperedges" are degenerate — they should be expressed
+	// as Relations, not Hyperedges. Silently drop to avoid duplicating
+	// what relations already cover.
+	mock := &mockClient{
+		respText: `{
+			"entities": [
+				{"id": "a", "type": "Concept", "label": "A"},
+				{"id": "b", "type": "Concept", "label": "B"}
+			],
+			"hyperedges": [
+				{"members": ["a", "b"], "type": "pair"}
+			]
+		}`,
+	}
+	res, _ := Extract(context.Background(), mock, "/p.md", []byte("body"))
+	if len(res.Hyperedges) != 0 {
+		t.Errorf("pairwise hyperedge should be dropped, got %+v", res.Hyperedges)
+	}
+}
+
+func TestExtractHyperedgeRelationDefaultsToCoOccurs(t *testing.T) {
+	mock := &mockClient{
+		respText: `{
+			"entities": [{"id":"a","label":"A"},{"id":"b","label":"B"},{"id":"c","label":"C"}],
+			"hyperedges": [{"members": ["a","b","c"]}]
+		}`,
+	}
+	res, _ := Extract(context.Background(), mock, "/p.md", []byte("body"))
+	if len(res.Hyperedges) != 1 || res.Hyperedges[0].Relation != "co_occurs" {
+		t.Errorf("expected default co_occurs relation, got %+v", res.Hyperedges)
+	}
+}
+
+func TestExtractMissingHyperedgesFieldIsOK(t *testing.T) {
+	// Old / minimal responses without a hyperedges field must still
+	// parse cleanly — backwards compatibility.
+	mock := &mockClient{
+		respText: `{"entities":[{"id":"a","label":"A"}],"relations":[]}`,
+	}
+	res, err := Extract(context.Background(), mock, "/p.md", []byte("body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hyperedges) != 0 {
+		t.Errorf("missing field should yield empty hyperedges, got %+v", res.Hyperedges)
+	}
+}
+
+// Local helper — semantic package already has `contains` via cache_test.
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

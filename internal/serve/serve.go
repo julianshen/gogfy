@@ -951,6 +951,7 @@ func (s *Server) statsPayload() map[string]any {
 	return map[string]any{
 		"nodes":              len(s.graph.Nodes),
 		"edges":              len(s.graph.Edges),
+		"hyperedges":         len(s.graph.Hyperedges),
 		"communities":        len(communities),
 		"god_nodes":          len(s.analyzed.GodNodes),
 		"surprising_links":   len(s.analyzed.SurprisingLinks),

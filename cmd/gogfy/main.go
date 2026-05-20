@@ -1542,6 +1542,10 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	}
 
 	builder := graph.NewBuilder()
+	// pipelineHyperedges collects N-ary relations emitted by semantic
+	// extraction. They're attached to the GraphExport rather than
+	// indexed in builder (which only knows about binary edges).
+	var pipelineHyperedges []schema.Hyperedge
 
 	// Build the optional LLM client once, before the extract loop —
 	// surfaces auth errors up front rather than per-file deep in the
@@ -1753,6 +1757,10 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 					return fmt.Errorf("add semantic edge: %w", err)
 				}
 			}
+			// Hyperedges aren't part of the graph.Builder yet (it
+			// indexes binary edges only) — accumulate separately and
+			// attach to the GraphExport after Build returns.
+			pipelineHyperedges = append(pipelineHyperedges, r.Hyperedges...)
 		}
 	}
 	if llmClient != nil && (semCost.inputTokens+semCost.outputTokens) > 0 {
@@ -1836,6 +1844,7 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	exportGraph := export.GraphExport{
 		Nodes:         clusteredNodes,
 		Edges:         edges,
+		Hyperedges:    pipelineHyperedges,
 		BuiltAtCommit: commit,
 	}
 

@@ -33,6 +33,9 @@ Return a JSON object exactly matching this shape, with no commentary:
   ],
   "relations": [
     {"source": "entity-id", "target": "entity-id", "type": "describes|uses|implements|references|mentions"}
+  ],
+  "hyperedges": [
+    {"members": ["entity-id-a","entity-id-b","entity-id-c"], "type": "collaborate-on|relates-via|jointly-causes"}
   ]
 }
 
@@ -40,6 +43,8 @@ Rules:
 - Only emit entities and relations explicitly supported by the text.
 - IDs must be lowercase kebab-case and unique within the response.
 - Skip entities that appear only once and are not central.
+- Use "hyperedges" ONLY for 3+ party relationships that lose meaning when broken into pairwise edges (e.g. "A, B, and C co-authored D" → one 4-member hyperedge, NOT three pairwise authored edges). If unsure, prefer relations.
+- "hyperedges" may be omitted entirely when none apply.
 - If the text contains no extractable entities, return {"entities":[],"relations":[]}.`
 
 // visionSystemPrompt mirrors systemPrompt but pivots the extraction
@@ -69,8 +74,11 @@ Rules:
 // the AST extractors emit, plus token-usage telemetry so callers can
 // build a running cost estimate across many files.
 type Result struct {
-	Nodes            []schema.Node
-	Edges            []schema.Edge
+	Nodes []schema.Node
+	Edges []schema.Edge
+	// Hyperedges carries N-ary relations the LLM identified. Empty
+	// for AST extractors (only the semantic path emits them).
+	Hyperedges       []schema.Hyperedge
 	InputTokens      int
 	OutputTokens     int
 	EstimatedUSDCost float64
@@ -229,6 +237,33 @@ func parseResponse(resp llm.Response, path string, callErr error) (Result, error
 			Confidence: schema.Inferred,
 		})
 	}
+	for _, h := range parsed.Hyperedges {
+		// Hyperedges must have at least 3 members — pairwise should
+		// be a Relation. Smaller hyperedges are silently dropped to
+		// avoid duplicating what relations already cover.
+		if len(h.Members) < 3 {
+			continue
+		}
+		memberIDs := make([]string, 0, len(h.Members))
+		for _, m := range h.Members {
+			if m == "" {
+				continue
+			}
+			memberIDs = append(memberIDs, schema.LangID("doc", "entity", path+":"+m))
+		}
+		if len(memberIDs) < 3 {
+			continue
+		}
+		relType := h.Type
+		if relType == "" {
+			relType = "co_occurs"
+		}
+		out.Hyperedges = append(out.Hyperedges, schema.Hyperedge{
+			Members:    memberIDs,
+			Relation:   relType,
+			Confidence: schema.Inferred,
+		})
+	}
 	return out, nil
 }
 
@@ -267,4 +302,8 @@ type extracted struct {
 		Target string `json:"target"`
 		Type   string `json:"type"`
 	} `json:"relations"`
+	Hyperedges []struct {
+		Members []string `json:"members"`
+		Type    string   `json:"type"`
+	} `json:"hyperedges,omitempty"`
 }
