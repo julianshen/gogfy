@@ -2356,11 +2356,21 @@ func callflowCommand(args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// Load community labels from .graphify_labels.json next to the
+	// graph (silent miss when absent — labels are optional). Re-run
+	// analyze to derive god-nodes + surprising-links from the current
+	// graph; we don't snapshot these so a label edit or graph update
+	// always produces fresh insights.
+	labelsByCommunity, _ := labels.Load(filepath.Join(filepath.Dir(graphPath), labels.DefaultFilename))
+	report := analyze.NewAnalyzer().Analyze(g.Nodes, g.Edges)
 	html, err := callflow.Generate(g.Nodes, g.Edges, callflow.Options{
 		MaxSections:        *maxSections,
 		MaxNodesPerSection: *maxNodes,
 		MaxEdgesPerSection: *maxEdges,
 		ProjectName:        *project,
+		CommunityLabels:    labelsByCommunity,
+		GodNodes:           report.GodNodes,
+		SurprisingLinks:    report.SurprisingLinks,
 	})
 	if err != nil {
 		return fmt.Errorf("callflow: %w", err)
