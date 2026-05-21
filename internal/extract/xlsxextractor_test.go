@@ -246,8 +246,13 @@ func TestXlsxExtractorSheetWithoutHyperlinksProducesNoEdges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Edges) != 0 {
-		t.Fatalf("expected no edges on link-free workbook, got %+v", res.Edges)
+	// No hyperlinks → no `references` edges. There IS a module → sheet
+	// `contains` edge from the containment backbone; assert on the
+	// reference relation specifically.
+	for _, e := range res.Edges {
+		if e.Relation == "references" {
+			t.Fatalf("expected no reference edges on link-free workbook, got %+v", e)
+		}
 	}
 	// Section node should still exist so the sheet is in the graph.
 	var hasEmpty bool

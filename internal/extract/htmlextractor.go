@@ -80,6 +80,7 @@ func walkHTML(n *html.Node, path string, state *extractState) {
 					Label:      label,
 					SourceFile: path,
 				})
+				state.emitContainsFromModule(id)
 				// Reset to module + push this section, same shape as
 				// the markdown walker.
 				state.fnStack = []string{state.fnStack[0]}

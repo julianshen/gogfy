@@ -82,6 +82,7 @@ func walkMarkdown(node ast.Node, src []byte, path string, state *extractState) {
 				Label:      label,
 				SourceFile: path,
 			})
+			state.emitContainsFromModule(id)
 			// Each heading at level 1-3 becomes the new innermost scope
 			// for following links; nesting depth is intentionally not
 			// tracked, since "innermost section" is what each link

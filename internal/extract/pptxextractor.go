@@ -108,6 +108,12 @@ func (PPTXExtractor) Extract(path string) (Result, error) {
 			Label:      title,
 			SourceFile: abs,
 		})
+		state.edges = append(state.edges, schema.Edge{
+			Source:     moduleID,
+			Target:     sectionID,
+			Relation:   "contains",
+			Confidence: schema.Extracted,
+		})
 		for _, hrid := range hyperlinkRIDs {
 			url, ok := slideRels[hrid]
 			if !ok || url == "" {
