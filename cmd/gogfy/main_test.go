@@ -2089,3 +2089,25 @@ func writeGraphFile(t *testing.T, path string, g export.GraphExport) {
 		t.Fatal(err)
 	}
 }
+
+func TestUsageListsAllShippedSubcommands(t *testing.T) {
+	// Regression guard for the docs gap dogfooding surfaced: several
+	// shipped subcommands (manifest, cache, ci, site, svg, neo4j-push,
+	// build-merge, clone) were missing from the usage text — a user
+	// couldn't discover them. This test fails if a command is
+	// dispatched but never mentioned in usage.
+	var buf bytes.Buffer
+	usage(&buf)
+	text := buf.String()
+	for _, cmd := range []string{
+		"run", "watch", "validate", "report", "serve",
+		"path", "merge-graphs", "build-merge", "diff", "ci",
+		"manifest", "cache", "ingest", "wiki", "labels",
+		"obsidian", "site", "svg", "neo4j-push", "tree",
+		"benchmark", "callflow", "clone", "global",
+	} {
+		if !strings.Contains(text, "gogfy "+cmd) {
+			t.Errorf("subcommand %q is dispatched but absent from usage text", cmd)
+		}
+	}
+}
