@@ -257,3 +257,92 @@ func TestGoExtractorEmitsContainsEdges(t *testing.T) {
 		t.Fatalf("expected 2 function nodes, got %d", funcs)
 	}
 }
+
+func TestGoExtractorTypesAndMethodOwnership(t *testing.T) {
+	// Go type declarations become nodes; methods link to their
+	// receiver type via `contains` (the type→method ownership axis
+	// graphify has). A method whose type is declared in the same
+	// file gets type→method; type itself gets module→type.
+	root := t.TempDir()
+	path := filepath.Join(root, "repo.go")
+	src := `package store
+
+type Repo struct{ db string }
+
+func (r *Repo) Save(x int) error { return nil }
+func (r Repo) Load() int { return 0 }
+
+func freeFunc() {}
+`
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (&GoExtractor{}).Extract(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var typeID, repoSaveID, moduleID string
+	for _, n := range result.Nodes {
+		switch {
+		case strings.Contains(n.ID, ":type:") && n.Label == "Repo":
+			typeID = n.ID
+		case strings.Contains(n.ID, ":method:") && n.Label == "Save":
+			repoSaveID = n.ID
+		case strings.Contains(n.ID, ":module:"):
+			moduleID = n.ID
+		}
+	}
+	if typeID == "" {
+		t.Fatal("Repo type node not extracted")
+	}
+	if repoSaveID == "" {
+		t.Fatal("Save method node not extracted")
+	}
+	// module → type contains
+	var moduleContainsType, typeContainsMethod bool
+	for _, e := range result.Edges {
+		if e.Relation == "contains" && e.Source == moduleID && e.Target == typeID {
+			moduleContainsType = true
+		}
+		if e.Relation == "contains" && e.Source == typeID && e.Target == repoSaveID {
+			typeContainsMethod = true
+		}
+	}
+	if !moduleContainsType {
+		t.Errorf("expected module→Repo contains edge")
+	}
+	if !typeContainsMethod {
+		t.Errorf("expected Repo→Save contains (method ownership) edge")
+	}
+}
+
+func TestGoMethodOwnershipDeferredAcrossDeclOrder(t *testing.T) {
+	// The method appears BEFORE its receiver type in the file. The
+	// deferred finalize() must still link them — ownership can't
+	// depend on lexical order.
+	root := t.TempDir()
+	path := filepath.Join(root, "order.go")
+	src := "package p\n\nfunc (s *Svc) Do() {}\n\ntype Svc struct{}\n"
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, _ := (&GoExtractor{}).Extract(path)
+	var svcID, doID string
+	for _, n := range result.Nodes {
+		if strings.Contains(n.ID, ":type:") && n.Label == "Svc" {
+			svcID = n.ID
+		}
+		if strings.Contains(n.ID, ":method:") && n.Label == "Do" {
+			doID = n.ID
+		}
+	}
+	var linked bool
+	for _, e := range result.Edges {
+		if e.Relation == "contains" && e.Source == svcID && e.Target == doID {
+			linked = true
+		}
+	}
+	if !linked {
+		t.Errorf("method-before-type ownership not linked by finalize()")
+	}
+}
