@@ -14,10 +14,16 @@ func pass1Exact(nodes []schema.Node) *UnionFind {
 		if label == "" {
 			label = n.ID
 		}
-		key := normalize(label)
-		if key == "" {
+		norm := normalize(label)
+		if norm == "" {
 			continue
 		}
+		// Bucket-scoped key: structural kinds (module/section/…) only
+		// merge within their kind; entity kinds share one bucket so
+		// code↔semantic dedup still fires. Keeps "module" graph from
+		// collapsing into "type" Graph. NUL separator avoids
+		// bucket/label boundary ambiguity.
+		key := mergeBucket(n.ID) + "\x00" + norm
 		groups[key] = append(groups[key], n)
 	}
 	for _, group := range groups {

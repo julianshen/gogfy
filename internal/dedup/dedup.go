@@ -63,6 +63,11 @@ func pass2Fuzzy(nodes []schema.Node, uf *UnionFind, communities map[string]strin
 			if uf.Find(a.ID) == uf.Find(b.ID) {
 				continue
 			}
+			// Kind-scoped: never fuzzy-merge across node kinds (a type
+			// and a module sharing a name aren't duplicates).
+			if mergeBucket(a.ID) != mergeBucket(b.ID) {
+				continue
+			}
 
 			sim := sketches[a.ID].Similarity(sketches[b.ID])
 			if sim < lshThreshold {
@@ -114,6 +119,11 @@ func pass3LLM(nodes []schema.Node, uf *UnionFind, communities map[string]string,
 		for j := i + 1; j < len(nodes); j++ {
 			a, b := nodes[i], nodes[j]
 			if uf.Find(a.ID) == uf.Find(b.ID) {
+				continue
+			}
+			// Kind-scoped: don't ask the LLM whether a type and a
+			// module with the same name are the same concept.
+			if mergeBucket(a.ID) != mergeBucket(b.ID) {
 				continue
 			}
 

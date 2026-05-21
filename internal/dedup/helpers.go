@@ -17,6 +17,50 @@ func normalize(label string) string {
 	return strings.TrimSpace(s)
 }
 
+// nodeKind extracts the kind segment of a `<lang>:<kind>:<key>` node
+// ID (e.g. "module", "type", "function", "method"). Returns "" when
+// the ID doesn't parse.
+func nodeKind(id string) string {
+	_, kind, _, ok := schema.ParseLangID(id)
+	if !ok {
+		return ""
+	}
+	return kind
+}
+
+// structuralKinds are container / synthetic node kinds that must only
+// merge within their own kind — never with a named code/concept
+// entity. A Go `package graph` (module, label "graph") and its
+// `type Graph` (label "Graph") both normalize to "graph"; without
+// this isolation pass-1 would merge the type INTO the module,
+// collapsing the type and destroying every `type contains method`
+// ownership edge. `package foo` + `type Foo` is ubiquitous in Go.
+var structuralKinds = map[string]bool{
+	"module":  true,
+	"section": true,
+	"import":  true,
+	"call":    true,
+	"typeref": true,
+	"link":    true,
+	"key":     true,
+}
+
+// mergeBucket groups node kinds for dedup. Each structural kind is its
+// own bucket (kind-scoped — no cross-kind merge). All remaining
+// "entity" kinds (function, method, type, class, field, const, var,
+// and the semantic-extraction `entity`) share one bucket so the
+// intended cross-source dedup still fires — an AST `function:Auth`
+// and a semantic `entity:Auth` are the same real thing and should
+// merge (code wins via pickWinner's FileType rank). The container
+// kinds stay isolated so the harmful module↔type collapse can't happen.
+func mergeBucket(id string) string {
+	k := nodeKind(id)
+	if structuralKinds[k] {
+		return "k:" + k
+	}
+	return "entity"
+}
+
 // entropy computes Shannon entropy in bits per character.
 func entropy(s string) float64 {
 	if len(s) == 0 {

@@ -2337,6 +2337,11 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		if err != nil {
 			return fmt.Errorf("dedup: %w", err)
 		}
+		// Dedup remaps/de-dups edges, which can drop the last edge
+		// pointing at an unresolved synthetic call target and re-orphan
+		// it. Prune those zero-degree placeholders so they don't become
+		// singleton-community noise.
+		nodes = resolve.PruneOrphanCallTargets(nodes, edges)
 	}
 
 	clusterer := cluster.NewLeidenClusterer()

@@ -330,6 +330,33 @@ func isSyntheticCallTarget(id string) bool {
 	return ok
 }
 
+// PruneOrphanCallTargets removes synthetic `<lang>:call:<name>` nodes
+// that no edge references. Calls() already prunes these once, but a
+// later pass — notably dedup, which remaps and de-duplicates edge
+// endpoints — can drop the last edge pointing at a call target,
+// re-orphaning it. Run this after dedup to keep unresolved-call
+// placeholders from lingering as zero-degree noise nodes (which the
+// clusterer would otherwise isolate into singleton communities).
+//
+// Only synthetic call targets are touched; every real node is kept
+// regardless of degree (an isolated function is still a fact about
+// the corpus).
+func PruneOrphanCallTargets(nodes []schema.Node, edges []schema.Edge) []schema.Node {
+	referenced := make(map[string]bool, len(edges)*2)
+	for _, e := range edges {
+		referenced[e.Source] = true
+		referenced[e.Target] = true
+	}
+	out := make([]schema.Node, 0, len(nodes))
+	for _, n := range nodes {
+		if isSyntheticCallTarget(n.ID) && !referenced[n.ID] {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
 // MethodOwnership resolves the synthetic `method_of` edges emitted by
 // the Go extractor into real `type contains method` edges. Each
 // method_of edge points from a method node to a
