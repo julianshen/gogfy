@@ -626,3 +626,128 @@ func TestRenderReportSemanticCostOmittedWhenNil(t *testing.T) {
 		t.Fatalf("section should be absent when SemanticCost is nil: %s", out)
 	}
 }
+
+func TestCommunityHubsRankedByDegreeDescending(t *testing.T) {
+	// The hubs section should lead with the most-connected community,
+	// not the lexically-first community ID. A reader scanning the
+	// report wants the project's biggest hub at the top.
+	opts := Options{
+		Nodes: []schema.Node{
+			// Community "zzz" is the biggest hub (degree 3) but sorts
+			// LAST by ID — it must still appear FIRST.
+			{ID: "big", Label: "BigHub", Community: "zzz"},
+			{ID: "b1", Community: "zzz"}, {ID: "b2", Community: "zzz"}, {ID: "b3", Community: "zzz"},
+			// Community "aaa" is a smaller hub (degree 1) but sorts first.
+			{ID: "small", Label: "SmallHub", Community: "aaa"},
+			{ID: "s1", Community: "aaa"},
+		},
+		Edges: []schema.Edge{
+			{Source: "big", Target: "b1"},
+			{Source: "big", Target: "b2"},
+			{Source: "big", Target: "b3"},
+			{Source: "small", Target: "s1"},
+		},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	s := string(out)
+	hubBody := s[indexOf(s, "## Community Hubs"):]
+	iBig := indexOf(hubBody, "BigHub")
+	iSmall := indexOf(hubBody, "SmallHub")
+	if iBig < 0 || iSmall < 0 {
+		t.Fatalf("both hubs should appear: %s", hubBody)
+	}
+	if iBig > iSmall {
+		t.Errorf("higher-degree hub (BigHub) should rank before lower (SmallHub):\n%s", hubBody)
+	}
+}
+
+func TestCommunityHubsSkipsDegreeZero(t *testing.T) {
+	// A community whose top node has zero edges isn't a hub — it's
+	// usually an isolated markdown heading. These dominated the
+	// pre-fix report (148 of 324 lines were degree <=3, many
+	// degree 0). They must be omitted.
+	opts := Options{
+		Nodes: []schema.Node{
+			{ID: "connected", Label: "Connected", Community: "c1"},
+			{ID: "x", Community: "c1"},
+			// Community c2: a single isolated node, zero edges.
+			{ID: "isolated", Label: "Isolated", Community: "c2"},
+		},
+		Edges: []schema.Edge{
+			{Source: "connected", Target: "x"},
+		},
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, opts)
+	s := string(out)
+	hubBody := s[indexOf(s, "## Community Hubs"):]
+	if contains(hubBody, "Isolated") {
+		t.Errorf("degree-0 community should be skipped from hubs: %s", hubBody)
+	}
+	if !contains(hubBody, "Connected") {
+		t.Errorf("connected community should still appear: %s", hubBody)
+	}
+}
+
+func TestCommunityHubsCapsListLength(t *testing.T) {
+	// 40 communities each with a degree-1 hub → list capped at 25
+	// with a "…and N more" footer. Prevents the 300-line dump the
+	// dogfooding run surfaced.
+	var nodes []schema.Node
+	var edges []schema.Edge
+	for i := 0; i < 40; i++ {
+		cid := "c" + itoaReport(i)
+		a := "a" + itoaReport(i)
+		bnode := "b" + itoaReport(i)
+		nodes = append(nodes, schema.Node{ID: a, Label: "Hub" + itoaReport(i), Community: cid})
+		nodes = append(nodes, schema.Node{ID: bnode, Community: cid})
+		edges = append(edges, schema.Edge{Source: a, Target: bnode})
+	}
+	out, _ := RenderWithOptions(analyze.Report{}, Options{Nodes: nodes, Edges: edges})
+	s := string(out)
+	hubBody := s[indexOf(s, "## Community Hubs"):]
+	// Count "- " bullet lines in the hub section (stop at next "##").
+	end := indexOf(hubBody[2:], "## ")
+	if end >= 0 {
+		hubBody = hubBody[:end]
+	}
+	lines := 0
+	for _, ln := range splitLinesReport(hubBody) {
+		if len(ln) >= 2 && ln[:2] == "- " {
+			lines++
+		}
+	}
+	// 25 hub lines + 1 "…and N more" line = 26.
+	if lines > 27 {
+		t.Errorf("hub list not capped: %d bullet lines", lines)
+	}
+	if !contains(hubBody, "and 15 more") {
+		t.Errorf("expected '…and 15 more' footer (40-25=15): %s", hubBody)
+	}
+}
+
+func itoaReport(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var b []byte
+	for i > 0 {
+		b = append([]byte{byte('0' + i%10)}, b...)
+		i /= 10
+	}
+	return string(b)
+}
+
+func splitLinesReport(s string) []string {
+	var out []string
+	cur := ""
+	for _, r := range s {
+		if r == '\n' {
+			out = append(out, cur)
+			cur = ""
+		} else {
+			cur += string(r)
+		}
+	}
+	out = append(out, cur)
+	return out
+}

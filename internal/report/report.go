@@ -258,15 +258,46 @@ func writeCommunityHubs(b *bytes.Buffer, opts Options, degree map[string]int) {
 	if len(bestPer) == 0 {
 		return
 	}
-	cids := make([]string, 0, len(bestPer))
-	for cid := range bestPer {
-		cids = append(cids, cid)
+	// Rank hubs by degree descending — the section's job is "show me
+	// the project's most-connected communities", so importance order
+	// beats community-ID order. A reader scanning the report wants
+	// Fatalf (degree 609) at the top, not Community 0 / 1 / 10 / 100…
+	// alphabetically with the real hubs scattered throughout.
+	hubs := make([]hub, 0, len(bestPer))
+	for _, h := range bestPer {
+		// Skip degree-0 hubs: a "community" whose top node has no
+		// edges isn't a hub of anything. These are mostly isolated
+		// markdown headings (doc files) and dominate the list noise.
+		if h.degree == 0 {
+			continue
+		}
+		hubs = append(hubs, h)
 	}
-	sort.Strings(cids)
+	if len(hubs) == 0 {
+		return
+	}
+	sort.Slice(hubs, func(i, j int) bool {
+		if hubs[i].degree != hubs[j].degree {
+			return hubs[i].degree > hubs[j].degree
+		}
+		// Tie-break by community ID for deterministic output.
+		return hubs[i].cid < hubs[j].cid
+	})
+	// Cap the list — a 300-community graph shouldn't dump 300 lines.
+	// The long tail is low-degree noise; the top entries are what
+	// readers actually want. Full per-community detail lives in the
+	// Communities section below.
+	const maxHubsShown = 25
+	shown := hubs
+	if len(shown) > maxHubsShown {
+		shown = shown[:maxHubsShown]
+	}
 	fmt.Fprintf(b, "## Community Hubs\n")
-	for _, cid := range cids {
-		h := bestPer[cid]
-		fmt.Fprintf(b, "- %s: %s (degree %d)\n", communityName(cid, opts.CommunityLabels), escapeMarkdown(h.label), h.degree)
+	for _, h := range shown {
+		fmt.Fprintf(b, "- %s: %s (degree %d)\n", communityName(h.cid, opts.CommunityLabels), escapeMarkdown(h.label), h.degree)
+	}
+	if extra := len(hubs) - len(shown); extra > 0 {
+		fmt.Fprintf(b, "- …and %d more communities (see the Communities section)\n", extra)
 	}
 	b.WriteString("\n")
 }
