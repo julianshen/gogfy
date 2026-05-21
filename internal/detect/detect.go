@@ -184,6 +184,15 @@ func CollectFilesWithOptions(root string, extensions []string, opts CollectOptio
 				}
 				return err
 			}
+			// Drop minified / generated bundles. A single d3.v7.min.js
+			// produces ~500 garbage symbol nodes that dominate the
+			// graph and spawn dozens of junk communities. Logged (not
+			// silent) so the user understands why a file they can see
+			// isn't in the corpus.
+			if IsMinified(resolved) {
+				fmt.Fprintf(SkipLogger, "gogfy: skipping %s: looks minified/generated\n", path)
+				return nil
+			}
 			files = append(files, resolved)
 		}
 		return nil
@@ -330,6 +339,10 @@ func walkLinkedDir(linkPath, resolvedTarget, root string, files *[]string, visit
 				return nil
 			}
 			return serr
+		}
+		if IsMinified(resolved) {
+			fmt.Fprintf(SkipLogger, "gogfy: skipping %s: looks minified/generated\n", logical)
+			return nil
 		}
 		*files = append(*files, resolved)
 		return nil
