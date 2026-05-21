@@ -4,6 +4,7 @@ package extract
 import (
 	"strings"
 
+	"github.com/julianshen/gogfy/internal/schema"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
 )
@@ -49,8 +50,42 @@ func walkGo(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 			nameNode := ch.ChildByFieldName("name")
 			state.emitDecl("type", ch, nameNode, src)
 			if nameNode != nil {
-				state.recordDeclaredType(nameNode.Utf8Text(src),
-					declID(state.lang, "type", state.filePath, nameNode, src))
+				typeName := nameNode.Utf8Text(src)
+				typeID := declID(state.lang, "type", state.filePath, nameNode, src)
+				state.recordDeclaredType(typeName, typeID)
+				// Extract the type's members so the type subgraph is
+				// rich: struct fields and interface method specs become
+				// nodes contained by the type. Mirrors graphify, which
+				// extracts these as finer-grained entities.
+				goEmitTypeMembers(state, ch, typeName, typeID, src)
+			}
+		}
+	case "const_declaration", "var_declaration":
+		// Package- or block-level const/var declarations. Each spec's
+		// name becomes a `go:const:` / `go:var:` node contained by the
+		// module (emitDecl wires the module→decl edge). Multi-name
+		// specs (`var a, b = 1, 2`) emit one node per name.
+		kind := "const"
+		if node.Kind() == "var_declaration" {
+			kind = "var"
+		}
+		specKind := kind + "_spec"
+		for i := uint(0); i < node.ChildCount(); i++ {
+			spec := node.Child(i)
+			if spec.Kind() != specKind {
+				continue
+			}
+			for j := uint(0); j < spec.ChildCount(); j++ {
+				nameNode := spec.Child(j)
+				if nameNode.Kind() != "identifier" {
+					continue
+				}
+				// Skip the blank identifier — `var _ = …` / `const _ = …`
+				// is a deliberate discard, not a named entity.
+				if nameNode.Utf8Text(src) == "_" {
+					continue
+				}
+				state.emitDecl(kind, spec, nameNode, src)
 			}
 		}
 	case "function_declaration", "method_declaration":
@@ -121,4 +156,77 @@ func goReceiverTypeName(method *sitter.Node, src []byte) string {
 		return id.Utf8Text(src)
 	}
 	return ""
+}
+
+// goEmitTypeMembers extracts the members of a type_spec — struct
+// fields and interface method specs — as nodes contained by the
+// type. Field IDs are qualified with the type name (`Type.field`) so
+// two structs with a same-named field don't collide. Interface
+// methods are emitted as `method` nodes (same kind as concrete
+// methods) so "what methods does this type have" queries see both.
+func goEmitTypeMembers(state *extractState, typeSpec *sitter.Node, typeName, typeID string, src []byte) {
+	body := typeSpec.ChildByFieldName("type")
+	if body == nil {
+		return
+	}
+	switch body.Kind() {
+	case "struct_type":
+		// struct_type → field_declaration_list → field_declaration.
+		list := firstChildOfKind(body, "field_declaration_list")
+		if list == nil {
+			return
+		}
+		walkTypeBody(list, "field_declaration", func(decl *sitter.Node) {
+			// A field_declaration can name several fields
+			// (`x, y int`); emit one node per field_identifier.
+			for i := uint(0); i < decl.ChildCount(); i++ {
+				id := decl.Child(i)
+				if id.Kind() != "field_identifier" {
+					continue
+				}
+				goEmitMember(state, "field", typeName, typeID, id, decl, src)
+			}
+		})
+	case "interface_type":
+		walkTypeBody(body, "method_elem", func(elem *sitter.Node) {
+			if id := firstChildOfKind(elem, "field_identifier"); id != nil {
+				goEmitMember(state, "method", typeName, typeID, id, elem, src)
+			}
+		})
+	}
+}
+
+// walkTypeBody invokes fn for each direct child of body whose kind
+// matches. Kept tiny so the struct/interface cases above stay
+// declarative.
+func walkTypeBody(body *sitter.Node, kind string, fn func(*sitter.Node)) {
+	for i := uint(0); i < body.ChildCount(); i++ {
+		if ch := body.Child(i); ch.Kind() == kind {
+			fn(ch)
+		}
+	}
+}
+
+// goEmitMember appends a member node (struct field or interface
+// method) and a `contains` edge from its owning type. The member ID
+// is `go:<kind>:<file>:<TypeName>.<memberName>` — type-qualified so
+// members of different types don't collide.
+func goEmitMember(state *extractState, kind, typeName, typeID string, nameNode, declNode *sitter.Node, src []byte) {
+	name := nameNode.Utf8Text(src)
+	if name == "" {
+		return
+	}
+	memberID := schema.LangID(state.lang, kind, state.filePath+":"+typeName+"."+name)
+	state.nodes = append(state.nodes, schema.Node{
+		ID:             memberID,
+		Label:          name,
+		SourceFile:     state.filePath,
+		SourceLocation: nodeLocation(declNode),
+	})
+	state.edges = append(state.edges, schema.Edge{
+		Source:     typeID,
+		Target:     memberID,
+		Relation:   "contains",
+		Confidence: schema.Extracted,
+	})
 }

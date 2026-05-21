@@ -346,3 +346,93 @@ func TestGoMethodOwnershipDeferredAcrossDeclOrder(t *testing.T) {
 		t.Errorf("method-before-type ownership not linked by finalize()")
 	}
 }
+
+func TestGoExtractorStructFieldsAndInterfaceMethods(t *testing.T) {
+	// Struct fields and interface method specs become nodes contained
+	// by their type — the finer-grained entities graphify extracts.
+	root := t.TempDir()
+	path := filepath.Join(root, "types.go")
+	src := `package m
+
+type Repo struct {
+	db   string
+	conn *Conn
+}
+
+type Reader interface {
+	Read() error
+	Close()
+}
+`
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, _ := (&GoExtractor{}).Extract(path)
+	labels := map[string]string{} // label → kind(from ID)
+	for _, n := range result.Nodes {
+		parts := strings.Split(n.ID, ":")
+		if len(parts) >= 2 {
+			labels[n.Label] = parts[1]
+		}
+	}
+	// Fields present as field nodes.
+	for _, f := range []string{"db", "conn"} {
+		if labels[f] != "field" {
+			t.Errorf("expected struct field %q as field node, got kind %q", f, labels[f])
+		}
+	}
+	// Interface methods present as method nodes.
+	for _, m := range []string{"Read", "Close"} {
+		if labels[m] != "method" {
+			t.Errorf("expected interface method %q as method node, got kind %q", m, labels[m])
+		}
+	}
+	// Containment: Repo contains db; Reader contains Read.
+	var repoID, dbID string
+	for _, n := range result.Nodes {
+		if n.Label == "Repo" && strings.Contains(n.ID, ":type:") {
+			repoID = n.ID
+		}
+		if n.Label == "db" {
+			dbID = n.ID
+		}
+	}
+	var contained bool
+	for _, e := range result.Edges {
+		if e.Relation == "contains" && e.Source == repoID && e.Target == dbID {
+			contained = true
+		}
+	}
+	if !contained {
+		t.Errorf("expected Repo→db contains edge")
+	}
+}
+
+func TestGoExtractorConstAndVar(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "decls.go")
+	src := "package m\n\nconst MaxN = 10\n\nconst ( A = iota; B )\n\nvar Global = 1\n\nvar _ = ignored()\n\nfunc ignored() int { return 0 }\n"
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, _ := (&GoExtractor{}).Extract(path)
+	kinds := map[string]string{}
+	for _, n := range result.Nodes {
+		parts := strings.Split(n.ID, ":")
+		if len(parts) >= 2 {
+			kinds[n.Label] = parts[1]
+		}
+	}
+	for _, c := range []string{"MaxN", "A", "B"} {
+		if kinds[c] != "const" {
+			t.Errorf("expected const %q, got kind %q", c, kinds[c])
+		}
+	}
+	if kinds["Global"] != "var" {
+		t.Errorf("expected var Global, got kind %q", kinds["Global"])
+	}
+	// Blank identifier must NOT be a node.
+	if _, ok := kinds["_"]; ok {
+		t.Errorf("blank identifier should not be extracted")
+	}
+}
