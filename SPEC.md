@@ -1,5 +1,14 @@
 # GoGraphify Specification (Go reimplementation of `safishamsi/graphify`)
 
+> **Historical document.** This is the original Phase-1 scoping spec. The
+> implementation has since shipped well beyond it — several Phase-1
+> "non-goals" below (multi-platform installers, audio/video transcription,
+> semantic extraction across 6 LLM backends) are now done, plus exports
+> and integrations the spec never anticipated (Neo4j push, Obsidian vault,
+> static doc-site, CI gate, hyperedges). For **current** feature state see
+> [README.md](README.md) and [GAP_ANALYSIS.md](GAP_ANALYSIS.md); this file
+> is kept for the original design rationale, not as a status report.
+
 ## 1. Objective
 Build a **fully Go** CLI/library that reproduces the core behavior of graphify’s local knowledge-graph pipeline:
 

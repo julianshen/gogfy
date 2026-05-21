@@ -1,5 +1,10 @@
 # TDD Implementation Plan (Red -> Green -> Refactor)
 
+> **Historical document.** This is the original milestone plan that
+> bootstrapped the project; all milestones below are complete. Current
+> feature state lives in [README.md](README.md) and
+> [GAP_ANALYSIS.md](GAP_ANALYSIS.md). Kept for the build-order rationale.
+
 ## Milestone 0 — project bootstrap
 1. Initialize Go module and folder layout.
 2. Add test harness (`go test ./...`), lint config, and golden test helpers.

@@ -44,7 +44,9 @@ gogfy uses tree-sitter for AST extraction. A language is supported when (a) some
 | reStructuredText | `.rst` | Heuristic. Section detection via canonical RST adornment-line pattern (line N+1 same length as line N, composed of one of `= - ~ ^ ' " * + # : .`). Heading levels inferred by first-appearance order of the adornment character. Inline targets `\`text <url>\`_` plus bare URLs in prose extracted as references. No docutils dep — Python-free. |
 | Plain text | `.txt` | Module node only; references extracted via URL regex. Trailing sentence punctuation (`.`, `,`, `)`, `;`, `:`, `!`, `?`) stripped from URLs. Useful for getting README-adjacent files (CHANGELOG, NOTES, LICENSE) into the graph. |
 | Word | `.docx` | Pure-Go via `archive/zip` + `encoding/xml` (no third-party docx library). Reads `word/document.xml` for paragraphs and `word/_rels/document.xml.rels` for hyperlink targets. Module label prefers `Title`-style paragraph over first `Heading1` over basename. Heading1/2/3 → section nodes. `<w:hyperlink r:id="…">` → reference edge with the URL resolved through the rels map; anchor-only intra-document links are skipped. |
-| Excel | `.xlsx` | Pure-Go via `archive/zip` + `encoding/xml` (no `excelize` dep). Workbook → module node (label = basename). Each sheet listed in `xl/workbook.xml` → section node. External hyperlinks (`<hyperlink r:id="…"/>` resolved through each sheet's `xl/worksheets/_rels/sheetN.xml.rels`) → reference edges sourced from their owning sheet section. Cell content isn't extracted — sheet names + outbound links are the high-signal extracts; cell text is mostly numeric/tabular noise. |
+| Excel | `.xlsx` | Pure-Go via `archive/zip` + `encoding/xml` (no `excelize` dep). Workbook → module node (label = basename). Each sheet listed in `xl/workbook.xml` → section node. **Structural extraction**: defined Excel tables (`xl/tables/tableN.xml`) → `xlsx:table` nodes with a `contains` edge from their sheet; each `<tableColumn>` → `xlsx:column` node with a `contains` edge from its table. External hyperlinks (`<hyperlink r:id="…"/>` resolved through each sheet's `xl/worksheets/_rels/sheetN.xml.rels`) → reference edges sourced from their owning sheet section. Cell content isn't extracted — names + structure + outbound links are the high-signal extracts. |
+| Google Workspace | `.gdoc` `.gsheet` `.gslides` | Pure-Go JSON parse of the Drive shortcut files. Emits a document-typed module node with the linked Drive URL in `SourceLocation` and a distinct lang tag (`gdoc`/`gsheet`/`gslides`) for filterability. Full content conversion (via the upstream `gws` CLI) is deferred — gogfy doesn't shell out to external binaries. |
+| Image (URL-ingested) | PNG/JPEG/GIF/WebP | Detected via magic bytes (URL-suffix fallback) when fetched by `gogfy ingest`. Saved as a binary sidecar and fed to the vision-LLM path (`semantic.ExtractImage`) on the next `--semantic` run. SVG stays on the markdown path (it's XML). |
 | PDF | `.pdf` | Pure-Go via `github.com/ledongthuc/pdf` (no cgo). Module label prefers PDF `/Info /Title` metadata over basename. References extracted via URL regex over the page-concatenated plain text. Section nodes are not emitted in the v1 — PDFs without explicit outlines have no reliable structural markers, and font-size heading heuristics are expensive and false-positive-prone. Encrypted or pathologically-encoded PDFs degrade to a bare module node rather than failing the run. |
 | PowerPoint | `.pptx` | Pure-Go via `archive/zip` + `encoding/xml` (no third-party pptx lib). Presentation → module node (label = basename). Each slide listed in `ppt/presentation.xml` → section node, labeled with the title-placeholder text (`<p:ph type="title"/>` or `"ctrTitle"`) or `"Slide N"` fallback. External hyperlinks (`<a:hlinkClick r:id="…"/>` resolved through each slide's `ppt/slides/_rels/slideN.xml.rels`) → reference edges sourced from their owning slide section. |
 
@@ -75,10 +77,12 @@ Each entry below has been **probed** with `go get`. Status reflects what the ups
 1. **Objective-C** (Hatch 2 — fork + add binding stub)
 2. **Groovy** (Hatch 2 — fork + add binding stub)
 
-**Document formats** — building Go-native, no Python (no markitdown dep). Markdown / HTML / RST / plain-text shipped; following the same shape:
+**Document formats** — building Go-native, no Python (no markitdown dep). Markdown / HTML / RST / plain-text / DOCX / XLSX / PPTX / PDF / Google Workspace all shipped.
 
-1. **Images** — Tesseract OCR via cgo. Opt-in build tag; not core.
-2. **Audio / video** — `whisper.cpp` via cgo. Opt-in build tag.
+**Semantic & media (shipped, cloud-backed — opt-in via `--semantic` / `--transcribe-backend`):**
+
+1. **Images** — vision-LLM extraction (`semantic.ExtractImage`) instead of local OCR. Works with any of the 6 LLM backends that support vision. A local Tesseract-via-cgo path remains a possible future opt-in build tag.
+2. **Audio / video** — cloud Whisper (`--transcribe-backend whisper`) rather than `whisper.cpp` via cgo. YouTube audio is downloaded pure-Go (`kkdai/youtube`, no yt-dlp). A local `whisper.cpp` cgo path remains a possible future opt-in.
 
 ## Adding a language
 
