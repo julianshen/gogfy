@@ -54,7 +54,6 @@ func runExtraction(path string, lang unsafe.Pointer, langID string, walk func(*s
 	state := &extractState{lang: langID, filePath: pf.absPath}
 	state.emitModule(pf.cursor.Node())
 	walk(pf.cursor, pf.src, state)
-	state.finalize()
 	return Result{Nodes: state.nodes, Edges: state.edges}, nil
 }
 

@@ -52,7 +52,6 @@ func walkGo(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 			if nameNode != nil {
 				typeName := nameNode.Utf8Text(src)
 				typeID := declID(state.lang, "type", state.filePath, nameNode, src)
-				state.recordDeclaredType(typeName, typeID)
 				// Extract the type's members so the type subgraph is
 				// rich: struct fields and interface method specs become
 				// nodes contained by the type. Mirrors graphify, which
@@ -95,13 +94,16 @@ func walkGo(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		}
 		nameNode := node.ChildByFieldName("name")
 		state.emitDecl(kind, node, nameNode, src)
-		// Method ownership: record the receiver type so finalize() can
-		// link `type contains method` when the receiver type is
-		// declared in this file. Methods on cross-file types keep just
-		// the module link emitDecl already added.
+		// Method ownership: emit a `method_of` edge to a synthetic
+		// receiver-type-ref. resolve.MethodOwnership rewrites it to a
+		// `type contains method` edge against the real type node in
+		// the same package directory — which works whether the type
+		// is declared in this file or a sibling file of the package.
+		// (emitDecl already linked the method to its module; the
+		// ownership edge adds the type axis.)
 		if kind == "method" && nameNode != nil {
 			if recv := goReceiverTypeName(node, src); recv != "" {
-				state.recordMethodOwner(
+				state.addMethodOf(
 					declID(state.lang, "method", state.filePath, nameNode, src), recv)
 			}
 		}

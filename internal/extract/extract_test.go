@@ -298,52 +298,25 @@ func freeFunc() {}
 	if repoSaveID == "" {
 		t.Fatal("Save method node not extracted")
 	}
-	// module → type contains
-	var moduleContainsType, typeContainsMethod bool
+	// module → type contains (backbone). The method emits a
+	// `method_of` edge to a synthetic typeref; the actual
+	// type→method `contains` edge is produced later by
+	// resolve.MethodOwnership (which has the whole-package view).
+	var moduleContainsType, methodOfEmitted bool
 	for _, e := range result.Edges {
 		if e.Relation == "contains" && e.Source == moduleID && e.Target == typeID {
 			moduleContainsType = true
 		}
-		if e.Relation == "contains" && e.Source == typeID && e.Target == repoSaveID {
-			typeContainsMethod = true
+		if e.Relation == "method_of" && e.Source == repoSaveID &&
+			strings.Contains(e.Target, ":typeref:Repo") {
+			methodOfEmitted = true
 		}
 	}
 	if !moduleContainsType {
 		t.Errorf("expected module→Repo contains edge")
 	}
-	if !typeContainsMethod {
-		t.Errorf("expected Repo→Save contains (method ownership) edge")
-	}
-}
-
-func TestGoMethodOwnershipDeferredAcrossDeclOrder(t *testing.T) {
-	// The method appears BEFORE its receiver type in the file. The
-	// deferred finalize() must still link them — ownership can't
-	// depend on lexical order.
-	root := t.TempDir()
-	path := filepath.Join(root, "order.go")
-	src := "package p\n\nfunc (s *Svc) Do() {}\n\ntype Svc struct{}\n"
-	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
-		t.Fatal(err)
-	}
-	result, _ := (&GoExtractor{}).Extract(path)
-	var svcID, doID string
-	for _, n := range result.Nodes {
-		if strings.Contains(n.ID, ":type:") && n.Label == "Svc" {
-			svcID = n.ID
-		}
-		if strings.Contains(n.ID, ":method:") && n.Label == "Do" {
-			doID = n.ID
-		}
-	}
-	var linked bool
-	for _, e := range result.Edges {
-		if e.Relation == "contains" && e.Source == svcID && e.Target == doID {
-			linked = true
-		}
-	}
-	if !linked {
-		t.Errorf("method-before-type ownership not linked by finalize()")
+	if !methodOfEmitted {
+		t.Errorf("expected Save→typeref:Repo method_of edge")
 	}
 }
 

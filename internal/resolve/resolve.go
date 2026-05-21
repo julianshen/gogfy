@@ -330,3 +330,84 @@ func isSyntheticCallTarget(id string) bool {
 	return ok
 }
 
+// MethodOwnership resolves the synthetic `method_of` edges emitted by
+// the Go extractor into real `type contains method` edges. Each
+// method_of edge points from a method node to a
+// `<lang>:typeref:<ReceiverName>` placeholder; this pass rewrites it
+// to a `contains` edge from the actual type node declared in the same
+// package directory as the method.
+//
+// Package = directory (Go's model), so this handles both same-file
+// and cross-file-same-package receivers — the gap finalize()-based
+// per-file linking couldn't close. A typeref that resolves to no
+// in-corpus type (receiver from a dependency, or an embedded builtin)
+// is dropped along with its edge, leaving no dangling reference. The
+// synthetic typeref nodes are pruned once unreferenced.
+//
+// Mirrors Calls: emit-intent-during-extraction, resolve-against-
+// global-view here.
+func MethodOwnership(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Edge) {
+	// Index type nodes by (lang, dir, typeName).
+	type typeKey struct{ lang, dir, name string }
+	typeByKey := map[typeKey]string{}
+	fileByID := buildFileByID(nodes)
+	for _, n := range nodes {
+		lang, kind, _, ok := schema.ParseLangID(n.ID)
+		if !ok || kind != "type" {
+			continue
+		}
+		typeByKey[typeKey{lang, filepath.Dir(n.SourceFile), n.Label}] = n.ID
+	}
+
+	out := make([]schema.Edge, 0, len(edges))
+	referenced := map[string]bool{}
+	for _, e := range edges {
+		lang, recv, isMO := parseTypeRef(e.Target)
+		if e.Relation != "method_of" || !isMO {
+			out = append(out, e)
+			referenced[e.Target] = true
+			continue
+		}
+		methodDir := filepath.Dir(fileByID[e.Source])
+		typeID, ok := typeByKey[typeKey{lang, methodDir, recv}]
+		if !ok {
+			// Receiver type not in this package's extracted files —
+			// drop the method_of edge (and let the synthetic typeref
+			// be pruned). The method keeps its module contains edge.
+			continue
+		}
+		out = append(out, schema.Edge{
+			Source:     typeID,
+			Target:     e.Source, // type contains method
+			Relation:   "contains",
+			Confidence: schema.Extracted,
+		})
+	}
+
+	// Prune synthetic typeref nodes that no surviving edge references.
+	pruned := make([]schema.Node, 0, len(nodes))
+	for _, n := range nodes {
+		if isTypeRef(n.ID) && !referenced[n.ID] {
+			continue
+		}
+		pruned = append(pruned, n)
+	}
+	return pruned, out
+}
+
+// parseTypeRef extracts (lang, receiverName) from a synthetic
+// `<lang>:typeref:<name>` node ID.
+func parseTypeRef(id string) (lang, name string, ok bool) {
+	l, kind, n, ok := schema.ParseLangID(id)
+	if !ok || kind != "typeref" {
+		return "", "", false
+	}
+	return l, n, true
+}
+
+// isTypeRef reports whether id is a synthetic receiver-type-ref node.
+func isTypeRef(id string) bool {
+	_, _, ok := parseTypeRef(id)
+	return ok
+}
+
