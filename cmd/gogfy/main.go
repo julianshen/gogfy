@@ -2321,6 +2321,11 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	// bases keep their typeref as an observed-inheritance fact. Runs after
 	// MethodOwnership so only inheritance typerefs remain to resolve here.
 	nodes, edges = resolve.Inheritance(nodes, edges)
+	// Resolve local imports to the corpus module(s) they name, adding
+	// INFERRED module→module dependency edges (the import stub is kept as
+	// the observed-path fact). Turns the import relation into real
+	// cross-package connectivity for traverse/path queries.
+	edges = resolve.Imports(nodes, edges)
 
 	// Entity deduplication (three-pass: exact → fuzzy → LLM tiebreaker)
 	if !opts.NoDedup {
