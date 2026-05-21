@@ -306,3 +306,77 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+func TestGenerateSkipsTrivialIsolatedCommunities(t *testing.T) {
+	// Dogfooding fix: a single node with zero edges (isolated HTML
+	// <section>, standalone function) shouldn't get its own wiki
+	// article — there's nothing to summarize. It produced 168 noise
+	// articles on the gogfy self-graph.
+	nodes := []schema.Node{
+		// Real community: 2 connected nodes.
+		{ID: "n1", Label: "Alpha", Community: "0", SourceFile: "a.go"},
+		{ID: "n2", Label: "Bravo", Community: "0", SourceFile: "a.go"},
+		// Trivial community: single isolated node, zero edges.
+		{ID: "iso", Label: "Lonely", Community: "99", SourceFile: "x.html"},
+	}
+	edges := []schema.Edge{
+		{Source: "n1", Target: "n2", Relation: "calls", Confidence: schema.Extracted},
+	}
+	dir := t.TempDir()
+	count, err := Generate(nodes, edges, dir, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 article (trivial community skipped), got %d", count)
+	}
+	idx := readFile(t, filepath.Join(dir, "index.md"))
+	if strings.Contains(idx, "Community 99") {
+		t.Errorf("index should not list the trivial isolated community:\n%s", idx)
+	}
+	if !strings.Contains(idx, "Community 0") {
+		t.Errorf("index should still list the real community:\n%s", idx)
+	}
+}
+
+func TestGenerateKeepsSingleNodeWithEdges(t *testing.T) {
+	// A single-node community whose node bridges to another community
+	// is NOT trivial — it has a connection worth describing. Only
+	// truly-isolated (0-edge) singletons are filtered.
+	nodes := []schema.Node{
+		{ID: "n1", Label: "Alpha", Community: "0"},
+		{ID: "n2", Label: "Bravo", Community: "0"},
+		{ID: "bridge", Label: "Bridge", Community: "1"}, // single node, but has an edge
+	}
+	edges := []schema.Edge{
+		{Source: "n1", Target: "n2", Relation: "calls"},
+		{Source: "n2", Target: "bridge", Relation: "imports"}, // connects bridge to community 0
+	}
+	dir := t.TempDir()
+	count, err := Generate(nodes, edges, dir, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("single-node-with-edge community should get an article: got %d articles", count)
+	}
+}
+
+func TestIsTrivialCommunity(t *testing.T) {
+	deg := map[string]int{"connected": 3, "isolated": 0}
+	cases := []struct {
+		name    string
+		members []schema.Node
+		want    bool
+	}{
+		{"single isolated", []schema.Node{{ID: "isolated"}}, true},
+		{"single connected", []schema.Node{{ID: "connected"}}, false},
+		{"two members", []schema.Node{{ID: "isolated"}, {ID: "x"}}, false},
+		{"empty", nil, false},
+	}
+	for _, c := range cases {
+		if got := isTrivialCommunity(c.members, deg); got != c.want {
+			t.Errorf("%s: isTrivialCommunity = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
