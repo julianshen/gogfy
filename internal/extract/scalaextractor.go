@@ -21,11 +21,14 @@ func walkScala(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "import_declaration":
 		emitScalaImports(state, node, src)
 	case "class_definition":
-		state.emitDecl("class", node, firstChildOfKind(node, "identifier"), src)
+		id := state.emitDecl("class", node, firstChildOfKind(node, "identifier"), src)
+		goEmitScalaBases(state, node, id, src)
 	case "object_definition":
-		state.emitDecl("object", node, firstChildOfKind(node, "identifier"), src)
+		id := state.emitDecl("object", node, firstChildOfKind(node, "identifier"), src)
+		goEmitScalaBases(state, node, id, src)
 	case "trait_definition":
-		state.emitDecl("trait", node, firstChildOfKind(node, "identifier"), src)
+		id := state.emitDecl("trait", node, firstChildOfKind(node, "identifier"), src)
+		goEmitScalaBases(state, node, id, src)
 	case "function_definition":
 		nameNode := firstChildOfKind(node, "identifier")
 		state.emitDecl("function", node, nameNode, src)

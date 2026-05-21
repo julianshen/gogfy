@@ -37,9 +37,11 @@ func walkTS(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		state.walkAnonFnScope("function", node, src, cursor, walkTS)
 		return
 	case "class_declaration":
-		state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		goEmitTSBases(state, node, id, src)
 	case "interface_declaration":
-		state.emitDecl("interface", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("interface", node, node.ChildByFieldName("name"), src)
+		goEmitTSBases(state, node, id, src)
 	case "type_alias_declaration":
 		state.emitDecl("type", node, node.ChildByFieldName("name"), src)
 	case "import_statement":

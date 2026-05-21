@@ -37,7 +37,8 @@ func walkPython(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "call":
 		state.addCall(callTargetName(node.ChildByFieldName("function"), src))
 	case "class_definition":
-		state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		goEmitPythonBases(state, node, id, src)
 	}
 	walkChildren(cursor, func() { walkPython(cursor, src, state) })
 }

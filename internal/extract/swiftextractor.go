@@ -29,9 +29,11 @@ func walkSwift(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "class_declaration":
 		// Covers class / struct / actor — all share the `name` field.
 		nameNode := node.ChildByFieldName("name")
-		state.emitDecl("class", node, nameNode, src)
+		id := state.emitDecl("class", node, nameNode, src)
+		goEmitSwiftBases(state, node, id, src)
 	case "protocol_declaration":
-		state.emitDecl("protocol", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("protocol", node, node.ChildByFieldName("name"), src)
+		goEmitSwiftBases(state, node, id, src)
 	case "function_declaration":
 		nameNode := node.ChildByFieldName("name")
 		if nameNode == nil {

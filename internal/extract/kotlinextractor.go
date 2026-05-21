@@ -21,7 +21,8 @@ func walkKotlin(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 			state.addImport(id.Utf8Text(src))
 		}
 	case "class_declaration":
-		state.emitDecl("class", node, firstChildOfKind(node, "identifier"), src)
+		id := state.emitDecl("class", node, firstChildOfKind(node, "identifier"), src)
+		goEmitKotlinBases(state, node, id, src)
 	case "function_declaration":
 		nameNode := firstChildOfKind(node, "identifier")
 		state.emitDecl("function", node, nameNode, src)

@@ -19,9 +19,11 @@ func walkPHP(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "namespace_use_declaration":
 		emitPHPImports(state, node, src)
 	case "class_declaration":
-		state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		goEmitPHPBases(state, node, id, src)
 	case "interface_declaration":
-		state.emitDecl("interface", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("interface", node, node.ChildByFieldName("name"), src)
+		goEmitPHPBases(state, node, id, src)
 	case "trait_declaration":
 		state.emitDecl("trait", node, node.ChildByFieldName("name"), src)
 	case "enum_declaration":

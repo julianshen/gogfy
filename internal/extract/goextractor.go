@@ -57,6 +57,10 @@ func walkGo(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 				// nodes contained by the type. Mirrors graphify, which
 				// extracts these as finer-grained entities.
 				goEmitTypeMembers(state, ch, typeName, typeID, src)
+				// Go's inheritance analog: struct/interface embedding.
+				if body := ch.ChildByFieldName("type"); body != nil {
+					goEmitEmbeds(state, body, typeID, src)
+				}
 			}
 		}
 	case "const_declaration", "var_declaration":

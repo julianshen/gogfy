@@ -422,6 +422,124 @@ func MethodOwnership(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, [
 	return pruned, out
 }
 
+// inheritanceRelations are the subtype→base edge labels addInherits
+// emits. resolve.Inheritance rewrites their synthetic typeref targets to
+// real base type/class nodes.
+var inheritanceRelations = map[string]bool{
+	"inherits":   true,
+	"implements": true,
+	"embeds":     true,
+}
+
+// typeLikeKinds are the declaration kinds a base type can resolve to,
+// across languages: Go `type`, OOP `class`/`interface`, Rust
+// `struct`/`enum`/`trait`, Java `enum`, Swift `protocol`, etc.
+var typeLikeKinds = map[string]bool{
+	"type": true, "class": true, "interface": true, "struct": true,
+	"enum": true, "trait": true, "protocol": true, "object": true,
+	"record": true, "mixin": true,
+}
+
+// Inheritance resolves the synthetic inheritance edges (`inherits`,
+// `implements`, `embeds`) emitted by the extractors. Each points from a
+// subtype node to a `<lang>:typeref:<BaseName>` placeholder; this pass
+// rewrites the target to the real base type/class node when one exists
+// in the corpus.
+//
+// Unlike MethodOwnership (directory-scoped, drop-if-unresolved), base
+// types routinely live in other packages, so resolution mirrors Calls:
+// a global (lang, name) index over `type` AND `class` nodes, narrowed by
+// the subtype file's import scope when several same-named bases exist.
+//
+//   - 1 candidate  → target rewritten to the base ID, Confidence INFERRED.
+//   - N candidates → fanned out to one AMBIGUOUS edge per base (the
+//     synthetic typeref is kept as an anchor for the observed name).
+//   - 0 candidates → edge is left pointing at the typeref. An external
+//     base (a framework class like `Exception`) is a real "extends this"
+//     fact worth keeping, so the typeref survives as an observed node.
+//
+// Run AFTER MethodOwnership: that pass passes inheritance edges through
+// untouched (marking their typeref targets referenced, so it won't prune
+// them), and by the time this runs every method-receiver typeref has
+// already been resolved or pruned — leaving only inheritance typerefs here.
+func Inheritance(nodes []schema.Node, edges []schema.Edge) ([]schema.Node, []schema.Edge) {
+	// Index all type-like declaration nodes globally by (lang, name).
+	idx := map[langLabel][]string{}
+	for _, n := range nodes {
+		lang, kind, _, ok := schema.ParseLangID(n.ID)
+		if !ok || !typeLikeKinds[kind] {
+			continue
+		}
+		key := langLabel{lang, n.Label}
+		idx[key] = append(idx[key], n.ID)
+	}
+	for k := range idx {
+		sort.Strings(idx[k])
+	}
+
+	importScope := buildImportScope(edges)
+	fileByID := buildFileByID(nodes)
+
+	out := make([]schema.Edge, 0, len(edges))
+	referenced := make(map[string]bool, len(nodes))
+	for _, e := range edges {
+		lang, base, isRef := parseTypeRef(e.Target)
+		if !inheritanceRelations[e.Relation] || !isRef {
+			out = append(out, e)
+			referenced[e.Target] = true
+			continue
+		}
+		// Resolve a typeref SOURCE too (Rust `impl Trait for Foo` names
+		// both ends). Unique match → rewrite source to the real type;
+		// otherwise keep the typeref source (and mark it referenced so it
+		// survives pruning).
+		if srcLang, srcName, srcIsRef := parseTypeRef(e.Source); srcIsRef {
+			if c := idx[langLabel{srcLang, srcName}]; len(c) == 1 {
+				e.Source = c[0]
+			} else {
+				referenced[e.Source] = true
+			}
+		}
+		candidates := idx[langLabel{lang, base}]
+		if len(candidates) > 1 {
+			if narrowed := narrowByImportScope(candidates, fileByID, importScope, fileByID[e.Source], base); len(narrowed) > 0 {
+				candidates = narrowed
+			}
+		}
+		switch len(candidates) {
+		case 0:
+			out = append(out, e)
+			referenced[e.Target] = true
+		case 1:
+			upgraded := e
+			upgraded.Target = candidates[0]
+			upgraded.Confidence = schema.Inferred
+			out = append(out, upgraded)
+			referenced[upgraded.Target] = true
+		default:
+			for _, cand := range candidates {
+				out = append(out, schema.Edge{
+					Source:     e.Source,
+					Target:     cand,
+					Relation:   e.Relation,
+					Confidence: schema.Ambiguous,
+				})
+				referenced[cand] = true
+			}
+			referenced[e.Target] = true // keep anchor
+		}
+	}
+
+	pruned := make([]schema.Node, 0, len(nodes))
+	for _, n := range nodes {
+		if isTypeRef(n.ID) && !referenced[n.ID] {
+			continue
+		}
+		pruned = append(pruned, n)
+	}
+	return pruned, out
+}
+
 // parseTypeRef extracts (lang, receiverName) from a synthetic
 // `<lang>:typeref:<name>` node ID.
 func parseTypeRef(id string) (lang, name string, ok bool) {
