@@ -309,12 +309,36 @@ func (s *extractState) emitDecl(kind string, declNode, nameNode *sitter.Node, sr
 	if label == "" {
 		label = "<anonymous>"
 	}
+	declID := schema.LangID(s.lang, kind, s.filePath+":"+name)
 	s.nodes = append(s.nodes, schema.Node{
-		ID:             schema.LangID(s.lang, kind, s.filePath+":"+name),
+		ID:             declID,
 		Label:          label,
 		SourceFile:     s.filePath,
 		SourceLocation: nodeLocation(declNode),
 	})
+	// Containment backbone: link the declaration to its enclosing
+	// scope — the innermost nesting function if any, otherwise the
+	// file's module node. This is the structural hierarchy graphify
+	// emits as `contains` edges (module → top-level decls, function →
+	// nested closures). Without it, an uncalled function or a method
+	// with no resolvable call sites floats as a zero-edge singleton
+	// community; with it, every declaration is reachable from its
+	// file, which is what the wiki / get_neighbors / traverse tools
+	// want when answering "what's defined in here?".
+	//
+	// callSource() returns the enclosing function only while we're
+	// walking its body; emitDecl for the function itself runs BEFORE
+	// walkFnScope pushes it, so a top-level function correctly gets
+	// `module contains func`, not a self-loop.
+	container := s.callSource()
+	if container != declID { // guard against a degenerate self-link
+		s.edges = append(s.edges, schema.Edge{
+			Source:     container,
+			Target:     declID,
+			Relation:   "contains",
+			Confidence: schema.Extracted,
+		})
+	}
 }
 
 // addImport appends an import-target node and an "imports" edge from the
@@ -329,6 +353,21 @@ func (s *extractState) addImport(target string) {
 		Source:     schema.LangID(s.lang, "module", s.filePath),
 		Target:     schema.LangID(s.lang, "import", target),
 		Relation:   "imports",
+		Confidence: schema.Extracted,
+	})
+}
+
+// emitContainsFromModule links the file's module node to childID with a
+// `contains` edge. Used by the document extractors so heading/section
+// nodes attach to their file rather than floating as zero-edge
+// singletons (which the clusterer would isolate into their own
+// communities). The module-node ID is derived the same way the
+// extractors mint it, so the edge endpoint always resolves.
+func (s *extractState) emitContainsFromModule(childID string) {
+	s.edges = append(s.edges, schema.Edge{
+		Source:     schema.LangID(s.lang, "module", s.filePath),
+		Target:     childID,
+		Relation:   "contains",
 		Confidence: schema.Extracted,
 	})
 }

@@ -204,6 +204,7 @@ func walkDocxBody(data []byte, rels map[string]string, path string, state *extra
 					Label:      text,
 					SourceFile: path,
 				})
+				state.emitContainsFromModule(id)
 				state.fnStack = []string{moduleID, id}
 			}
 			emitLinks()

@@ -110,8 +110,13 @@ func TestPythonExtractorNoImports(t *testing.T) {
 	if len(result.Nodes) != 2 {
 		t.Fatalf("expected 2 nodes (module + func), got %d", len(result.Nodes))
 	}
-	if len(result.Edges) != 0 {
-		t.Fatalf("expected 0 edges, got %d", len(result.Edges))
+	// No imports → no `imports` edges. The module → func `contains`
+	// edge from the containment backbone is expected; assert on the
+	// import relation specifically.
+	for _, e := range result.Edges {
+		if e.Relation == "imports" {
+			t.Fatalf("expected 0 import edges, got one: %+v", e)
+		}
 	}
 }
 

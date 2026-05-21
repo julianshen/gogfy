@@ -88,6 +88,12 @@ func (XlsxExtractor) Extract(path string) (Result, error) {
 			Label:      s.Name,
 			SourceFile: abs,
 		})
+		state.edges = append(state.edges, schema.Edge{
+			Source:     moduleID,
+			Target:     sectionID,
+			Relation:   "contains",
+			Confidence: schema.Extracted,
+		})
 
 		target, ok := workbookRels[s.RelID]
 		if !ok {

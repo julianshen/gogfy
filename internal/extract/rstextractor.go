@@ -72,6 +72,7 @@ func (RSTExtractor) Extract(path string) (Result, error) {
 				Label:      title,
 				SourceFile: abs,
 			})
+			state.emitContainsFromModule(id)
 			// Reset to module + push this section so links inside source
 			// from here.
 			state.fnStack = []string{moduleID, id}
