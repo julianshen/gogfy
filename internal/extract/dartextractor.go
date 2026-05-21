@@ -37,7 +37,8 @@ func walkDart(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		if nameNode == nil {
 			nameNode = firstChildOfKind(node, "identifier")
 		}
-		state.emitDecl("class", node, nameNode, src)
+		id := state.emitDecl("class", node, nameNode, src)
+		goEmitDartBases(state, node, id, src)
 	case "mixin_declaration":
 		state.emitDecl("mixin", node, firstChildOfKind(node, "identifier"), src)
 	case "extension_declaration":

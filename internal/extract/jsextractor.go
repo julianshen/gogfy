@@ -32,7 +32,8 @@ func walkJS(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		state.walkAnonFnScope("function", node, src, cursor, walkJS)
 		return
 	case "class_declaration":
-		state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		goEmitJSBases(state, node, id, src)
 	case "import_statement":
 		if target := importStringSource(node, src); target != "" {
 			state.addImport(target)

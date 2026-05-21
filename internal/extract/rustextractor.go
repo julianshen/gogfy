@@ -35,6 +35,15 @@ func walkRust(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 		if id := firstChildOfKind(node, "identifier", "scoped_identifier"); id != nil {
 			state.addCall(id.Utf8Text(src) + "!")
 		}
+	case "impl_item":
+		// `impl Trait for Type` → Type implements Trait. Both endpoints are
+		// named here, not declared, so resolve.Inheritance resolves both.
+		// `impl Type {}` (inherent impl, no trait) produces no edge.
+		if tr := node.ChildByFieldName("trait"); tr != nil {
+			if ty := node.ChildByFieldName("type"); ty != nil {
+				state.addInheritsByName(simpleTypeName(ty.Utf8Text(src)), simpleTypeName(tr.Utf8Text(src)), "implements")
+			}
+		}
 	case "struct_item":
 		state.emitDecl("struct", node, node.ChildByFieldName("name"), src)
 	case "enum_item":

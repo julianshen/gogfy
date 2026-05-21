@@ -23,9 +23,11 @@ func walkJava(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 			state.addImport(id.Utf8Text(src))
 		}
 	case "class_declaration":
-		state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		goEmitJavaBases(state, node, id, src)
 	case "interface_declaration":
-		state.emitDecl("interface", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("interface", node, node.ChildByFieldName("name"), src)
+		goEmitJavaBases(state, node, id, src)
 	case "enum_declaration":
 		state.emitDecl("enum", node, node.ChildByFieldName("name"), src)
 	case "method_declaration":

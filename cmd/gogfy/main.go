@@ -2316,6 +2316,11 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	// links methods to receiver types declared in sibling files, which
 	// per-file extraction can't do alone.
 	nodes, edges = resolve.MethodOwnership(nodes, edges)
+	// Resolve `inherits`/`implements`/`embeds` synthetic edges to the real
+	// base type/class node (cross-package, like Calls). Unresolved external
+	// bases keep their typeref as an observed-inheritance fact. Runs after
+	// MethodOwnership so only inheritance typerefs remain to resolve here.
+	nodes, edges = resolve.Inheritance(nodes, edges)
 
 	// Entity deduplication (three-pass: exact → fuzzy → LLM tiebreaker)
 	if !opts.NoDedup {

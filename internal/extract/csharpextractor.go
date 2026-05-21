@@ -32,11 +32,14 @@ func walkCSharp(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "class_declaration", "record_declaration":
 		// Records (C# 9+) are declared with the same `name` field as
 		// classes; treat them as classes for graph purposes.
-		state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("class", node, node.ChildByFieldName("name"), src)
+		goEmitCSharpBases(state, node, id, src)
 	case "interface_declaration":
-		state.emitDecl("interface", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("interface", node, node.ChildByFieldName("name"), src)
+		goEmitCSharpBases(state, node, id, src)
 	case "struct_declaration":
-		state.emitDecl("struct", node, node.ChildByFieldName("name"), src)
+		id := state.emitDecl("struct", node, node.ChildByFieldName("name"), src)
+		goEmitCSharpBases(state, node, id, src)
 	case "enum_declaration":
 		state.emitDecl("enum", node, node.ChildByFieldName("name"), src)
 	case "method_declaration", "constructor_declaration":

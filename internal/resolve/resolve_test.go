@@ -520,3 +520,92 @@ func TestPruneOrphanCallTargets(t *testing.T) {
 		t.Errorf("real zero-degree node must NOT be pruned")
 	}
 }
+
+func TestInheritanceResolvesUniqueBaseAsInferred(t *testing.T) {
+	nodes := []schema.Node{
+		{ID: "py:class:/a.py:Sub", Label: "Sub", SourceFile: "a.py"},
+		{ID: "py:class:/b.py:Base", Label: "Base", SourceFile: "b.py"},
+		{ID: "py:typeref:Base", Label: "Base"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:class:/a.py:Sub", Target: "py:typeref:Base", Relation: "inherits", Confidence: schema.Extracted},
+	}
+	_, got := Inheritance(nodes, edges)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(got))
+	}
+	if got[0].Target != "py:class:/b.py:Base" {
+		t.Errorf("target should resolve to real base class, got %q", got[0].Target)
+	}
+	if got[0].Confidence != schema.Inferred {
+		t.Errorf("resolved inheritance should be INFERRED, got %v", got[0].Confidence)
+	}
+	if got[0].Relation != "inherits" {
+		t.Errorf("relation must stay 'inherits', got %q", got[0].Relation)
+	}
+}
+
+func TestInheritanceKeepsUnresolvedExternalBase(t *testing.T) {
+	// `class Foo(Exception)` — Exception isn't in the corpus.
+	nodes := []schema.Node{
+		{ID: "py:class:/a.py:Foo", Label: "Foo", SourceFile: "a.py"},
+		{ID: "py:typeref:Exception", Label: "Exception"},
+	}
+	edges := []schema.Edge{
+		{Source: "py:class:/a.py:Foo", Target: "py:typeref:Exception", Relation: "inherits", Confidence: schema.Extracted},
+	}
+	gotN, got := Inheritance(nodes, edges)
+	if len(got) != 1 || got[0].Target != "py:typeref:Exception" {
+		t.Fatalf("external base edge should be kept pointing at typeref, got %+v", got)
+	}
+	// typeref node must survive (it's still referenced).
+	found := false
+	for _, n := range gotN {
+		if n.ID == "py:typeref:Exception" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("external-base typeref node should be kept as an observed fact")
+	}
+}
+
+func TestInheritanceAmbiguousFansOut(t *testing.T) {
+	nodes := []schema.Node{
+		{ID: "java:class:/a.java:Sub", Label: "Sub", SourceFile: "a.java"},
+		{ID: "java:class:/b.java:Base", Label: "Base", SourceFile: "b.java"},
+		{ID: "java:class:/c.java:Base", Label: "Base", SourceFile: "c.java"},
+		{ID: "java:typeref:Base", Label: "Base"},
+	}
+	edges := []schema.Edge{
+		{Source: "java:class:/a.java:Sub", Target: "java:typeref:Base", Relation: "inherits", Confidence: schema.Extracted},
+	}
+	_, got := Inheritance(nodes, edges)
+	n := 0
+	for _, e := range got {
+		if e.Relation == "inherits" {
+			n++
+			if e.Confidence != schema.Ambiguous {
+				t.Errorf("multi-candidate inheritance should be AMBIGUOUS, got %v", e.Confidence)
+			}
+		}
+	}
+	if n != 2 {
+		t.Errorf("expected 2 fanned-out AMBIGUOUS edges, got %d", n)
+	}
+}
+
+func TestInheritanceImplementsAndEmbeds(t *testing.T) {
+	nodes := []schema.Node{
+		{ID: "go:type:/a.go:Server", Label: "Server", SourceFile: "a.go"},
+		{ID: "go:type:/b.go:Handler", Label: "Handler", SourceFile: "b.go"},
+		{ID: "go:typeref:Handler", Label: "Handler"},
+	}
+	edges := []schema.Edge{
+		{Source: "go:type:/a.go:Server", Target: "go:typeref:Handler", Relation: "embeds", Confidence: schema.Extracted},
+	}
+	_, got := Inheritance(nodes, edges)
+	if len(got) != 1 || got[0].Target != "go:type:/b.go:Handler" || got[0].Relation != "embeds" {
+		t.Fatalf("embeds edge should resolve to real type keeping relation, got %+v", got)
+	}
+}

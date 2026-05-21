@@ -331,7 +331,9 @@ func (s *extractState) walkAnonFnScope(kind string, node *sitter.Node, src []byt
 
 // emitDecl appends a "<lang>:<kind>:<filePath:name>" declaration node. Empty
 // names get an "<anonymous>" label so schema.Node.Validate accepts them.
-func (s *extractState) emitDecl(kind string, declNode, nameNode *sitter.Node, src []byte) {
+// Returns the minted declaration-node ID so callers can attach further
+// edges from it (e.g. inheritance edges via addInherits).
+func (s *extractState) emitDecl(kind string, declNode, nameNode *sitter.Node, src []byte) string {
 	name := ""
 	if nameNode != nil {
 		name = nameNode.Utf8Text(src)
@@ -370,6 +372,58 @@ func (s *extractState) emitDecl(kind string, declNode, nameNode *sitter.Node, sr
 			Confidence: schema.Extracted,
 		})
 	}
+	return declID
+}
+
+// addInherits records a subtype → base-type relationship (class
+// inheritance, interface implementation, or Go struct/interface
+// embedding). It emits a synthetic `<lang>:typeref:<baseName>` node
+// (deduped, shared with addMethodOf) and a `relation` edge from the
+// subtype node to it. resolve.Inheritance later rewrites the typeref
+// target to the real base type/class node when one exists in the
+// corpus — narrowed by import scope across packages, since base types
+// frequently live in other files or modules. Unresolved bases (an
+// external framework class like `Exception`) keep the typeref as an
+// observed "extends this" fact.
+//
+// relation is the edge label: "inherits", "implements", or "embeds".
+func (s *extractState) addInherits(subtypeID, baseName, relation string) {
+	if subtypeID == "" || baseName == "" || relation == "" {
+		return
+	}
+	s.edges = append(s.edges, schema.Edge{
+		Source:     subtypeID,
+		Target:     s.ensureTypeRef(baseName),
+		Relation:   relation,
+		Confidence: schema.Extracted,
+	})
+}
+
+// addInheritsByName records inheritance where BOTH endpoints are named
+// rather than declared at this site — the shape of Rust's
+// `impl Trait for Type` (and trait bounds), where neither the type nor
+// the trait is defined in the impl block. Both become synthetic typeref
+// nodes; resolve.Inheritance rewrites each to its real declaration when
+// one exists in the corpus.
+func (s *extractState) addInheritsByName(subtypeName, baseName, relation string) {
+	if subtypeName == "" || baseName == "" {
+		return
+	}
+	s.addInherits(s.ensureTypeRef(subtypeName), baseName, relation)
+}
+
+// ensureTypeRef returns the `<lang>:typeref:<name>` node ID, emitting the
+// node once (deduped, shared with addMethodOf/addInherits).
+func (s *extractState) ensureTypeRef(name string) string {
+	ref := schema.LangID(s.lang, "typeref", name)
+	if s.methodRefs == nil {
+		s.methodRefs = map[string]struct{}{}
+	}
+	if _, dup := s.methodRefs[ref]; !dup {
+		s.methodRefs[ref] = struct{}{}
+		s.nodes = append(s.nodes, schema.Node{ID: ref, Label: name})
+	}
+	return ref
 }
 
 // addImport appends an import-target node and an "imports" edge from the

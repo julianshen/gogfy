@@ -21,7 +21,8 @@ func walkRuby(cursor *sitter.TreeCursor, src []byte, state *extractState) {
 	case "module":
 		state.emitDecl("module", node, firstChildOfKind(node, "constant"), src)
 	case "class":
-		state.emitDecl("class", node, firstChildOfKind(node, "constant"), src)
+		id := state.emitDecl("class", node, firstChildOfKind(node, "constant"), src)
+		goEmitRubyBases(state, node, id, src)
 	case "method":
 		nameNode := node.ChildByFieldName("name")
 		state.emitDecl("method", node, nameNode, src)
