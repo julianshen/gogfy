@@ -74,6 +74,20 @@ func Generate(nodes []schema.Node, edges []schema.Edge, outDir string, opts Opti
 	degree := buildDegree(edges)
 	auditByCommunity := buildCommunityAudit(edges, nodeMap)
 
+	// Filter out trivial communities — a single node with zero edges
+	// has nothing to summarize and no connections to describe. The
+	// dogfooding run produced 168 such singleton communities (isolated
+	// HTML <section> nodes, standalone functions), each spawning a
+	// near-empty wiki article that's pure navigation noise. The nodes
+	// still exist in graph.json; they just don't get a dedicated page.
+	articleCommunities := make(map[string][]schema.Node, len(communities))
+	for cid, members := range communities {
+		if isTrivialCommunity(members, degree) {
+			continue
+		}
+		articleCommunities[cid] = members
+	}
+
 	count := 0
 	used := map[string]bool{}
 	// Assign slugs FIRST (community + god-node) so cross-document links
@@ -81,9 +95,10 @@ func Generate(nodes []schema.Node, edges []schema.Edge, outDir string, opts Opti
 	// collisions (two communities both called "Examples", or a god node
 	// sharing a community's label) would otherwise produce ambiguous
 	// `[[Label]]` wiki links — pinned by Markdown's stricter
-	// `[Label](file.md)` form.
+	// `[Label](file.md)` form. Slugs only for communities that get an
+	// article — cross-links to a skipped community would 404.
 	communitySlugs := map[string]string{}
-	for _, cid := range sortedKeys(communities) {
+	for _, cid := range sortedKeys(articleCommunities) {
 		communitySlugs[cid] = uniqueSlug(used, safeFilename(labels[cid]))
 	}
 	godSlugs := map[string]string{}
@@ -97,8 +112,8 @@ func Generate(nodes []schema.Node, edges []schema.Edge, outDir string, opts Opti
 	}
 
 	// Community articles, sorted by community ID for determinism.
-	for _, cid := range sortedKeys(communities) {
-		article := communityArticle(cid, communities[cid], labels, nodeMap, adj, degree, auditByCommunity[cid], communitySlugs)
+	for _, cid := range sortedKeys(articleCommunities) {
+		article := communityArticle(cid, articleCommunities[cid], labels, nodeMap, adj, degree, auditByCommunity[cid], communitySlugs)
 		if err := writeArticle(filepath.Join(outDir, communitySlugs[cid]+".md"), article); err != nil {
 			return count, err
 		}
@@ -116,7 +131,7 @@ func Generate(nodes []schema.Node, edges []schema.Edge, outDir string, opts Opti
 		count++
 	}
 
-	idx := indexArticle(communities, labels, emittedGods, communitySlugs, godSlugs, len(nodes), len(edges))
+	idx := indexArticle(articleCommunities, labels, emittedGods, communitySlugs, godSlugs, len(nodes), len(edges))
 	if err := writeArticle(filepath.Join(outDir, "index.md"), idx); err != nil {
 		return count, err
 	}
@@ -143,6 +158,19 @@ func groupByCommunity(nodes []schema.Node) map[string][]schema.Node {
 		out[n.Community] = append(out[n.Community], n)
 	}
 	return out
+}
+
+// isTrivialCommunity reports whether a community is a single node
+// with zero edges — nothing to summarize, no connections to chart.
+// Multi-node communities always get an article (even if internally
+// sparse, the cross-community section is still informative); a
+// single node WITH edges also gets one (it bridges to other
+// communities). Only the truly-isolated singleton is filtered.
+func isTrivialCommunity(members []schema.Node, degree map[string]int) bool {
+	if len(members) != 1 {
+		return false
+	}
+	return degree[members[0].ID] == 0
 }
 
 // buildAdjacency yields undirected neighbor lists keyed by node ID.
