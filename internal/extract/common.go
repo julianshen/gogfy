@@ -49,6 +49,65 @@ type extractState struct {
 	fnStack     []string
 	callTargets map[string]struct{} // dedup set for emitted call-target nodes
 	sectionSeq  int                 // see nextSectionID
+	// declaredTypes records type-declaration names emitted in this file
+	// so deferred method-ownership links can be validated — we only
+	// link a method to its receiver type when that type is declared
+	// in the SAME file (gogfy extracts per-file; a cross-file type
+	// would have a different file-scoped node ID and the edge would
+	// dangle).
+	declaredTypes map[string]string // type name → its node ID
+	// pendingMethodOwners holds (methodID, receiverTypeName) recorded
+	// during the walk; finalize() resolves them once all type
+	// declarations have been seen (a method can lexically precede its
+	// type in the file).
+	pendingMethodOwners []methodOwner
+}
+
+type methodOwner struct {
+	methodID string
+	typeName string
+}
+
+// recordDeclaredType registers a type declaration's name → node ID so
+// methods on it can later link up. Call after emitDecl for a type.
+func (s *extractState) recordDeclaredType(name, nodeID string) {
+	if name == "" {
+		return
+	}
+	if s.declaredTypes == nil {
+		s.declaredTypes = map[string]string{}
+	}
+	s.declaredTypes[name] = nodeID
+}
+
+// recordMethodOwner defers a method→receiver-type ownership link until
+// finalize, when the full set of in-file type declarations is known.
+func (s *extractState) recordMethodOwner(methodID, typeName string) {
+	if methodID == "" || typeName == "" {
+		return
+	}
+	s.pendingMethodOwners = append(s.pendingMethodOwners, methodOwner{methodID, typeName})
+}
+
+// finalize emits the deferred method-ownership edges. Runs after the
+// walk so type declarations appearing after their methods still
+// resolve. A method whose receiver type wasn't declared in this file
+// is left with only its module `contains` edge (set by emitDecl) —
+// no dangling type edge. Idempotent / safe to call on a state with
+// no pending owners.
+func (s *extractState) finalize() {
+	for _, mo := range s.pendingMethodOwners {
+		typeID, ok := s.declaredTypes[mo.typeName]
+		if !ok {
+			continue // receiver type not in this file — keep module link only
+		}
+		s.edges = append(s.edges, schema.Edge{
+			Source:     typeID,
+			Target:     mo.methodID,
+			Relation:   "contains",
+			Confidence: schema.Extracted,
+		})
+	}
 }
 
 // pushFn records that subsequent walk steps are inside the function with id.
