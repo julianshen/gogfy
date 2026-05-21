@@ -2311,6 +2311,11 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	// multiple candidates). Cross-file calls otherwise stay EXTRACTED with
 	// the synthetic target preserved.
 	nodes, edges := resolve.Calls(aliasNodes, aliasEdges)
+	// Resolve `method_of` synthetic edges into `type contains method`
+	// edges against the real type node in the same package directory —
+	// links methods to receiver types declared in sibling files, which
+	// per-file extraction can't do alone.
+	nodes, edges = resolve.MethodOwnership(nodes, edges)
 
 	// Entity deduplication (three-pass: exact → fuzzy → LLM tiebreaker)
 	if !opts.NoDedup {

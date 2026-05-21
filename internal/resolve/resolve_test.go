@@ -413,3 +413,82 @@ func TestIsVersionTagOnlyMatchesGoMajor(t *testing.T) {
 		}
 	}
 }
+
+func TestMethodOwnershipSameDirectory(t *testing.T) {
+	// Method in fileA, receiver type Svc declared in fileB of the SAME
+	// directory (package). MethodOwnership must link them — this is the
+	// cross-file case per-file extraction can't do alone.
+	nodes := []schema.Node{
+		{ID: "go:method:/pkg/a.go:Do", Label: "Do", SourceFile: "/pkg/a.go"},
+		{ID: "go:type:/pkg/b.go:Svc", Label: "Svc", SourceFile: "/pkg/b.go"},
+		{ID: "go:typeref:Svc", Label: "Svc"},
+	}
+	edges := []schema.Edge{
+		{Source: "go:method:/pkg/a.go:Do", Target: "go:typeref:Svc", Relation: "method_of", Confidence: schema.Extracted},
+	}
+	outNodes, outEdges := MethodOwnership(nodes, edges)
+	var linked bool
+	for _, e := range outEdges {
+		if e.Relation == "contains" && e.Source == "go:type:/pkg/b.go:Svc" && e.Target == "go:method:/pkg/a.go:Do" {
+			linked = true
+		}
+		if e.Relation == "method_of" {
+			t.Errorf("method_of edge should be rewritten, not kept: %+v", e)
+		}
+	}
+	if !linked {
+		t.Errorf("expected cross-file Svc→Do contains edge, got %+v", outEdges)
+	}
+	// Synthetic typeref pruned once unreferenced.
+	for _, n := range outNodes {
+		if n.ID == "go:typeref:Svc" {
+			t.Errorf("synthetic typeref should be pruned after resolution")
+		}
+	}
+}
+
+func TestMethodOwnershipDropsUnresolvedReceiver(t *testing.T) {
+	// Receiver type from another package (no type node in this dir) →
+	// the method_of edge is dropped (method keeps its module link
+	// elsewhere), and the typeref is pruned. No dangling edges.
+	nodes := []schema.Node{
+		{ID: "go:method:/pkg/a.go:String", Label: "String", SourceFile: "/pkg/a.go"},
+		{ID: "go:typeref:time.Duration", Label: "time.Duration"},
+	}
+	edges := []schema.Edge{
+		{Source: "go:method:/pkg/a.go:String", Target: "go:typeref:time.Duration", Relation: "method_of", Confidence: schema.Extracted},
+	}
+	outNodes, outEdges := MethodOwnership(nodes, edges)
+	for _, e := range outEdges {
+		if e.Relation == "method_of" {
+			t.Errorf("unresolved method_of should be dropped, got %+v", e)
+		}
+	}
+	for _, n := range outNodes {
+		if n.ID == "go:typeref:time.Duration" {
+			t.Errorf("unresolved typeref should be pruned")
+		}
+	}
+}
+
+func TestMethodOwnershipDoesNotCrossPackages(t *testing.T) {
+	// Two packages each declaring a type named Svc. A method in pkg1
+	// must link to pkg1's Svc, NOT pkg2's — directory-scoped matching.
+	nodes := []schema.Node{
+		{ID: "go:method:/pkg1/a.go:Do", Label: "Do", SourceFile: "/pkg1/a.go"},
+		{ID: "go:type:/pkg1/t.go:Svc", Label: "Svc", SourceFile: "/pkg1/t.go"},
+		{ID: "go:type:/pkg2/t.go:Svc", Label: "Svc", SourceFile: "/pkg2/t.go"},
+		{ID: "go:typeref:Svc", Label: "Svc"},
+	}
+	edges := []schema.Edge{
+		{Source: "go:method:/pkg1/a.go:Do", Target: "go:typeref:Svc", Relation: "method_of", Confidence: schema.Extracted},
+	}
+	_, outEdges := MethodOwnership(nodes, edges)
+	for _, e := range outEdges {
+		if e.Relation == "contains" && e.Target == "go:method:/pkg1/a.go:Do" {
+			if e.Source != "go:type:/pkg1/t.go:Svc" {
+				t.Errorf("method linked to wrong package's type: %s", e.Source)
+			}
+		}
+	}
+}

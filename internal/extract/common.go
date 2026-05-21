@@ -49,65 +49,37 @@ type extractState struct {
 	fnStack     []string
 	callTargets map[string]struct{} // dedup set for emitted call-target nodes
 	sectionSeq  int                 // see nextSectionID
-	// declaredTypes records type-declaration names emitted in this file
-	// so deferred method-ownership links can be validated — we only
-	// link a method to its receiver type when that type is declared
-	// in the SAME file (gogfy extracts per-file; a cross-file type
-	// would have a different file-scoped node ID and the edge would
-	// dangle).
-	declaredTypes map[string]string // type name → its node ID
-	// pendingMethodOwners holds (methodID, receiverTypeName) recorded
-	// during the walk; finalize() resolves them once all type
-	// declarations have been seen (a method can lexically precede its
-	// type in the file).
-	pendingMethodOwners []methodOwner
+	// methodRefs dedups synthetic receiver-type-ref nodes emitted by
+	// addMethodOf so a package with many methods on one type doesn't
+	// emit the typeref node N times.
+	methodRefs map[string]struct{}
 }
 
-type methodOwner struct {
-	methodID string
-	typeName string
-}
-
-// recordDeclaredType registers a type declaration's name → node ID so
-// methods on it can later link up. Call after emitDecl for a type.
-func (s *extractState) recordDeclaredType(name, nodeID string) {
-	if name == "" {
+// addMethodOf records a method → receiver-type ownership intent. It
+// emits a synthetic `<lang>:typeref:<receiverName>` node (deduped)
+// and a `method_of` edge from the method to it. resolve.MethodOwnership
+// later rewrites this to a `type contains method` edge against the
+// real type node in the same package directory — handling both
+// same-file and cross-file-same-package receivers uniformly, the
+// same way call targets are resolved.
+func (s *extractState) addMethodOf(methodID, receiverName string) {
+	if methodID == "" || receiverName == "" {
 		return
 	}
-	if s.declaredTypes == nil {
-		s.declaredTypes = map[string]string{}
+	ref := schema.LangID(s.lang, "typeref", receiverName)
+	if s.methodRefs == nil {
+		s.methodRefs = map[string]struct{}{}
 	}
-	s.declaredTypes[name] = nodeID
-}
-
-// recordMethodOwner defers a method→receiver-type ownership link until
-// finalize, when the full set of in-file type declarations is known.
-func (s *extractState) recordMethodOwner(methodID, typeName string) {
-	if methodID == "" || typeName == "" {
-		return
+	if _, dup := s.methodRefs[ref]; !dup {
+		s.methodRefs[ref] = struct{}{}
+		s.nodes = append(s.nodes, schema.Node{ID: ref, Label: receiverName})
 	}
-	s.pendingMethodOwners = append(s.pendingMethodOwners, methodOwner{methodID, typeName})
-}
-
-// finalize emits the deferred method-ownership edges. Runs after the
-// walk so type declarations appearing after their methods still
-// resolve. A method whose receiver type wasn't declared in this file
-// is left with only its module `contains` edge (set by emitDecl) —
-// no dangling type edge. Idempotent / safe to call on a state with
-// no pending owners.
-func (s *extractState) finalize() {
-	for _, mo := range s.pendingMethodOwners {
-		typeID, ok := s.declaredTypes[mo.typeName]
-		if !ok {
-			continue // receiver type not in this file — keep module link only
-		}
-		s.edges = append(s.edges, schema.Edge{
-			Source:     typeID,
-			Target:     mo.methodID,
-			Relation:   "contains",
-			Confidence: schema.Extracted,
-		})
-	}
+	s.edges = append(s.edges, schema.Edge{
+		Source:     methodID,
+		Target:     ref,
+		Relation:   "method_of",
+		Confidence: schema.Extracted,
+	})
 }
 
 // pushFn records that subsequent walk steps are inside the function with id.
