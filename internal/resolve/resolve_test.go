@@ -492,3 +492,31 @@ func TestMethodOwnershipDoesNotCrossPackages(t *testing.T) {
 		}
 	}
 }
+
+func TestPruneOrphanCallTargets(t *testing.T) {
+	// A synthetic call target with no referencing edge is pruned; one
+	// still referenced is kept; real nodes are never touched even at
+	// zero degree.
+	nodes := []schema.Node{
+		{ID: "go:call:Orphan", Label: "Orphan"},      // no edge → prune
+		{ID: "go:call:Used", Label: "Used"},          // referenced → keep
+		{ID: "go:function:/a.go:Lonely", Label: "Lonely"}, // real, 0-deg → keep
+	}
+	edges := []schema.Edge{
+		{Source: "go:function:/a.go:Caller", Target: "go:call:Used", Relation: "calls"},
+	}
+	out := PruneOrphanCallTargets(nodes, edges)
+	ids := map[string]bool{}
+	for _, n := range out {
+		ids[n.ID] = true
+	}
+	if ids["go:call:Orphan"] {
+		t.Errorf("orphan call target should be pruned")
+	}
+	if !ids["go:call:Used"] {
+		t.Errorf("referenced call target should be kept")
+	}
+	if !ids["go:function:/a.go:Lonely"] {
+		t.Errorf("real zero-degree node must NOT be pruned")
+	}
+}
