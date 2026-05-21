@@ -2326,7 +2326,21 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 	}
 
 	clusterer := cluster.NewLeidenClusterer()
-	clusteredNodes, err := clusterer.Cluster(nodes, edges)
+	// Hyperedge-aware clustering: clique-expand any N-ary relations
+	// into synthetic pairwise edges and feed them to the clusterer
+	// SO THAT hyperedge members are pulled toward the same community.
+	// The synthetic edges are cluster-input-only — they're NOT added
+	// to `edges`, so they never reach graph.json, the report, or the
+	// exports. Without this, hyperedges would be inert data: emitted
+	// and stored but with zero effect on the graph's structure.
+	clusterEdges := edges
+	if len(pipelineHyperedges) > 0 {
+		expanded := cluster.ExpandHyperedges(pipelineHyperedges, cluster.DefaultHyperedgeExpansionCap)
+		if len(expanded) > 0 {
+			clusterEdges = append(append([]schema.Edge(nil), edges...), expanded...)
+		}
+	}
+	clusteredNodes, err := clusterer.Cluster(nodes, clusterEdges)
 	if err != nil {
 		return fmt.Errorf("cluster: %w", err)
 	}
