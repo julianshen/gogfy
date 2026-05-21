@@ -2,7 +2,9 @@ package dedup
 
 import (
 	"fmt"
+	"runtime"
 	"sort"
+	"sync"
 
 	"github.com/dgryski/go-minhash"
 	"github.com/dgryski/go-spooky"
@@ -39,61 +41,92 @@ func pass2Fuzzy(nodes []schema.Node, uf *UnionFind, communities map[string]strin
 		return nil
 	}
 
-	// Build MinHash sketches for all candidates
-	sketches := make(map[string]*minhash.BottomK)
-	for _, n := range candidates {
-		label := n.Label
+	// Precompute per-candidate invariants ONCE rather than recomputing
+	// them inside the O(n²) comparison loop. The original recomputed
+	// mergeBucket (→ ParseLangID) and normalize for both endpoints of
+	// every pair — ~30M redundant string operations on a few-thousand-node
+	// graph. Hoisting them out is the dominant speedup here.
+	n := len(candidates)
+	sketch := make([]*minhash.BottomK, n)  // MinHash sketch
+	jwLabel := make([]string, n)           // label used for Jaro-Winkler
+	bucket := make([]string, n)            // kind bucket (mergeBucket)
+	comm := make([]string, n)              // community id
+	root := make([]string, n)              // pass-1 union-find root snapshot
+	for i, c := range candidates {
+		label := c.Label
 		if label == "" {
-			label = n.ID
+			label = c.ID
 		}
-		shingles := shingles(normalize(label), shingleSize)
+		nl := normalize(label)
 		m := minhash.NewBottomK(spooky.Hash64, numPerm)
-		for _, s := range shingles {
+		for _, s := range shingles(nl, shingleSize) {
 			m.Push([]byte(s))
 		}
-		sketches[n.ID] = m
+		sketch[i] = m
+		// Jaro-Winkler used normalize(Label) with a fallback to
+		// normalize(ID) — preserve that exact precedence.
+		jl := normalize(c.Label)
+		if jl == "" {
+			jl = normalize(c.ID)
+		}
+		jwLabel[i] = jl
+		bucket[i] = mergeBucket(c.ID)
+		comm[i] = communities[c.ID]
+		root[i] = uf.Find(c.ID)
 	}
 
-	// LSH: for each candidate, find neighbors with Jaccard similarity >= lshThreshold
-	// Since we don't have a proper LSH index, we do pairwise comparison.
-	// For small graphs this is fine; for large graphs we'd need a proper LSH index.
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			a, b := candidates[i], candidates[j]
-			if uf.Find(a.ID) == uf.Find(b.ID) {
-				continue
+	// LSH neighbor search. We lack a banded LSH index, so this is still a
+	// pairwise O(n²) scan — but it's now parallel and allocation-free in
+	// the hot loop. The per-source rows are independent: each worker
+	// collects the index pairs that pass the merge threshold, and the
+	// union-find mutations are applied serially afterward. The final
+	// connected components (and thus the dedup result) are independent of
+	// union order, so deferring the unions is exact. The root[] snapshot
+	// reproduces pass-1's already-merged early-skip without racing on
+	// union-find's path-compressing Find.
+	type idxPair struct{ i, j int }
+	workers := runtime.GOMAXPROCS(0)
+	if workers > n {
+		workers = n
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	partials := make([][]idxPair, workers)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			var local []idxPair
+			for i := w; i < n; i += workers {
+				for j := i + 1; j < n; j++ {
+					if root[i] == root[j] || bucket[i] != bucket[j] {
+						continue
+					}
+					if sketch[i].Similarity(sketch[j]) < lshThreshold {
+						continue
+					}
+					jw := smetrics.JaroWinkler(jwLabel[i], jwLabel[j], 0.7, 4) * 100
+					if comm[i] == comm[j] {
+						jw += communityBoost
+					}
+					if jw >= mergeThreshold {
+						local = append(local, idxPair{i, j})
+					}
+				}
 			}
-			// Kind-scoped: never fuzzy-merge across node kinds (a type
-			// and a module sharing a name aren't duplicates).
-			if mergeBucket(a.ID) != mergeBucket(b.ID) {
-				continue
-			}
+			partials[w] = local
+		}(w)
+	}
+	wg.Wait()
 
-			sim := sketches[a.ID].Similarity(sketches[b.ID])
-			if sim < lshThreshold {
-				continue
-			}
-
-			// Jaro-Winkler verification
-			labelA := normalize(a.Label)
-			if labelA == "" {
-				labelA = normalize(a.ID)
-			}
-			labelB := normalize(b.Label)
-			if labelB == "" {
-				labelB = normalize(b.ID)
-			}
-
-			jw := smetrics.JaroWinkler(labelA, labelB, 0.7, 4) * 100
-			if communities[a.ID] == communities[b.ID] {
-				jw += communityBoost
-			}
-
-			if jw >= mergeThreshold {
-				winner := pickWinner([]schema.Node{a, b})
-				uf.Union(winner.ID, a.ID)
-				uf.Union(winner.ID, b.ID)
-			}
+	for _, pl := range partials {
+		for _, p := range pl {
+			a, b := candidates[p.i], candidates[p.j]
+			winner := pickWinner([]schema.Node{a, b})
+			uf.Union(winner.ID, a.ID)
+			uf.Union(winner.ID, b.ID)
 		}
 	}
 
