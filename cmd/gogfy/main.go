@@ -1919,7 +1919,9 @@ func runClusterOnly(out string, directed bool, opts runOptions) error {
 	if err != nil {
 		return fmt.Errorf("cluster-only: %w", err)
 	}
-	clustered, err := cluster.NewLeidenClusterer().Cluster(g.Nodes, g.Edges)
+	// Deterministic Louvain (see run()'s clusterer note) so --cluster-only
+	// reruns reproduce the same partition.
+	clustered, err := cluster.NewLouvainClusterer().Cluster(g.Nodes, g.Edges)
 	if err != nil {
 		return fmt.Errorf("cluster-only: cluster: %w", err)
 	}
@@ -2354,7 +2356,13 @@ func runPipeline(root, out string, update, directed bool, opts runOptions) error
 		nodes = resolve.PruneOrphanCallTargets(nodes, edges)
 	}
 
-	clusterer := cluster.NewLeidenClusterer()
+	// Louvain (gogfy's own, deterministic) is the default clusterer:
+	// sorted node iteration + sorted tie-breaks make graph.json
+	// reproducible across runs, which the --update / graphdiff flows and
+	// snapshot stability rely on. The third-party Leiden library iterates
+	// Go maps internally, so its partition varied run-to-run despite a
+	// fixed seed.
+	clusterer := cluster.NewLouvainClusterer()
 	// Hyperedge-aware clustering: clique-expand any N-ary relations
 	// into synthetic pairwise edges and feed them to the clusterer
 	// SO THAT hyperedge members are pulled toward the same community.

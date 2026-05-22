@@ -41,3 +41,22 @@ func SortNodesByID(nodes []Node) {
 		return nodes[i].ID < nodes[j].ID
 	})
 }
+
+// SortEdges sorts edges in-place by (Source, Target, Relation, Confidence)
+// for deterministic output. Used wherever edges are collected from a map,
+// whose iteration order is randomized, so graph.json is reproducible.
+func SortEdges(edges []Edge) {
+	sort.Slice(edges, func(i, j int) bool {
+		a, b := edges[i], edges[j]
+		if a.Source != b.Source {
+			return a.Source < b.Source
+		}
+		if a.Target != b.Target {
+			return a.Target < b.Target
+		}
+		if a.Relation != b.Relation {
+			return a.Relation < b.Relation
+		}
+		return a.Confidence < b.Confidence
+	})
+}
