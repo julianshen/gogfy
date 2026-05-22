@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,36 @@ func TestE2EPipeline(t *testing.T) {
 		if info.Size() == 0 {
 			t.Fatalf("%s is empty", file)
 		}
+	}
+}
+
+func TestE2EDeterministicGraphJSON(t *testing.T) {
+	// graph.json must be byte-identical across runs on the same corpus.
+	// Two distinct sources of nondeterminism were fixed (deterministic
+	// Louvain default + sorted edge serialization in dedup); this guards
+	// against either silently regressing — reproducibility is what the
+	// --update / graphdiff flows and snapshot stability rely on.
+	root := "testdata/e2e/mini-corpus"
+
+	run := func() []byte {
+		out := t.TempDir()
+		cmd := exec.Command("go", "run", "./cmd/gogfy", "run", root, "--out", out, "--no-viz")
+		cmd.Dir = ".."
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("CLI failed: %v\n%s", err, output)
+		}
+		data, err := os.ReadFile(filepath.Join(out, "graph.json"))
+		if err != nil {
+			t.Fatalf("read graph.json: %v", err)
+		}
+		return data
+	}
+
+	first := run()
+	second := run()
+	if !bytes.Equal(first, second) {
+		t.Fatalf("graph.json differs across runs (%d vs %d bytes) — clustering or "+
+			"serialization regressed determinism", len(first), len(second))
 	}
 }
 
