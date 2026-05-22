@@ -310,6 +310,9 @@ func (d *Deduplicator) Deduplicate(nodes []schema.Node, edges []schema.Edge, com
 	for _, e := range edgeMap {
 		outEdges = append(outEdges, e)
 	}
+	// edgeMap iteration order is randomized; sort so graph.json edge
+	// ordering is reproducible across runs.
+	schema.SortEdges(outEdges)
 
 	return outNodes, outEdges, remap, nil
 }

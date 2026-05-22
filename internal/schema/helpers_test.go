@@ -54,3 +54,26 @@ func TestSortNodesByID(t *testing.T) {
 		t.Fatalf("unexpected order: %v", nodes)
 	}
 }
+
+func TestSortEdgesDeterministicTotalOrder(t *testing.T) {
+	edges := []Edge{
+		{Source: "b", Target: "c", Relation: "calls", Confidence: Inferred},
+		{Source: "a", Target: "z", Relation: "imports"},
+		{Source: "a", Target: "b", Relation: "calls", Confidence: Inferred},
+		{Source: "a", Target: "b", Relation: "calls", Confidence: Extracted},
+		{Source: "a", Target: "b", Relation: "contains"},
+	}
+	want := []Edge{
+		{Source: "a", Target: "b", Relation: "calls", Confidence: Extracted},
+		{Source: "a", Target: "b", Relation: "calls", Confidence: Inferred},
+		{Source: "a", Target: "b", Relation: "contains"},
+		{Source: "a", Target: "z", Relation: "imports"},
+		{Source: "b", Target: "c", Relation: "calls", Confidence: Inferred},
+	}
+	SortEdges(edges)
+	for i := range want {
+		if edges[i] != want[i] {
+			t.Fatalf("at %d: got %+v, want %+v", i, edges[i], want[i])
+		}
+	}
+}
