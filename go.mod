@@ -51,6 +51,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/pprof v0.0.0-20260302011040-a15ffb7f9dcc // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
+	github.com/julianshen/tree-sitter-elixir v0.3.6 // indirect
 	github.com/julianshen/tree-sitter-erlang v0.0.0-20260510145358-80fab4f46bdf // indirect
 	github.com/julianshen/tree-sitter-r v1.2.1-0.20260510134556-9a03ef5f3473 // indirect
 	github.com/julianshen/tree-sitter-swift v0.0.0-20260510074952-3d85c1637e38 // indirect
@@ -64,7 +65,6 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/stadelmanma/tree-sitter-fortran v0.6.0 // indirect
-	github.com/tree-sitter/tree-sitter-elixir v0.0.0-00010101000000-000000000000 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xrash/smetrics v0.0.0-20250705151800-55b8f293f342 // indirect
 	github.com/yuin/goldmark v1.8.2 // indirect
@@ -75,14 +75,16 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
-// stadelmanma/tree-sitter-fortran's binding_test.go imports a non-existent
-// "github.com/tree-sitter/tree-sitter-fortran" path. The replace makes
-// `go mod tidy` resolvable. Production code uses the stadelmanma path
-// directly in internal/extract/fortranextractor.go.
-replace github.com/tree-sitter/tree-sitter-fortran => github.com/stadelmanma/tree-sitter-fortran v0.6.0
-
-// elixir-lang/tree-sitter-elixir declares its own module path under
-// "github.com/tree-sitter/tree-sitter-elixir" (a repo that doesn't exist),
-// but ships a working bindings/go. The replace makes the declared path
-// resolvable.
-replace github.com/tree-sitter/tree-sitter-elixir => github.com/elixir-lang/tree-sitter-elixir v0.3.4
+// No `replace` directives: gogfy is installable via
+// `go install github.com/julianshen/gogfy/cmd/gogfy@latest` (Go forbids
+// modules consumed at @latest from carrying replace directives).
+//
+// The Elixir grammar is consumed via the github.com/julianshen/tree-sitter-elixir
+// fork, which declares the correct module path in its own go.mod (upstream
+// elixir-lang/tree-sitter-elixir declares a non-existent
+// github.com/tree-sitter/tree-sitter-elixir path).
+//
+// The Fortran grammar is imported directly from the stadelmanma path —
+// its upstream test files reference a non-existent path, but that only
+// affects `go mod tidy` chains over its test transitives, not gogfy's
+// own build or `go install` path.

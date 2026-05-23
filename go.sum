@@ -45,6 +45,8 @@ github.com/google/pprof v0.0.0-20260302011040-a15ffb7f9dcc h1:VBbFa1lDYWEeV5FZKU
 github.com/google/pprof v0.0.0-20260302011040-a15ffb7f9dcc/go.mod h1:MxpfABSjhmINe3F1It9d+8exIHFvUqtLIRCdOGNXqiI=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 h1:BQSFePA1RWJOlocH6Fxy8MmwDt+yVQYULKfN0RoTN8A=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99/go.mod h1:1lJo3i6rXxKeerYnT8Nvf0QmHCRC1n8sfWVwXF2Frvo=
+github.com/julianshen/tree-sitter-elixir v0.3.6 h1:3zdrncCBQkLR/6ibfCduhVBo4f5b6tfSbBcNhT8VUvk=
+github.com/julianshen/tree-sitter-elixir v0.3.6/go.mod h1:5oSsQW0kcYdNsvzHrc05AckCQkD+yCr3OsBoOCDOU4I=
 github.com/julianshen/tree-sitter-erlang v0.0.0-20260510145358-80fab4f46bdf h1:J77Lg4HuPg25YXuCT1cF3ZkMvA9THKFWStNKWKkRq4s=
 github.com/julianshen/tree-sitter-erlang v0.0.0-20260510145358-80fab4f46bdf/go.mod h1:C5UZQh2yqQpuPSFJykxuHQoszJqAUEc9wYHLSOIolSo=
 github.com/julianshen/tree-sitter-r v1.2.1-0.20260510134556-9a03ef5f3473 h1:Yw5l9thFCEuwJILcxscwPtriN2nyKnGtefcPi74L0iE=
