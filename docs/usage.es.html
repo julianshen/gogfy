@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gogfy — referencia de uso</title>
+<meta name="description" content="Referencia completa de uso de gogfy: cada subcomando, flag, herramienta MCP, integración con plataformas de agentes y archivo de configuración." />
+<meta name="theme-color" content="#0a0612" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <a href="index.es.html" class="brand" style="color: var(--fg); text-decoration: none;">gogfy<span class="dot">.</span></a>
+    <div class="nav-right">
+      <nav class="nav-links">
+        <a href="index.es.html#what">Qué hace</a>
+        <a href="index.es.html#pipeline">Pipeline</a>
+        <a href="index.es.html#features">Características</a>
+        <a href="usage.es.html" style="color: var(--fg);">Uso</a>
+        <a href="https://github.com/julianshen/gogfy">GitHub</a>
+      </nav>
+      <div class="lang-switch" aria-label="Idioma">
+        <a href="usage.html" hreflang="en">EN</a>
+        <a href="usage.zh-TW.html" hreflang="zh-Hant">繁中</a>
+        <a href="usage.ja.html" hreflang="ja">日本語</a>
+        <a href="usage.es.html" class="active">ES</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="docs">
+
+  <aside class="toc">
+    <h4>Empezar</h4>
+    <a href="#install">Instalación</a>
+    <a href="#quick-start">Inicio rápido</a>
+    <a href="#run">El comando <code>run</code></a>
+
+    <h4>Subcomandos</h4>
+    <a href="#build">Construir / explorar</a>
+    <a href="#artifacts">Artefactos</a>
+    <a href="#ci">Integración CI</a>
+    <a href="#global">Grafo global</a>
+
+    <h4>Integración de agentes</h4>
+    <a href="#agents">Plataformas</a>
+    <a href="#agent-files">Archivos escritos</a>
+    <a href="#hooks">Hooks de Git</a>
+    <a href="#serve">Servidor MCP</a>
+
+    <h4>Capacidades</h4>
+    <a href="#mcp-tools">Herramientas MCP</a>
+    <a href="#semantic">Semántica (LLM)</a>
+    <a href="#ingest">Ingesta de URL</a>
+    <a href="#languages">Lenguajes</a>
+
+    <h4>Operación</h4>
+    <a href="#cache">Caché</a>
+    <a href="#config-files">Archivos de config</a>
+    <a href="#determinism">Determinismo</a>
+  </aside>
+
+  <main class="docs-content">
+    <h1>Referencia de uso</h1>
+    <p class="subtitle">Cada subcomando, flag y punto de integración. Para <code>v0.3.0</code>.</p>
+
+    <section id="install" class="docs-section">
+      <h2>Instalación</h2>
+      <p>Binario único en Go puro. Requiere Go 1.22+ para <code>go install</code>.</p>
+<pre><span class="c"># última versión</span>
+<span class="k">$</span> go install github.com/julianshen/gogfy/cmd/gogfy@latest
+
+<span class="c"># o fijar una versión</span>
+<span class="k">$</span> go install github.com/julianshen/gogfy/cmd/gogfy@v0.3.0
+
+<span class="c"># compilar desde fuentes</span>
+<span class="k">$</span> git clone https://github.com/julianshen/gogfy &amp;&amp; cd gogfy
+<span class="k">$</span> go build -o gogfy ./cmd/gogfy</pre>
+    </section>
+
+    <section id="quick-start" class="docs-section">
+      <h2>Inicio rápido</h2>
+<pre><span class="c"># construir el grafo del repo actual</span>
+<span class="k">$</span> gogfy run .
+<span class="c"># → graphify-out/
+#     graph.html        abre en cualquier navegador
+#     graph.json        el grafo completo (la fuente de verdad)
+#     GRAPH_REPORT.md   god nodes, puentes, conexiones sorprendentes, preguntas
+#     wiki/             una página Markdown por comunidad</span>
+
+<span class="c"># conectar tu agente de IA (Claude Code, Cursor, Codex, etc.)</span>
+<span class="k">$</span> gogfy claude install
+
+<span class="c"># reconstrucciones posteriores son incrementales</span>
+<span class="k">$</span> gogfy run . --update</pre>
+    </section>
+
+    <section id="run" class="docs-section">
+      <h2>El comando <code>run</code></h2>
+      <p>Pipeline principal: detect &rarr; extract &rarr; resolve &rarr; dedup &rarr; cluster &rarr; analyze &rarr; report &rarr; export.</p>
+<pre><span class="k">$</span> gogfy run &lt;root&gt; [flags]</pre>
+      <div class="flags"><table>
+        <tr><td>--out &lt;dir&gt;</td><td>Directorio de salida (por defecto <code>./graphify-out/</code>).</td></tr>
+        <tr><td>--update</td><td>Incremental: omite los archivos cuyo hash de contenido coincide con la caché.</td></tr>
+        <tr><td>--cluster-only</td><td>Omite extracción; re-agrupa el <code>graph.json</code> existente bajo <code>--out</code>. Útil al ajustar la detección de comunidades.</td></tr>
+        <tr><td>--directed</td><td>Dibuja flechas en <code>graph.html</code>.</td></tr>
+        <tr><td>--no-viz</td><td>Omite la visualización <code>graph.html</code> (más rápido, salida más pequeña).</td></tr>
+        <tr><td>--graphml</td><td>También emite <code>graph.graphml</code> (Gephi / yEd).</td></tr>
+        <tr><td>--cypher</td><td>También emite <code>graph.cypher</code> (sintaxis MERGE para Neo4j).</td></tr>
+        <tr><td>--wiki</td><td>También emite <code>wiki/</code> — una página Markdown por comunidad.</td></tr>
+        <tr><td>--tree</td><td>También emite <code>tree.html</code> — árbol de archivos colapsable en D3.</td></tr>
+        <tr><td>--follow-symlinks</td><td>Desciende en directorios symlink dentro de la raíz (seguro ante ciclos vía registro de rutas resueltas).</td></tr>
+        <tr><td>--no-dedup</td><td>Omite la deduplicación de entidades (más rápido; pueden quedar nodos duplicados).</td></tr>
+        <tr><td>--semantic --backend &lt;name&gt;</td><td>Activa la extracción semántica con LLM. Ver <a href="#semantic">Semántica</a>.</td></tr>
+        <tr><td>--dry-run</td><td>Con <code>--semantic</code>, imprime la estimación previa de tokens/coste y sale sin llamar al LLM.</td></tr>
+        <tr><td>--max-cost-usd &lt;N&gt;</td><td>Aborta la ejecución si la estimación previa supera el tope semántico.</td></tr>
+        <tr><td>--transcribe-backend &lt;name&gt;</td><td>Activa la transcripción de audio/vídeo (requiere <code>--semantic</code>).</td></tr>
+      </table></div>
+    </section>
+
+    <section id="build" class="docs-section">
+      <h2>Subcomandos — construir / explorar</h2>
+
+      <article class="cmd" id="watch">
+        <h3>gogfy watch &lt;root&gt;</h3>
+        <p class="summary">Reconstrucción continua ante cambios de archivo (fsnotify). Registra el estado de arranque y la duración de cada reconstrucción.</p>
+<pre><span class="k">$</span> gogfy watch . [--out dir] [--directed]</pre>
+      </article>
+
+      <article class="cmd" id="clone">
+        <h3>gogfy clone &lt;git-url&gt;</h3>
+        <p class="summary">git clone en Go puro, seguido de la ejecución automática del pipeline. <code>--no-run</code> sólo clona.</p>
+<pre><span class="k">$</span> gogfy clone https://github.com/foo/bar [--dir D] [--branch B] [--out dir] [--no-run]</pre>
+      </article>
+
+      <article class="cmd" id="validate">
+        <h3>gogfy validate &lt;graph.json&gt;</h3>
+        <p class="summary">Verificación de esquema — verifica invariantes de nodos/aristas, ausencia de aristas colgantes y formato del language-ID.</p>
+      </article>
+
+      <article class="cmd" id="report">
+        <h3>gogfy report &lt;graph.json&gt;</h3>
+        <p class="summary">Renderiza <code>GRAPH_REPORT.md</code> en stdout desde un grafo existente.</p>
+      </article>
+
+      <article class="cmd" id="path">
+        <h3>gogfy path &lt;source&gt; &lt;target&gt;</h3>
+        <p class="summary">Ruta de conectividad más corta entre dos IDs de nodo.</p>
+<pre><span class="k">$</span> gogfy path go:function:/api.go:Handler go:type:/db.go:DB [--graph graph.json]</pre>
+      </article>
+
+      <article class="cmd" id="diff">
+        <h3>gogfy diff &lt;old.json&gt; &lt;new.json&gt;</h3>
+        <p class="summary">Diff estructural entre dos snapshots del grafo — nodos/aristas añadidos o eliminados, cambios de confianza.</p>
+      </article>
+
+      <article class="cmd" id="manifest">
+        <h3>gogfy manifest &lt;root&gt;</h3>
+        <p class="summary">Snapshot mtime + SHA de todos los archivos fuente. <code>--diff</code> imprime la lista de archivos cambiados respecto al snapshot anterior. Lo usan los flujos incrementales.</p>
+<pre><span class="k">$</span> gogfy manifest . [--out dir] [--diff] [--follow-symlinks]</pre>
+      </article>
+
+      <article class="cmd" id="merge-graphs">
+        <h3>gogfy merge-graphs &lt;a.json&gt; &lt;b.json&gt; ...</h3>
+        <p class="summary">Unión de varios grafos en uno solo (grafos por repo &rarr; grafo a nivel de organización). Salida vía <code>--out</code>.</p>
+      </article>
+
+      <article class="cmd" id="build-merge">
+        <h3>gogfy build-merge &lt;prior.json&gt; &lt;next.json&gt;</h3>
+        <p class="summary">Merge incremental con poda de archivos eliminados — conserva nodos de archivos no tocados en <code>prior</code>, reemplaza nodos de los archivos de <code>next</code>, descarta nodos de archivos eliminados.</p>
+<pre><span class="k">$</span> gogfy build-merge prior.json next.json [--files list.txt] [--out merged.json]</pre>
+      </article>
+
+      <article class="cmd" id="benchmark">
+        <h3>gogfy benchmark &lt;graph.json&gt;</h3>
+        <p class="summary">Medición de reducción de tokens: cuántos consumiría un agente leyendo el corpus crudo frente al grafo.</p>
+<pre><span class="k">$</span> gogfy benchmark graph.json [--corpus-words N] [--depth D] [--json]</pre>
+      </article>
+    </section>
+
+    <section id="artifacts" class="docs-section">
+      <h2>Artefactos a partir de un grafo existente</h2>
+
+      <article class="cmd" id="wiki">
+        <h3>gogfy wiki &lt;graph.json&gt;</h3>
+        <p class="summary">Markdown navegable por agente, una página por comunidad, con referencias cruzadas. Índice en <code>wiki/README.md</code>.</p>
+      </article>
+
+      <article class="cmd" id="site">
+        <h3>gogfy site &lt;graph.json&gt;</h3>
+        <p class="summary">Sitio HTML estático autocontenido con búsqueda, listo para GitHub Pages. Reutiliza un directorio <code>wiki/</code> existente vía <code>--wiki-dir</code>.</p>
+      </article>
+
+      <article class="cmd" id="tree">
+        <h3>gogfy tree &lt;graph.json&gt;</h3>
+        <p class="summary">Vista HTML de árbol de archivos colapsable en D3.</p>
+      </article>
+
+      <article class="cmd" id="callflow">
+        <h3>gogfy callflow &lt;graph.json&gt;</h3>
+        <p class="summary">Diagrama de arquitectura en Mermaid con etiquetas y una sección de Key Insights.</p>
+<pre><span class="k">$</span> gogfy callflow graph.json [--max-sections N] [--max-nodes M] [--max-edges E] [--project NAME]</pre>
+      </article>
+
+      <article class="cmd" id="obsidian">
+        <h3>gogfy obsidian &lt;graph.json&gt;</h3>
+        <p class="summary">Vault de Obsidian: un Markdown por nodo, <code>[[wikilinks]]</code> para aristas, resúmenes de comunidad.</p>
+      </article>
+
+      <article class="cmd" id="svg">
+        <h3>gogfy svg &lt;graph.json&gt;</h3>
+        <p class="summary">SVG estático force-directed (sin JS) — para empotrar en docs, posts, donde sea.</p>
+<pre><span class="k">$</span> gogfy svg graph.json [--out path.svg] [--labels] [--width N] [--height N] [--iterations N]</pre>
+      </article>
+
+      <article class="cmd" id="labels">
+        <h3>gogfy labels &lt;graph.json&gt;</h3>
+        <p class="summary">Genera o edita etiquetas legibles para cada comunidad. <code>--force</code> sobrescribe.</p>
+      </article>
+
+      <article class="cmd" id="neo4j-push">
+        <h3>gogfy neo4j-push &lt;graph.json&gt;</h3>
+        <p class="summary">Push directo de graph.json a un Neo4j en ejecución vía protocolo Bolt — alternativa a escribir <code>graph.cypher</code>.</p>
+<pre><span class="k">$</span> gogfy neo4j-push graph.json --uri neo4j://localhost:7687 --user U --password P [--database D]</pre>
+      </article>
+    </section>
+
+    <section id="ci" class="docs-section">
+      <h2>Integración con CI</h2>
+      <p>Hace fallar la build de un PR cuando el grafo retrocede más allá de los umbrales. Resumen Markdown en stdout (canalizable a <code>gh pr comment</code>); código de salida distinto de cero al sobrepasar.</p>
+<pre><span class="k">$</span> gogfy ci base.json head.json \
+    --max-removed-nodes 0 \
+    --max-removed-edges 10 \
+    --max-new-ambiguous 5</pre>
+      <div class="flags"><table>
+        <tr><td>--max-removed-nodes &lt;N&gt;</td><td>Falla si desaparecen más de N nodos.</td></tr>
+        <tr><td>--max-removed-edges &lt;N&gt;</td><td>Falla si desaparecen más de N aristas.</td></tr>
+        <tr><td>--max-new-ambiguous &lt;N&gt;</td><td>Falla si aparecen más de N aristas AMBIGUOUS nuevas.</td></tr>
+      </table></div>
+    </section>
+
+    <section id="global" class="docs-section">
+      <h2>Grafo global (multi-repo)</h2>
+      <p>Un almacén compartido de grafos por repo en tu directorio home, consultable de forma transversal.</p>
+<pre><span class="k">$</span> gogfy global add graphify-out/graph.json --as myrepo
+<span class="k">$</span> gogfy global list
+<span class="k">$</span> gogfy global path &lt;source&gt; &lt;target&gt;        <span class="c"># conectividad entre repos</span>
+<span class="k">$</span> gogfy global remove myrepo
+<span class="k">$</span> gogfy global path                            <span class="c"># muestra la ruta del almacén</span></pre>
+    </section>
+
+    <section id="agents" class="docs-section">
+      <h2>Plataformas de agentes</h2>
+      <p>19 plataformas soportadas. La instalación combo configura el servidor MCP + un fragmento en la documentación + un hook post-commit de una vez:</p>
+<pre><span class="k">$</span> gogfy &lt;platform&gt; install
+<span class="k">$</span> gogfy &lt;platform&gt; uninstall            <span class="c"># añade --purge para eliminar también fragmento y hook</span>
+
+<span class="c"># o paso a paso</span>
+<span class="k">$</span> gogfy install --platform &lt;platform&gt;         <span class="c"># sólo el archivo MCP</span>
+<span class="k">$</span> gogfy install-instructions --file CLAUDE.md <span class="c"># sólo el fragmento de docs</span>
+<span class="k">$</span> gogfy hook install                          <span class="c"># hooks post-commit + post-checkout</span></pre>
+      <p style="margin-top: 1rem;">Plataformas disponibles:
+        <code>claude</code> &middot; <code>codex</code> &middot; <code>cursor</code> &middot; <code>vscode</code> &middot;
+        <code>gemini</code> &middot; <code>opencode</code> &middot; <code>kilocode</code> &middot; <code>qwen</code> &middot;
+        <code>kimi</code> &middot; <code>aider</code> &middot; <code>claw</code> &middot; <code>copilot</code> &middot;
+        <code>droid</code> &middot; <code>trae</code> &middot; <code>trae-cn</code> &middot; <code>hermes</code> &middot;
+        <code>kiro</code> &middot; <code>pi</code> &middot; <code>antigravity</code>
+      </p>
+    </section>
+
+    <section id="agent-files" class="docs-section">
+      <h2>Archivos escritos por plataforma</h2>
+      <table class="platforms">
+        <thead><tr><th>Plataforma</th><th>Config MCP</th><th>Destino del fragmento de docs</th></tr></thead>
+        <tbody>
+          <tr><td>claude</td><td>.mcp.json</td><td>CLAUDE.md</td></tr>
+          <tr><td>codex</td><td>.codex/config.toml</td><td>AGENTS.md</td></tr>
+          <tr><td>cursor</td><td>.cursor/mcp.json</td><td>.cursorrules</td></tr>
+          <tr><td>vscode</td><td>.vscode/mcp.json (bajo <code>servers</code>)</td><td>AGENTS.md</td></tr>
+          <tr><td>gemini</td><td>.gemini/settings.json</td><td>GEMINI.md</td></tr>
+          <tr><td>opencode</td><td>opencode.json (bajo <code>mcp</code>)</td><td>AGENTS.md</td></tr>
+          <tr><td>copilot</td><td>.github/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>aider</td><td>.aider/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>claw</td><td>.openclaw/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>droid</td><td>.factory/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>trae / trae-cn</td><td>.trae/mcp.json / .trae-cn/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>hermes</td><td>.hermes/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>kiro</td><td>.kiro/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>pi</td><td>.pi/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>antigravity</td><td>.antigravity/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>kimi</td><td>.kimi/settings.json</td><td>AGENTS.md</td></tr>
+          <tr><td>qwen</td><td>.qwen/settings.json</td><td>QWEN.md</td></tr>
+          <tr><td>kilocode</td><td>.kilocode/mcp.json</td><td>AGENTS.md</td></tr>
+        </tbody>
+      </table>
+      <div class="callout" style="margin-top: 1rem;">
+        <strong>Best-effort:</strong> algunas plataformas aún no documentan una config MCP relativa al workspace (Aider usa principalmente <code>.aider.conf.yml</code>; la config MCP de Copilot CLI ha vivido históricamente a nivel de usuario). gogfy escribe en la ubicación convencional <code>.&lt;platform&gt;/</code> — verifícalo contra la documentación actual de tu plataforma.
+      </div>
+    </section>
+
+    <section id="hooks" class="docs-section">
+      <h2>Hooks de Git</h2>
+      <p>Hooks post-commit + post-checkout que reconstruyen el grafo automáticamente, más un merge driver opcional que une <code>graph.json</code> automáticamente durante los merges.</p>
+<pre><span class="k">$</span> gogfy hook install [--repo dir] [--gogfy-bin path] [--out dir]
+<span class="k">$</span> gogfy hook uninstall [--repo dir]
+<span class="k">$</span> gogfy hook status [--repo dir]
+<span class="k">$</span> gogfy hook install-merge-driver [--repo dir] [--gogfy-bin path]
+<span class="k">$</span> gogfy hook uninstall-merge-driver [--repo dir]</pre>
+    </section>
+
+    <section id="serve" class="docs-section">
+      <h2>Servidor MCP</h2>
+      <p>Servidor MCP stateless basado en stdio. La instalación combo lo configura por ti; <code>gogfy serve</code> lo ejecuta directamente para pruebas o integraciones no estándar.</p>
+<pre><span class="k">$</span> gogfy serve [--graph graphify-out/graph.json] [--report graphify-out/GRAPH_REPORT.md]</pre>
+    </section>
+
+    <section id="mcp-tools" class="docs-section">
+      <h2>Herramientas MCP expuestas</h2>
+      <p>Ocho herramientas que tu agente puede invocar. Todas de sólo lectura; ninguna modifica el grafo.</p>
+      <div class="flags"><table>
+        <tr><td>gogfy_god_nodes</td><td>Las N entidades con más conexiones (los nodos hub estructurales).</td></tr>
+        <tr><td>gogfy_explain</td><td>Resumen por nodo: qué es, quién lo llama/usa, de qué depende.</td></tr>
+        <tr><td>gogfy_query</td><td>Listado filtrado — por kind, archivo, comunidad, subcadena de label.</td></tr>
+        <tr><td>gogfy_path</td><td>Ruta de conectividad más corta entre dos nodos.</td></tr>
+        <tr><td>gogfy_get_neighbors</td><td>Vecinos directos de un nodo, desglosados por relación.</td></tr>
+        <tr><td>gogfy_graph_stats</td><td>Conteos: nodos/aristas por kind/relation; tamaños de comunidad.</td></tr>
+        <tr><td>gogfy_get_community</td><td>Miembros y resumen de una comunidad.</td></tr>
+        <tr><td>gogfy_traverse</td><td>BFS/DFS desde un nodo, con filtros de profundidad y relación.</td></tr>
+      </table></div>
+    </section>
+
+    <section id="semantic" class="docs-section">
+      <h2>Extracción semántica (opcional, vía LLM)</h2>
+      <p>Activar <code>--semantic</code> enriquece el grafo con entidades y <em>hyperaristas</em> N-arias extraídas de documentos e imágenes. Clientes HTTP en Go puro para cada backend — sin dependencias de SDK.</p>
+<pre><span class="k">$</span> gogfy run . --semantic --backend anthropic --dry-run    <span class="c"># estimación previa</span>
+<span class="k">$</span> gogfy run . --semantic --backend anthropic --max-cost-usd 5.00</pre>
+      <div class="flags"><table>
+        <tr><td>anthropic</td><td><code>ANTHROPIC_API_KEY</code> &middot; Claude (Sonnet por defecto)</td></tr>
+        <tr><td>openai</td><td><code>OPENAI_API_KEY</code></td></tr>
+        <tr><td>gemini</td><td><code>GEMINI_API_KEY</code></td></tr>
+        <tr><td>kimi</td><td><code>MOONSHOT_API_KEY</code> &middot; Moonshot / Kimi</td></tr>
+        <tr><td>bedrock</td><td><code>AWS_ACCESS_KEY_ID</code>, <code>AWS_SECRET_ACCESS_KEY</code>, <code>AWS_REGION</code> &middot; Claude vía AWS Bedrock (SigV4 en Go puro)</td></tr>
+        <tr><td>ollama</td><td>Endpoint local de Ollama (sin key)</td></tr>
+      </table></div>
+      <p style="margin-top: 0.8rem;">Los resultados se cachean en <code>&lt;out&gt;/.gographify-cache/semantic/</code>; al rerun con <code>--update</code> sólo se vuelven a pedir al LLM las entradas cambiadas.</p>
+    </section>
+
+    <section id="ingest" class="docs-section">
+      <h2>Ingesta de URL</h2>
+      <p>Trae una URL al corpus como fuente del grafo: fetch seguro contra SSRF, extracción HTML al estilo readability, metadatos OpenGraph, reescritura de URLs de GitHub, ruteo de PDFs de arXiv, oembed de YouTube.</p>
+<pre><span class="k">$</span> gogfy ingest https://example.com/post [--out dir]
+<span class="k">$</span> gogfy ingest https://youtu.be/&lt;id&gt; --audio        <span class="c"># extracción de audio en Go puro para --transcribe</span>
+<span class="k">$</span> gogfy add ...                                     <span class="c"># alias de ingest</span></pre>
+    </section>
+
+    <section id="languages" class="docs-section">
+      <h2>Lenguajes y formatos</h2>
+      <p>28+ lenguajes de programación y 10+ formatos de documento — todos vía tree-sitter en Go puro, sin Python ni LLM para ningún extractor.</p>
+      <p style="font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--fg-soft);">
+        <strong style="color: var(--fg);">Código:</strong>
+        go &middot; py &middot; js/jsx/mjs/cjs &middot; ts/tsx &middot; java &middot; c/h &middot; cpp/cc/cxx/hpp &middot;
+        cs &middot; rs &middot; rb &middot; kt/kts &middot; scala/sc &middot; php &middot; lua &middot; zig &middot; jl &middot;
+        sh/bash &middot; hs &middot; ml &middot; r &middot; ex/exs &middot; erl &middot; swift &middot; dart &middot; fortran &middot; svelte
+      </p>
+      <p style="font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--fg-soft);">
+        <strong style="color: var(--fg);">Docs & datos:</strong>
+        md/mdx/markdown &middot; html/htm &middot; rst &middot; txt &middot; docx &middot; xlsx &middot; pdf &middot; pptx &middot; yaml/yml &middot; toml &middot; gdoc/gsheet/gslides
+      </p>
+      <p>Matriz completa de kinds extraídos por lenguaje: <a href="https://github.com/julianshen/gogfy/blob/main/docs/languages.md">docs/languages.md</a>.</p>
+    </section>
+
+    <section id="cache" class="docs-section">
+      <h2>Gestión de caché</h2>
+      <p>El flujo incremental <code>--update</code> y los resultados semánticos viven bajo <code>&lt;out&gt;/.gographify-cache/</code>.</p>
+<pre><span class="k">$</span> gogfy cache stats [--out dir]                                        <span class="c"># tamaño y conteos</span>
+<span class="k">$</span> gogfy cache clear [--out dir] [--older-than 7d | --all]              <span class="c"># GC</span></pre>
+    </section>
+
+    <section id="config-files" class="docs-section">
+      <h2>Archivos de configuración y convenciones</h2>
+      <div class="flags"><table>
+        <tr><td>.graphifyignore</td><td>Patrones glob a omitir a nivel de walk (estilo gitignore).</td></tr>
+        <tr><td>.graphifyinclude</td><td>Lista de permitidos para archivos/paths ocultos que normalmente se saltarían.</td></tr>
+        <tr><td>tsconfig.json (<code>paths</code>)</td><td>Alias de path JS/TS (<code>@app/* → src/*</code>) se leen y resuelven antes del merge downstream.</td></tr>
+        <tr><td>&lt;out&gt;/.gographify-cache/</td><td>Caché por hash de contenido (extracción) + caché de resultados semánticos. Se puede borrar; se reconstruye.</td></tr>
+        <tr><td>&lt;out&gt;/graph.json</td><td>La fuente de verdad (esquema versionado con campo <code>schema_version</code>).</td></tr>
+        <tr><td>&lt;out&gt;/GRAPH_REPORT.md</td><td>Sellado con el SHA corto de <code>HEAD</code> del corpus, para que un artefacto desactualizado sea visiblemente viejo.</td></tr>
+      </table></div>
+    </section>
+
+    <section id="determinism" class="docs-section">
+      <h2>Garantía de determinismo</h2>
+      <p><code>graph.json</code> es idéntico byte a byte entre ejecuciones repetidas sobre el mismo corpus. Esto es esencial para <code>--update</code> / <code>diff</code> / <code>ci</code> — diffs espurios romperían la barrera de CI.</p>
+      <p>Dos piezas lo aseguran: el <code>LouvainClusterer</code> determinista propio de gogfy como default (iteración ordenada de nodos, desempates ordenados), y <code>schema.SortEdges</code> aplicado a la salida de aristas del dedup. Vigilado por un test de regresión end-to-end que ejecuta el pipeline dos veces sobre un fixture y falla ante cualquier diferencia de bytes.</p>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <div class="container">
+    <div>
+      gogfy &middot; <a href="https://github.com/julianshen/gogfy/releases/tag/v0.3.0">v0.3.0</a>
+    </div>
+    <div>
+      <a href="https://github.com/julianshen/gogfy">github.com/julianshen/gogfy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

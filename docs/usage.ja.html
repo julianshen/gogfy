@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gogfy — 使い方リファレンス</title>
+<meta name="description" content="gogfy の完全な使い方リファレンス:すべてのサブコマンド、フラグ、MCPツール、エージェント連携、設定ファイル。" />
+<meta name="theme-color" content="#0a0612" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <a href="index.ja.html" class="brand" style="color: var(--fg); text-decoration: none;">gogfy<span class="dot">.</span></a>
+    <div class="nav-right">
+      <nav class="nav-links">
+        <a href="index.ja.html#what">特徴</a>
+        <a href="index.ja.html#pipeline">パイプライン</a>
+        <a href="index.ja.html#features">機能</a>
+        <a href="usage.ja.html" style="color: var(--fg);">使い方</a>
+        <a href="https://github.com/julianshen/gogfy">GitHub</a>
+      </nav>
+      <div class="lang-switch" aria-label="言語">
+        <a href="usage.html" hreflang="en">EN</a>
+        <a href="usage.zh-TW.html" hreflang="zh-Hant">繁中</a>
+        <a href="usage.ja.html" class="active">日本語</a>
+        <a href="usage.es.html" hreflang="es">ES</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="docs">
+
+  <aside class="toc">
+    <h4>はじめに</h4>
+    <a href="#install">インストール</a>
+    <a href="#quick-start">クイックスタート</a>
+    <a href="#run"><code>run</code> コマンド</a>
+
+    <h4>サブコマンド</h4>
+    <a href="#build">ビルド / 探索</a>
+    <a href="#artifacts">アーティファクト</a>
+    <a href="#ci">CI 連携</a>
+    <a href="#global">グローバルグラフ</a>
+
+    <h4>エージェント連携</h4>
+    <a href="#agents">エージェントプラットフォーム</a>
+    <a href="#agent-files">書き込まれるファイル</a>
+    <a href="#hooks">Git フック</a>
+    <a href="#serve">MCP サーバー</a>
+
+    <h4>機能</h4>
+    <a href="#mcp-tools">MCP ツール</a>
+    <a href="#semantic">意味抽出(LLM)</a>
+    <a href="#ingest">URL 取り込み</a>
+    <a href="#languages">対応言語</a>
+
+    <h4>運用</h4>
+    <a href="#cache">キャッシュ</a>
+    <a href="#config-files">設定ファイル</a>
+    <a href="#determinism">決定論的</a>
+  </aside>
+
+  <main class="docs-content">
+    <h1>使い方リファレンス</h1>
+    <p class="subtitle">すべてのサブコマンド、フラグ、統合ポイント。<code>v0.3.0</code> 時点。</p>
+
+    <section id="install" class="docs-section">
+      <h2>インストール</h2>
+      <p>Pure-Go の単一バイナリ。<code>go install</code> には Go 1.22+ が必要です。</p>
+<pre><span class="c"># 最新リリース</span>
+<span class="k">$</span> go install github.com/julianshen/gogfy/cmd/gogfy@latest
+
+<span class="c"># またはバージョン指定</span>
+<span class="k">$</span> go install github.com/julianshen/gogfy/cmd/gogfy@v0.3.0
+
+<span class="c"># ソースからビルド</span>
+<span class="k">$</span> git clone https://github.com/julianshen/gogfy &amp;&amp; cd gogfy
+<span class="k">$</span> go build -o gogfy ./cmd/gogfy</pre>
+    </section>
+
+    <section id="quick-start" class="docs-section">
+      <h2>クイックスタート</h2>
+<pre><span class="c"># 現在のリポジトリでグラフをビルド</span>
+<span class="k">$</span> gogfy run .
+<span class="c"># → graphify-out/
+#     graph.html        ブラウザで開ける
+#     graph.json        完全なグラフ(信頼できる情報源)
+#     GRAPH_REPORT.md   god ノード、橋渡し、意外な接続、質問
+#     wiki/             コミュニティごとに Markdown</span>
+
+<span class="c"># AI エージェントに接続(Claude Code、Cursor、Codex など)</span>
+<span class="k">$</span> gogfy claude install
+
+<span class="c"># 以降の再ビルドは増分</span>
+<span class="k">$</span> gogfy run . --update</pre>
+    </section>
+
+    <section id="run" class="docs-section">
+      <h2><code>run</code> コマンド</h2>
+      <p>メインパイプライン:detect &rarr; extract &rarr; resolve &rarr; dedup &rarr; cluster &rarr; analyze &rarr; report &rarr; export。</p>
+<pre><span class="k">$</span> gogfy run &lt;root&gt; [flags]</pre>
+      <div class="flags"><table>
+        <tr><td>--out &lt;dir&gt;</td><td>出力ディレクトリ(デフォルト <code>./graphify-out/</code>)。</td></tr>
+        <tr><td>--update</td><td>増分:前回のキャッシュと内容ハッシュが一致するファイルはスキップ。</td></tr>
+        <tr><td>--cluster-only</td><td>抽出をスキップ、<code>--out</code> 配下の <code>graph.json</code> を再クラスタリング。コミュニティ検出を調整するときに便利。</td></tr>
+        <tr><td>--directed</td><td><code>graph.html</code> に矢印を描画。</td></tr>
+        <tr><td>--no-viz</td><td><code>graph.html</code> をスキップ(高速、出力が小さい)。</td></tr>
+        <tr><td>--graphml</td><td><code>graph.graphml</code> も出力(Gephi / yEd 向け)。</td></tr>
+        <tr><td>--cypher</td><td><code>graph.cypher</code> も出力(Neo4j の MERGE 構文)。</td></tr>
+        <tr><td>--wiki</td><td><code>wiki/</code> も出力 —— コミュニティごとに Markdown。</td></tr>
+        <tr><td>--tree</td><td><code>tree.html</code> も出力 —— D3 折りたたみ可能なファイルツリー。</td></tr>
+        <tr><td>--follow-symlinks</td><td>ルート内の symlink ディレクトリに降下(解決済みパス記録で循環防止)。</td></tr>
+        <tr><td>--no-dedup</td><td>エンティティ重複排除をスキップ(高速だが重複ノードが残る場合あり)。</td></tr>
+        <tr><td>--semantic --backend &lt;name&gt;</td><td>LLM 駆動の意味抽出を有効化。<a href="#semantic">意味抽出</a>を参照。</td></tr>
+        <tr><td>--dry-run</td><td><code>--semantic</code> と併用で、事前のトークン / コスト見積もりを表示して LLM 呼び出しなしで終了。</td></tr>
+        <tr><td>--max-cost-usd &lt;N&gt;</td><td>事前見積もりがこの上限を超えると実行を中止。</td></tr>
+        <tr><td>--transcribe-backend &lt;name&gt;</td><td>音声/動画の文字起こしを有効化(<code>--semantic</code> が必要)。</td></tr>
+      </table></div>
+    </section>
+
+    <section id="build" class="docs-section">
+      <h2>サブコマンド — ビルド / 探索</h2>
+
+      <article class="cmd" id="watch">
+        <h3>gogfy watch &lt;root&gt;</h3>
+        <p class="summary">fsnotify によるファイル変更検知での継続再ビルド。起動状態と再ビルド時間をログ出力。</p>
+<pre><span class="k">$</span> gogfy watch . [--out dir] [--directed]</pre>
+      </article>
+
+      <article class="cmd" id="clone">
+        <h3>gogfy clone &lt;git-url&gt;</h3>
+        <p class="summary">Pure-Go の git clone、続けて自動的にパイプラインを実行。<code>--no-run</code> で clone のみ。</p>
+<pre><span class="k">$</span> gogfy clone https://github.com/foo/bar [--dir D] [--branch B] [--out dir] [--no-run]</pre>
+      </article>
+
+      <article class="cmd" id="validate">
+        <h3>gogfy validate &lt;graph.json&gt;</h3>
+        <p class="summary">スキーマ検証 —— ノード/エッジの不変条件、dangling edge の不存在、language-ID の形式を確認。</p>
+      </article>
+
+      <article class="cmd" id="report">
+        <h3>gogfy report &lt;graph.json&gt;</h3>
+        <p class="summary">既存のグラフから <code>GRAPH_REPORT.md</code> を標準出力に出力。</p>
+      </article>
+
+      <article class="cmd" id="path">
+        <h3>gogfy path &lt;source&gt; &lt;target&gt;</h3>
+        <p class="summary">2 つのノード ID 間の最短連結パス。</p>
+<pre><span class="k">$</span> gogfy path go:function:/api.go:Handler go:type:/db.go:DB [--graph graph.json]</pre>
+      </article>
+
+      <article class="cmd" id="diff">
+        <h3>gogfy diff &lt;old.json&gt; &lt;new.json&gt;</h3>
+        <p class="summary">2 つのグラフスナップショット間の構造差分 —— 追加・削除されたノード/エッジ、信頼度の変化。</p>
+      </article>
+
+      <article class="cmd" id="manifest">
+        <h3>gogfy manifest &lt;root&gt;</h3>
+        <p class="summary">全ソースファイルの mtime + SHA スナップショット。<code>--diff</code> は前回からの変更ファイル一覧を出力。増分フローで使用。</p>
+<pre><span class="k">$</span> gogfy manifest . [--out dir] [--diff] [--follow-symlinks]</pre>
+      </article>
+
+      <article class="cmd" id="merge-graphs">
+        <h3>gogfy merge-graphs &lt;a.json&gt; &lt;b.json&gt; ...</h3>
+        <p class="summary">複数のグラフを 1 つに統合(リポジトリごとのグラフ → 組織全体のグラフ)。出力は <code>--out</code> で指定。</p>
+      </article>
+
+      <article class="cmd" id="build-merge">
+        <h3>gogfy build-merge &lt;prior.json&gt; &lt;next.json&gt;</h3>
+        <p class="summary">削除済みファイルのノードを除去しつつ増分マージ —— <code>prior</code> から未変更ファイルのノードを保持し、<code>next</code> のファイルのノードで置換、削除されたファイルのノードは破棄。</p>
+<pre><span class="k">$</span> gogfy build-merge prior.json next.json [--files list.txt] [--out merged.json]</pre>
+      </article>
+
+      <article class="cmd" id="benchmark">
+        <h3>gogfy benchmark &lt;graph.json&gt;</h3>
+        <p class="summary">トークン削減量の測定:エージェントが生のコーパスを読む場合と、グラフを読む場合のトークン消費量比較。</p>
+<pre><span class="k">$</span> gogfy benchmark graph.json [--corpus-words N] [--depth D] [--json]</pre>
+      </article>
+    </section>
+
+    <section id="artifacts" class="docs-section">
+      <h2>既存グラフからのアーティファクト生成</h2>
+
+      <article class="cmd" id="wiki">
+        <h3>gogfy wiki &lt;graph.json&gt;</h3>
+        <p class="summary">コミュニティごとに 1 ページの Markdown、相互リンク付きで、エージェントが巡回可能。インデックスは <code>wiki/README.md</code>。</p>
+      </article>
+
+      <article class="cmd" id="site">
+        <h3>gogfy site &lt;graph.json&gt;</h3>
+        <p class="summary">検索機能付きの自己完結型静的 HTML サイト。GitHub Pages にも適合。<code>--wiki-dir</code> で既存の <code>wiki/</code> を再利用。</p>
+      </article>
+
+      <article class="cmd" id="tree">
+        <h3>gogfy tree &lt;graph.json&gt;</h3>
+        <p class="summary">D3 折りたたみ可能なファイルツリー HTML ビュー。</p>
+      </article>
+
+      <article class="cmd" id="callflow">
+        <h3>gogfy callflow &lt;graph.json&gt;</h3>
+        <p class="summary">ラベルと Key Insights セクション付きの Mermaid アーキテクチャ図。</p>
+<pre><span class="k">$</span> gogfy callflow graph.json [--max-sections N] [--max-nodes M] [--max-edges E] [--project NAME]</pre>
+      </article>
+
+      <article class="cmd" id="obsidian">
+        <h3>gogfy obsidian &lt;graph.json&gt;</h3>
+        <p class="summary">Obsidian Vault:ノードごとの Markdown、エッジを <code>[[wikilinks]]</code> で表現、コミュニティ概要付き。</p>
+      </article>
+
+      <article class="cmd" id="svg">
+        <h3>gogfy svg &lt;graph.json&gt;</h3>
+        <p class="summary">静的 force-directed SVG(JS 不要)—— ドキュメント、ブログ、どこにでも埋め込み可能。</p>
+<pre><span class="k">$</span> gogfy svg graph.json [--out path.svg] [--labels] [--width N] [--height N] [--iterations N]</pre>
+      </article>
+
+      <article class="cmd" id="labels">
+        <h3>gogfy labels &lt;graph.json&gt;</h3>
+        <p class="summary">コミュニティごとに人間可読なラベルを生成または編集。<code>--force</code> で上書き。</p>
+      </article>
+
+      <article class="cmd" id="neo4j-push">
+        <h3>gogfy neo4j-push &lt;graph.json&gt;</h3>
+        <p class="summary">起動中の Neo4j に Bolt プロトコルで graph.json を直接送信 —— <code>graph.cypher</code> を書き出す代わり。</p>
+<pre><span class="k">$</span> gogfy neo4j-push graph.json --uri neo4j://localhost:7687 --user U --password P [--database D]</pre>
+      </article>
+    </section>
+
+    <section id="ci" class="docs-section">
+      <h2>CI 連携</h2>
+      <p>グラフが閾値を超えて退化した時に PR ビルドを失敗させます。Markdown サマリーが標準出力に(<code>gh pr comment</code> にパイプ可)、閾値違反で非ゼロ終了コード。</p>
+<pre><span class="k">$</span> gogfy ci base.json head.json \
+    --max-removed-nodes 0 \
+    --max-removed-edges 10 \
+    --max-new-ambiguous 5</pre>
+      <div class="flags"><table>
+        <tr><td>--max-removed-nodes &lt;N&gt;</td><td>N 個を超えるノードが消えたら失敗。</td></tr>
+        <tr><td>--max-removed-edges &lt;N&gt;</td><td>N 本を超えるエッジが消えたら失敗。</td></tr>
+        <tr><td>--max-new-ambiguous &lt;N&gt;</td><td>新規 AMBIGUOUS エッジが N 本を超えたら失敗。</td></tr>
+      </table></div>
+    </section>
+
+    <section id="global" class="docs-section">
+      <h2>グローバルグラフ(マルチリポジトリ)</h2>
+      <p>ホームディレクトリ配下に置かれる、リポジトリごとのグラフ共有ストア。リポジトリ横断で問い合わせ可能。</p>
+<pre><span class="k">$</span> gogfy global add graphify-out/graph.json --as myrepo
+<span class="k">$</span> gogfy global list
+<span class="k">$</span> gogfy global path &lt;source&gt; &lt;target&gt;        <span class="c"># リポジトリ横断の連結性</span>
+<span class="k">$</span> gogfy global remove myrepo
+<span class="k">$</span> gogfy global path                            <span class="c"># ストアパスを表示</span></pre>
+    </section>
+
+    <section id="agents" class="docs-section">
+      <h2>エージェントプラットフォーム</h2>
+      <p>19 種のエージェントプラットフォームに対応。コンボインストールは MCP サーバー + ドキュメントスニペット + post-commit フックを一度に配線します:</p>
+<pre><span class="k">$</span> gogfy &lt;platform&gt; install
+<span class="k">$</span> gogfy &lt;platform&gt; uninstall            <span class="c"># --purge でスニペットとフックも除去</span>
+
+<span class="c"># 個別に</span>
+<span class="k">$</span> gogfy install --platform &lt;platform&gt;         <span class="c"># MCP 設定のみ</span>
+<span class="k">$</span> gogfy install-instructions --file CLAUDE.md <span class="c"># ドキュメントスニペットのみ</span>
+<span class="k">$</span> gogfy hook install                          <span class="c"># post-commit + post-checkout フック</span></pre>
+      <p style="margin-top: 1rem;">対応プラットフォーム:
+        <code>claude</code> &middot; <code>codex</code> &middot; <code>cursor</code> &middot; <code>vscode</code> &middot;
+        <code>gemini</code> &middot; <code>opencode</code> &middot; <code>kilocode</code> &middot; <code>qwen</code> &middot;
+        <code>kimi</code> &middot; <code>aider</code> &middot; <code>claw</code> &middot; <code>copilot</code> &middot;
+        <code>droid</code> &middot; <code>trae</code> &middot; <code>trae-cn</code> &middot; <code>hermes</code> &middot;
+        <code>kiro</code> &middot; <code>pi</code> &middot; <code>antigravity</code>
+      </p>
+    </section>
+
+    <section id="agent-files" class="docs-section">
+      <h2>プラットフォーム別書き込みファイル</h2>
+      <table class="platforms">
+        <thead><tr><th>プラットフォーム</th><th>MCP 設定</th><th>スニペット書き込み先</th></tr></thead>
+        <tbody>
+          <tr><td>claude</td><td>.mcp.json</td><td>CLAUDE.md</td></tr>
+          <tr><td>codex</td><td>.codex/config.toml</td><td>AGENTS.md</td></tr>
+          <tr><td>cursor</td><td>.cursor/mcp.json</td><td>.cursorrules</td></tr>
+          <tr><td>vscode</td><td>.vscode/mcp.json(<code>servers</code> 配下)</td><td>AGENTS.md</td></tr>
+          <tr><td>gemini</td><td>.gemini/settings.json</td><td>GEMINI.md</td></tr>
+          <tr><td>opencode</td><td>opencode.json(<code>mcp</code> 配下)</td><td>AGENTS.md</td></tr>
+          <tr><td>copilot</td><td>.github/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>aider</td><td>.aider/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>claw</td><td>.openclaw/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>droid</td><td>.factory/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>trae / trae-cn</td><td>.trae/mcp.json / .trae-cn/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>hermes</td><td>.hermes/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>kiro</td><td>.kiro/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>pi</td><td>.pi/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>antigravity</td><td>.antigravity/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>kimi</td><td>.kimi/settings.json</td><td>AGENTS.md</td></tr>
+          <tr><td>qwen</td><td>.qwen/settings.json</td><td>QWEN.md</td></tr>
+          <tr><td>kilocode</td><td>.kilocode/mcp.json</td><td>AGENTS.md</td></tr>
+        </tbody>
+      </table>
+      <div class="callout" style="margin-top: 1rem;">
+        <strong>ベストエフォート:</strong>一部のプラットフォームはまだワークスペース相対の MCP 設定を公式に定めていません(Aider は主に <code>.aider.conf.yml</code> を使う;Copilot CLI の MCP 設定は伝統的にユーザーレベルにある等)。gogfy は慣習的な <code>.&lt;platform&gt;/</code> 位置に書き込みます —— ご利用前にプラットフォームの最新ドキュメントで確認してください。
+      </div>
+    </section>
+
+    <section id="hooks" class="docs-section">
+      <h2>Git フック</h2>
+      <p>グラフを自動再ビルドする post-commit + post-checkout フックと、git マージ時に <code>graph.json</code> を自動 union する任意のマージドライバ。</p>
+<pre><span class="k">$</span> gogfy hook install [--repo dir] [--gogfy-bin path] [--out dir]
+<span class="k">$</span> gogfy hook uninstall [--repo dir]
+<span class="k">$</span> gogfy hook status [--repo dir]
+<span class="k">$</span> gogfy hook install-merge-driver [--repo dir] [--gogfy-bin path]
+<span class="k">$</span> gogfy hook uninstall-merge-driver [--repo dir]</pre>
+    </section>
+
+    <section id="serve" class="docs-section">
+      <h2>MCP サーバー</h2>
+      <p>ステートレスな stdio ベースの MCP サーバー。コンボプラットフォームインストーラがこれを配線します;<code>gogfy serve</code> は手動でのテストや非標準連携のために直接起動するためのものです。</p>
+<pre><span class="k">$</span> gogfy serve [--graph graphify-out/graph.json] [--report graphify-out/GRAPH_REPORT.md]</pre>
+    </section>
+
+    <section id="mcp-tools" class="docs-section">
+      <h2>公開される MCP ツール</h2>
+      <p>エージェントが呼び出せる 8 つのツール。すべて読み取り専用 —— グラフを変更しません。</p>
+      <div class="flags"><table>
+        <tr><td>gogfy_god_nodes</td><td>接続数が最も多いエンティティの上位 N 件(構造的ハブ)。</td></tr>
+        <tr><td>gogfy_explain</td><td>ノード単位のサマリー:何であるか、誰が呼ぶ/使うか、何に依存するか。</td></tr>
+        <tr><td>gogfy_query</td><td>条件によるノード一覧 —— kind、ファイル、コミュニティ、Label の部分文字列で絞り込み。</td></tr>
+        <tr><td>gogfy_path</td><td>2 ノード間の最短連結パス。</td></tr>
+        <tr><td>gogfy_get_neighbors</td><td>ノードの直接の隣接、関係別に集計。</td></tr>
+        <tr><td>gogfy_graph_stats</td><td>統計:kind/relation 別のノード/エッジ数、コミュニティサイズ。</td></tr>
+        <tr><td>gogfy_get_community</td><td>単一コミュニティのメンバーとサマリー。</td></tr>
+        <tr><td>gogfy_traverse</td><td>ノードからの BFS/DFS、深さと関係フィルタ付き。</td></tr>
+      </table></div>
+    </section>
+
+    <section id="semantic" class="docs-section">
+      <h2>意味抽出(任意、LLM 駆動)</h2>
+      <p>オプトインの <code>--semantic</code> でドキュメントと画像から抽出したエンティティと N 項の <em>ハイパーエッジ</em> でグラフを強化します。各バックエンドは pure-Go の HTTP クライアント —— SDK 依存なし。</p>
+<pre><span class="k">$</span> gogfy run . --semantic --backend anthropic --dry-run    <span class="c"># 事前見積もり</span>
+<span class="k">$</span> gogfy run . --semantic --backend anthropic --max-cost-usd 5.00</pre>
+      <div class="flags"><table>
+        <tr><td>anthropic</td><td><code>ANTHROPIC_API_KEY</code> &middot; Claude(デフォルト Sonnet)</td></tr>
+        <tr><td>openai</td><td><code>OPENAI_API_KEY</code></td></tr>
+        <tr><td>gemini</td><td><code>GEMINI_API_KEY</code></td></tr>
+        <tr><td>kimi</td><td><code>MOONSHOT_API_KEY</code> &middot; Moonshot / Kimi</td></tr>
+        <tr><td>bedrock</td><td><code>AWS_ACCESS_KEY_ID</code>、<code>AWS_SECRET_ACCESS_KEY</code>、<code>AWS_REGION</code> &middot; AWS Bedrock 経由の Claude(pure-Go SigV4)</td></tr>
+        <tr><td>ollama</td><td>ローカル Ollama エンドポイント(キー不要)</td></tr>
+      </table></div>
+      <p style="margin-top: 0.8rem;">結果は <code>&lt;out&gt;/.gographify-cache/semantic/</code> にキャッシュされます。<code>--update</code> での再実行時、変更されたインプットだけが LLM を呼びます。</p>
+    </section>
+
+    <section id="ingest" class="docs-section">
+      <h2>URL 取り込み</h2>
+      <p>URL をコーパスにグラフソースとして取り込み:SSRF 安全な fetch、readability 風の HTML 抽出、OpenGraph メタデータ、GitHub URL の書き換え、arXiv PDF ルーティング、YouTube oembed。</p>
+<pre><span class="k">$</span> gogfy ingest https://example.com/post [--out dir]
+<span class="k">$</span> gogfy ingest https://youtu.be/&lt;id&gt; --audio        <span class="c"># --transcribe 用の純 Go 音声抽出</span>
+<span class="k">$</span> gogfy add ...                                     <span class="c"># ingest の別名</span></pre>
+    </section>
+
+    <section id="languages" class="docs-section">
+      <h2>対応言語とフォーマット</h2>
+      <p>28+ のプログラミング言語と 10+ のドキュメントフォーマット —— すべて pure-Go tree-sitter 経由で、どの抽出器も Python や LLM を必要としません。</p>
+      <p style="font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--fg-soft);">
+        <strong style="color: var(--fg);">コード:</strong>
+        go &middot; py &middot; js/jsx/mjs/cjs &middot; ts/tsx &middot; java &middot; c/h &middot; cpp/cc/cxx/hpp &middot;
+        cs &middot; rs &middot; rb &middot; kt/kts &middot; scala/sc &middot; php &middot; lua &middot; zig &middot; jl &middot;
+        sh/bash &middot; hs &middot; ml &middot; r &middot; ex/exs &middot; erl &middot; swift &middot; dart &middot; fortran &middot; svelte
+      </p>
+      <p style="font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--fg-soft);">
+        <strong style="color: var(--fg);">ドキュメント & データ:</strong>
+        md/mdx/markdown &middot; html/htm &middot; rst &middot; txt &middot; docx &middot; xlsx &middot; pdf &middot; pptx &middot; yaml/yml &middot; toml &middot; gdoc/gsheet/gslides
+      </p>
+      <p>完全な言語別抽出項目マトリクス:<a href="https://github.com/julianshen/gogfy/blob/main/docs/languages.md">docs/languages.md</a>。</p>
+    </section>
+
+    <section id="cache" class="docs-section">
+      <h2>キャッシュ管理</h2>
+      <p>増分 <code>--update</code> フローと意味抽出結果は <code>&lt;out&gt;/.gographify-cache/</code> 配下に保存されます。</p>
+<pre><span class="k">$</span> gogfy cache stats [--out dir]                                        <span class="c"># サイズとエントリ数</span>
+<span class="k">$</span> gogfy cache clear [--out dir] [--older-than 7d | --all]              <span class="c"># GC</span></pre>
+    </section>
+
+    <section id="config-files" class="docs-section">
+      <h2>設定ファイルと規約</h2>
+      <div class="flags"><table>
+        <tr><td>.graphifyignore</td><td>walk 層でスキップする glob パターン(gitignore 形式)。</td></tr>
+        <tr><td>.graphifyinclude</td><td>通常はスキップされる隠しファイル/パスの許可リスト。</td></tr>
+        <tr><td>tsconfig.json(<code>paths</code>)</td><td>JS/TS のパスエイリアス(<code>@app/* → src/*</code>)を読み取り、下流のマージ前に解決します。</td></tr>
+        <tr><td>&lt;out&gt;/.gographify-cache/</td><td>内容ハッシュキャッシュ(抽出)+ 意味抽出結果キャッシュ。削除しても再構築されます。</td></tr>
+        <tr><td>&lt;out&gt;/graph.json</td><td>信頼できる情報源(<code>schema_version</code> フィールド付きのバージョン付きスキーマ)。</td></tr>
+        <tr><td>&lt;out&gt;/GRAPH_REPORT.md</td><td>コーパスの <code>HEAD</code> 短縮 SHA をスタンプ。古いアーティファクトが一目で分かるように。</td></tr>
+      </table></div>
+    </section>
+
+    <section id="determinism" class="docs-section">
+      <h2>決定論性の保証</h2>
+      <p>同じコーパスで複数回実行しても <code>graph.json</code> はバイト単位で一致します。<code>--update</code> / <code>diff</code> / <code>ci</code> はこれに依存します —— そうでなければ CI ゲートが誤検知の差分で発火してしまいます。</p>
+      <p>2 つの仕組みで実現:gogfy 自身の決定論的な <code>LouvainClusterer</code> をデフォルトとして使用(ソートされたノードイテレーション、ソートされたタイブレーク);および dedup のエッジ出力への <code>schema.SortEdges</code> 適用。フィクスチャ上でパイプラインを 2 回実行し、バイト単位の差分があれば失敗する e2e 回帰テストで保証されています。</p>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <div class="container">
+    <div>
+      gogfy &middot; <a href="https://github.com/julianshen/gogfy/releases/tag/v0.3.0">v0.3.0</a>
+    </div>
+    <div>
+      <a href="https://github.com/julianshen/gogfy">github.com/julianshen/gogfy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

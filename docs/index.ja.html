@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gogfy — コードベースをAIエージェントがナビゲートできる知識グラフへ</title>
+<meta name="description" content="gogfy は Go 製のコード知識グラフビルダー。コードはもちろん、ドキュメント・PDF・Webページ・YouTubeまで含めて型付きグラフに変換し、内蔵 MCP サーバーで AI コーディングエージェントに提供します。" />
+<meta name="theme-color" content="#0a0612" />
+<meta property="og:title" content="gogfy — AIエージェントのためのコード知識グラフ" />
+<meta property="og:description" content="Pure-Go、決定論的なコード知識グラフビルダー。28+ 言語対応。型階層と横断的依存を可視化。MCPサーバー内蔵。" />
+<meta property="og:type" content="website" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <div class="brand">gogfy<span class="dot">.</span></div>
+    <div class="nav-right">
+      <nav class="nav-links">
+        <a href="#what">特徴</a>
+        <a href="#pipeline">パイプライン</a>
+        <a href="#quickstart">クイックスタート</a>
+        <a href="#features">機能</a>
+        <a href="#perf">パフォーマンス</a>
+        <a href="usage.ja.html">使い方</a>
+        <a href="https://github.com/julianshen/gogfy">GitHub</a>
+      </nav>
+      <div class="lang-switch" aria-label="言語">
+        <a href="index.html" hreflang="en">EN</a>
+        <a href="index.zh-TW.html" hreflang="zh-Hant">繁中</a>
+        <a href="index.ja.html" class="active">日本語</a>
+        <a href="index.es.html" hreflang="es">ES</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <h1><span class="accent">AIエージェント</span>が<br/>ナビゲートできるコード知識グラフ。</h1>
+    <p class="tagline">
+      Pure-Go の静的解析ツール。コード本体に加えて、ドキュメント・PDF・Webページ・YouTube まで、
+      関数呼び出し、型階層、パッケージ依存、ドキュメント参照、意味的概念 ——
+      すべての信号を一つの型付きグラフに統合します。あなたのコーディングエージェントが、
+      リポジトリについて答える「前」に読む知識構造です。
+    </p>
+    <div class="hero-cta">
+      <a class="btn primary" href="https://github.com/julianshen/gogfy">GitHubで見る</a>
+      <a class="btn" href="https://github.com/julianshen/gogfy/releases">リリース</a>
+      <a class="btn" href="usage.ja.html">使い方</a>
+    </div>
+    <div class="install" title="Goでインストール">
+      <span class="prompt">$</span>
+      <code>go install github.com/julianshen/gogfy/cmd/gogfy@latest</code>
+    </div>
+  </div>
+</section>
+
+<section id="what">
+  <div class="container">
+    <span class="eyebrow">何ができるか</span>
+    <h2>一つのグラフに、エージェントが必要なすべての信号を。</h2>
+    <p class="lead">
+      多くのエージェントは grep でリポジトリを彷徨います。gogfy は構造を一度だけ抽出し ——
+      呼び出し、型階層、パッケージ依存、ドキュメント参照 —— それを内蔵の MCP サーバーから提供します。
+      エージェントはファイルをスキャンする代わりに、「これを呼んでいるのは誰?」とグラフに問い合わせます。
+    </p>
+    <div class="features" style="margin-top: 1rem;">
+      <div class="feature">
+        <h3>28+ 言語</h3>
+        <p>Go、Python、TS/JS、Java、C/C++、C#、Rust、Kotlin、Scala、Swift、Ruby、PHP、Dart、Lua、Haskell、OCaml、Elixir、Erlang、R、Julia、Zig、Fortran、Bash、Svelte など —— すべて pure-Go tree-sitter 経由。Python も LLM も不要。</p>
+      </div>
+      <div class="feature">
+        <h3>ドキュメントも対象</h3>
+        <p>Markdown、HTML、PDF、DOCX、PPTX、XLSX、RST、TOML、YAML —— コメントではなく一級のグラフ情報源として扱います。形式を跨いだグラフがシームレスに合成されます。</p>
+      </div>
+      <div class="feature">
+        <h3>型付きエッジ</h3>
+        <p><code>calls</code>、<code>contains</code>、<code>imports</code>(コーパス内モジュールに解決)、<code>inherits</code>、<code>implements</code>、<code>embeds</code>、<code>references</code>、加えて意味抽出による N項ハイパーエッジ。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pipeline">
+  <div class="container">
+    <span class="eyebrow">仕組み</span>
+    <h2>8段階のパイプライン、どこでも止められます。</h2>
+    <p class="lead">
+      各段階は pure-Go・決定論的・独立にテスト可能。
+      tree-sitter 以外に cgo なし、Python なし、<code>--semantic</code> でオプトインしない限り LLM 呼び出しもありません。
+    </p>
+    <div class="pipeline">
+      <div class="pipe-stage"><span class="pipe-num">1</span><span class="pipe-name">Detect</span><div class="pipe-note">走査・分類・機密スキップ</div></div>
+      <div class="pipe-stage"><span class="pipe-num">2</span><span class="pipe-name">Extract</span><div class="pipe-note">tree-sitter AST → ノード</div></div>
+      <div class="pipe-stage"><span class="pipe-num">3</span><span class="pipe-name">Resolve</span><div class="pipe-note">calls、methods、継承、imports</div></div>
+      <div class="pipe-stage"><span class="pipe-num">4</span><span class="pipe-name">Dedup</span><div class="pipe-note">完全一致 + 曖昧 + LLM 仲裁</div></div>
+      <div class="pipe-stage"><span class="pipe-num">5</span><span class="pipe-name">Cluster</span><div class="pipe-note">決定論的 Louvain</div></div>
+      <div class="pipe-stage"><span class="pipe-num">6</span><span class="pipe-name">Analyze</span><div class="pipe-note">god ノード、意外な接続、橋渡し</div></div>
+      <div class="pipe-stage"><span class="pipe-num">7</span><span class="pipe-name">Report</span><div class="pipe-note">GRAPH_REPORT.md</div></div>
+      <div class="pipe-stage"><span class="pipe-num">8</span><span class="pipe-name">Export</span><div class="pipe-note">JSON / HTML / GraphML / Cypher / SVG</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="container">
+    <span class="eyebrow">クイックスタート</span>
+    <h2>3つのコマンドで、エージェントがグラフを読み始めます。</h2>
+<pre><span class="c"># 1. インストール</span>
+<span class="k">$</span> go install github.com/julianshen/gogfy/cmd/gogfy@latest
+
+<span class="c"># 2. 現在のリポジトリでグラフを生成</span>
+<span class="k">$</span> gogfy run .
+<span class="c">#   graphify-out/
+#   ├── graph.html       ブラウザで開ける
+#   ├── GRAPH_REPORT.md  god ノード、意外な接続、推奨される質問
+#   └── graph.json       完全なグラフ</span>
+
+<span class="c"># 3. AI エージェントに接続(19 プラットフォーム対応)</span>
+<span class="k">$</span> gogfy claude install
+<span class="c">#   MCP サーバーを設定し、CLAUDE.md にスニペットを追加し、
+#   自動再ビルドの post-commit フックを仕込みます。
+#   他のターゲット:cursor、codex、vscode、gemini、aider、…</span></pre>
+    <p>これで、エージェントはファイルを grep する代わりにグラフを照会して答えます —— <code>gogfy_god_nodes</code>、<code>gogfy_traverse</code>、<code>gogfy_path</code>、<code>gogfy_get_neighbors</code>、<code>gogfy_explain</code>。</p>
+  </div>
+</section>
+
+<section id="features">
+  <div class="container">
+    <span class="eyebrow">機能</span>
+    <h2>現実のコードベースのために。</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>型階層</h3>
+        <p>パッケージを跨いで <code>inherits</code> / <code>implements</code> / <code>embeds</code> を解決。Python、Java、TS、C#、Kotlin、Scala、Swift、Dart、Ruby、PHP、Rust、Go(struct embedding)対応。</p>
+      </div>
+      <div class="feature">
+        <h3>パッケージ間依存</h3>
+        <p>ローカルな import を実際のモジュールに解決し、本物のファイル間依存エッジを生成します。外部 import は「観測された import」事実として保持。</p>
+      </div>
+      <div class="feature">
+        <h3>デフォルトで決定論的</h3>
+        <p>同じコーパスを2回走らせると、<code>graph.json</code> はバイト単位で一致します。e2e 回帰テストで保証。<code>--update</code> / graphdiff / スナップショットの安定性が依存します。</p>
+      </div>
+      <div class="feature">
+        <h3>MCP サーバー内蔵</h3>
+        <p><code>gogfy serve</code> がグラフを MCP ツールとして公開。19 のエージェントプラットフォーム —— Claude Code、Cursor、Codex、Gemini CLI、Copilot CLI、Aider など —— が独自配線なしで読み取れます。</p>
+      </div>
+      <div class="feature">
+        <h3>任意の意味抽出</h3>
+        <p><code>--semantic</code> でオプトイン:文書や画像からエンティティと N項ハイパーエッジを抽出。バックエンド:Anthropic、OpenAI、Gemini、Bedrock、Kimi、Ollama。事前のコスト見積、<code>--dry-run</code>、予算上限あり。</p>
+      </div>
+      <div class="feature">
+        <h3>増分実行 & キャッシュ</h3>
+        <p><code>--update</code> は内容ハッシュキャッシュで変更ファイルのみ再構築。意味抽出結果は <code>.gographify-cache/</code> にキャッシュ。<code>--watch</code> で継続再ビルド。</p>
+      </div>
+      <div class="feature">
+        <h3>多彩な出力形式</h3>
+        <p>JSON(バージョン付きスキーマ)、インタラクティブ HTML、Markdown レポート、Gephi/yEd 向け GraphML、Neo4j 向け Cypher(または Bolt 直接送信)、SVG、デプロイ可能な静的ドキュメントサイト(<code>gogfy site</code>)。</p>
+      </div>
+      <div class="feature">
+        <h3>ファイルシステムを超えて</h3>
+        <p>SSRF 安全な fetch を使う URL 取り込み、readability 風の HTML 抽出、OpenGraph メタデータ、GitHub URL の書き換え、arXiv PDF ルーティング、YouTube oembed + 純 Go の音声抽出(transcribe 用)。</p>
+      </div>
+      <div class="feature">
+        <h3>堅牢化を内蔵</h3>
+        <p>機密ファイルパターンを walk 層で検知、Label/SourceFile を AddNode の入口で集中サニタイズ、SSRF ガード、PDF/OOXML のパニック耐性。失敗は黙らず診断情報付きで縮退します。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="perf">
+  <div class="container">
+    <span class="eyebrow">パフォーマンス</span>
+    <h2>v0.3.0 でエンドツーエンド約 4 倍高速化。</h2>
+    <p class="lead">
+      実際の 220 ファイル Go コーパス(3,885 ノード、14,869 エッジ)で計測。
+      ボトルネックは直感とは異なる場所にあり、int インデックス化された並列 Brandes と、dedup の <code>O(n²)</code> 曖昧スキャンからループ不変量を引き上げたことで効きました。
+    </p>
+    <div class="numbers">
+      <div class="number"><span class="big">~5秒</span><span class="label">フル実行</span></div>
+      <div class="number"><span class="big">215×</span><span class="label">媒介中心性 高速化</span></div>
+      <div class="number"><span class="big">1227</span><span class="label">テスト通過</span></div>
+      <div class="number"><span class="big">0</span><span class="label">実行時の非決定性</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="vs">
+  <div class="container">
+    <span class="eyebrow">比較</span>
+    <h2>上流の <code>graphify</code> との比較。</h2>
+    <p class="lead">gogfy は <a href="https://github.com/safishamsi/graphify">safishamsi/graphify</a> の Go 再実装で、構造的な拡張を加えています。Pure-Go の単一バイナリ、Python ランタイム不要、再現可能な出力。</p>
+    <table class="cmp">
+      <thead>
+        <tr><th>機能</th><th>graphify</th><th>gogfy</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>単一の静的バイナリ、Python 不要</td><td class="no">なし</td><td class="yes">あり</td></tr>
+        <tr><td><code>graph.json</code> のバイト単位再現性</td><td class="no">なし</td><td class="yes">あり</td></tr>
+        <tr><td><code>inherits</code> / <code>implements</code> / <code>embeds</code> エッジ</td><td class="yes">クラス言語のみ</td><td class="yes">13 言語</td></tr>
+        <tr><td><code>imports</code> のコーパス内モジュール解決</td><td class="yes"><code>uses</code> 経由</td><td class="yes">解決済み <code>imports</code></td></tr>
+        <tr><td>ドキュメント抽出(DOCX/XLSX/PPTX)</td><td class="no">限定的</td><td class="yes">あり、pure-Go</td></tr>
+        <tr><td>ハイパーエッジ(N項の意味的関係)</td><td class="no">なし</td><td class="yes">あり</td></tr>
+        <tr><td>音声/動画の文字起こしパイプライン</td><td class="no">なし</td><td class="yes">あり(Whisper)</td></tr>
+        <tr><td>LLM 事前コスト見積 + 上限</td><td class="no">なし</td><td class="yes">あり</td></tr>
+        <tr><td>MCP サーバー内蔵</td><td class="yes">あり</td><td class="yes">あり</td></tr>
+        <tr><td>マルチバックエンド LLM(Anthropic/OpenAI/Gemini/Bedrock/Kimi/Ollama)</td><td class="yes">あり</td><td class="yes">あり</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div>
+      gogfy &middot; <a href="https://github.com/julianshen/gogfy/releases/tag/v0.3.0">v0.3.0</a>
+    </div>
+    <div>
+      <a href="https://github.com/julianshen/gogfy">github.com/julianshen/gogfy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

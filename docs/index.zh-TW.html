@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gogfy — 把你的程式碼變成 AI 代理可以瀏覽的知識圖譜</title>
+<meta name="description" content="gogfy 是一個用 Go 撰寫的程式碼知識圖譜建構器。把你的程式碼(以及文件、PDF、網頁、YouTube 影片)轉成一張帶型別的圖,讓你的 AI 編碼代理透過 MCP 直接查詢。" />
+<meta name="theme-color" content="#0a0612" />
+<meta property="og:title" content="gogfy — 給 AI 代理使用的程式碼知識圖譜" />
+<meta property="og:description" content="純 Go、可複現結果的程式碼知識圖譜建構器。支援 28+ 種語言,內建 MCP 伺服器,可呈現型別繼承關係與跨套件相依。" />
+<meta property="og:type" content="website" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <div class="brand">gogfy<span class="dot">.</span></div>
+    <div class="nav-right">
+      <nav class="nav-links">
+        <a href="#what">功能</a>
+        <a href="#pipeline">流程</a>
+        <a href="#quickstart">快速開始</a>
+        <a href="#features">特色</a>
+        <a href="#perf">效能</a>
+        <a href="usage.zh-TW.html">使用說明</a>
+        <a href="https://github.com/julianshen/gogfy">GitHub</a>
+      </nav>
+      <div class="lang-switch" aria-label="語言">
+        <a href="index.html" hreflang="en">EN</a>
+        <a href="index.zh-TW.html" class="active">繁中</a>
+        <a href="index.ja.html" hreflang="ja">日本語</a>
+        <a href="index.es.html" hreflang="es">ES</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <h1>給 <span class="accent">AI 代理</span><br/>使用的程式碼知識圖譜。</h1>
+    <p class="tagline">
+      一個純 Go 寫成的靜態分析工具。把你的程式碼,連同文件、PDF、網頁、YouTube 影片,
+      全部變成一張帶型別的知識圖。函式呼叫、型別、繼承關係、import、相依、語意概念——所有訊號集中在同一個結構裡,
+      讓你的編碼代理在回答關於專案的問題之前,先讀懂這張圖。
+    </p>
+    <div class="hero-cta">
+      <a class="btn primary" href="https://github.com/julianshen/gogfy">前往 GitHub</a>
+      <a class="btn" href="https://github.com/julianshen/gogfy/releases">版本發布</a>
+      <a class="btn" href="usage.zh-TW.html">使用說明</a>
+    </div>
+    <div class="install" title="以 Go 安裝">
+      <span class="prompt">$</span>
+      <code>go install github.com/julianshen/gogfy/cmd/gogfy@latest</code>
+    </div>
+  </div>
+</section>
+
+<section id="what">
+  <div class="container">
+    <span class="eyebrow">功能</span>
+    <h2>一張圖,所有你的代理需要的訊號。</h2>
+    <p class="lead">
+      大多數代理在程式碼裡靠 grep 找東西。gogfy 一次把結構抽出來——函式呼叫、型別階層、套件相依、文件參照——再透過內建的 MCP 伺服器提供。
+      你的代理會「問」圖譜「哪些地方呼叫了這個?」,而不是去掃檔案。
+    </p>
+    <div class="features" style="margin-top: 1rem;">
+      <div class="feature">
+        <h3>28+ 種程式語言</h3>
+        <p>Go、Python、TS/JS、Java、C/C++、C#、Rust、Kotlin、Scala、Swift、Ruby、PHP、Dart、Lua、Haskell、OCaml、Elixir、Erlang、R、Julia、Zig、Fortran、Bash、Svelte 等等——全部走純 Go tree-sitter,不需要 Python、不需要 LLM。</p>
+      </div>
+      <div class="feature">
+        <h3>文件也算數</h3>
+        <p>Markdown、HTML、PDF、DOCX、PPTX、XLSX、RST、TOML、YAML——當成第一級的圖譜來源,而不是註解。跨格式的圖可以無縫合併。</p>
+      </div>
+      <div class="feature">
+        <h3>帶型別的邊</h3>
+        <p><code>calls</code>、<code>contains</code>、<code>imports</code>(會解析到專案內的模組)、<code>inherits</code>、<code>implements</code>、<code>embeds</code>、<code>references</code>,再加上語意抽取產出的 N 元 hyperedges。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pipeline">
+  <div class="container">
+    <span class="eyebrow">運作方式</span>
+    <h2>八階段流水線,任何一階段都可以單獨停在那裡。</h2>
+    <p class="lead">
+      每個階段都是純 Go、可複現、可獨立測試的。
+      除了 tree-sitter 以外不需要 cgo,不需要 Python,除非你加上 <code>--semantic</code> 才會用到 LLM。
+    </p>
+    <div class="pipeline">
+      <div class="pipe-stage"><span class="pipe-num">1</span><span class="pipe-name">Detect</span><div class="pipe-note">遍歷、分類、跳過機密</div></div>
+      <div class="pipe-stage"><span class="pipe-num">2</span><span class="pipe-name">Extract</span><div class="pipe-note">tree-sitter AST → 節點</div></div>
+      <div class="pipe-stage"><span class="pipe-num">3</span><span class="pipe-name">Resolve</span><div class="pipe-note">calls、methods、繼承、imports</div></div>
+      <div class="pipe-stage"><span class="pipe-num">4</span><span class="pipe-name">Dedup</span><div class="pipe-note">精確 + 模糊 + LLM 仲裁</div></div>
+      <div class="pipe-stage"><span class="pipe-num">5</span><span class="pipe-name">Cluster</span><div class="pipe-note">可複現的 Louvain</div></div>
+      <div class="pipe-stage"><span class="pipe-num">6</span><span class="pipe-name">Analyze</span><div class="pipe-note">god nodes、意外連結、橋接點</div></div>
+      <div class="pipe-stage"><span class="pipe-num">7</span><span class="pipe-name">Report</span><div class="pipe-note">GRAPH_REPORT.md</div></div>
+      <div class="pipe-stage"><span class="pipe-num">8</span><span class="pipe-name">Export</span><div class="pipe-note">JSON / HTML / GraphML / Cypher / SVG</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="container">
+    <span class="eyebrow">快速開始</span>
+    <h2>三個指令,你的代理就能讀圖了。</h2>
+<pre><span class="c"># 1. 安裝</span>
+<span class="k">$</span> go install github.com/julianshen/gogfy/cmd/gogfy@latest
+
+<span class="c"># 2. 對目前的專案建圖</span>
+<span class="k">$</span> gogfy run .
+<span class="c">#   graphify-out/
+#   ├── graph.html       任意瀏覽器都能打開
+#   ├── GRAPH_REPORT.md  god nodes、意外連結、建議問題
+#   └── graph.json       完整圖譜</span>
+
+<span class="c"># 3. 串接你的 AI 代理(支援 19 種平台)</span>
+<span class="k">$</span> gogfy claude install
+<span class="c">#   安裝 MCP 伺服器、寫入 CLAUDE.md 片段、
+#   設定 post-commit 鉤子自動重建。
+#   其他目標:cursor、codex、vscode、gemini、aider、……</span></pre>
+    <p>從現在起,你的代理會透過呼叫圖譜——<code>gogfy_god_nodes</code>、<code>gogfy_traverse</code>、<code>gogfy_path</code>、<code>gogfy_get_neighbors</code>、<code>gogfy_explain</code>——來回答關於專案的問題,不再 grep 檔案。</p>
+  </div>
+</section>
+
+<section id="features">
+  <div class="container">
+    <span class="eyebrow">特色</span>
+    <h2>為真實的程式碼庫而生。</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>型別階層</h3>
+        <p>跨套件解析 <code>inherits</code> / <code>implements</code> / <code>embeds</code> 邊,支援 Python、Java、TS、C#、Kotlin、Scala、Swift、Dart、Ruby、PHP、Rust、Go(struct 嵌入)。</p>
+      </div>
+      <div class="feature">
+        <h3>跨套件相依</h3>
+        <p>本地 import 會被解析到實際引用的模組——產出真實的跨檔案相依邊,而不是停在 import stub。外部 import 仍保留為「看到這個 import」的觀察事實。</p>
+      </div>
+      <div class="feature">
+        <h3>預設可複現</h3>
+        <p>同一份程式碼跑兩次,<code>graph.json</code> 逐位元組相同。有端對端回歸測試守著。<code>--update</code> / graphdiff / 快照穩定性都依賴這個保證。</p>
+      </div>
+      <div class="feature">
+        <h3>內建 MCP 伺服器</h3>
+        <p><code>gogfy serve</code> 把圖譜以 MCP 工具的形式對外提供。19 種代理平台——Claude Code、Cursor、Codex、Gemini CLI、Copilot CLI、Aider……——不需要自己寫 glue 就可以讀取。</p>
+      </div>
+      <div class="feature">
+        <h3>可選的語意增強</h3>
+        <p>加上 <code>--semantic</code> 啟用 LLM 抽取:從文件與圖片中產出實體與 N 元 hyperedges。後端:Anthropic、OpenAI、Gemini、Bedrock、Kimi、Ollama。提供事前的成本估算、<code>--dry-run</code> 與預算上限。</p>
+      </div>
+      <div class="feature">
+        <h3>增量 & 快取</h3>
+        <p><code>--update</code> 透過內容雜湊快取,只重建有變更的檔案。語意結果快取在 <code>.gographify-cache/</code> 之下。<code>--watch</code> 可做持續重建。</p>
+      </div>
+      <div class="feature">
+        <h3>多種輸出格式</h3>
+        <p>JSON(帶版本的 schema)、互動式 HTML、Markdown 報告、給 Gephi/yEd 的 GraphML、給 Neo4j 的 Cypher(或直接以 Bolt 推送)、SVG、可部署的靜態文件站(<code>gogfy site</code>)。</p>
+      </div>
+      <div class="feature">
+        <h3>不只是檔案系統</h3>
+        <p>URL ingest,搭配 SSRF 安全的 fetch、readability 風格的 HTML 萃取、OpenGraph metadata、GitHub URL 重寫、arXiv PDF 路由、YouTube oembed + 純 Go 的影片音訊抽取(供 transcribe 流程)。</p>
+      </div>
+      <div class="feature">
+        <h3>強化內建</h3>
+        <p>在 walk 層偵測機密檔名、AddNode 入口統一清洗 Label/SourceFile、SSRF 防護、PDF/OOXML 讀取的 panic-tolerant 保護。失敗會降級並回報,不會無聲消失。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="perf">
+  <div class="container">
+    <span class="eyebrow">效能</span>
+    <h2>v0.3.0 端對端快了約 4 倍。</h2>
+    <p class="lead">
+      在真實的 220 個 Go 檔案語料(3,885 個節點、14,869 條邊)上測得。
+      Profiling 發現成本不在直覺上的位置——大幅提升來自於 int 索引化加上並行的 Brandes 演算法,以及把 dedup 的 <code>O(n²)</code> 模糊掃描中的不變量提到迴圈外。
+    </p>
+    <div class="numbers">
+      <div class="number"><span class="big">~5 秒</span><span class="label">完整執行時間</span></div>
+      <div class="number"><span class="big">215×</span><span class="label">betweenness 加速</span></div>
+      <div class="number"><span class="big">1227</span><span class="label">測試通過</span></div>
+      <div class="number"><span class="big">0</span><span class="label">執行時非決定性</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="vs">
+  <div class="container">
+    <span class="eyebrow">比較</span>
+    <h2>對比上游 <code>graphify</code>。</h2>
+    <p class="lead">gogfy 是 <a href="https://github.com/safishamsi/graphify">safishamsi/graphify</a> 的 Go 重新實作,並加上結構面的擴充。純 Go 單一執行檔;不需要 Python;輸出可複現。</p>
+    <table class="cmp">
+      <thead>
+        <tr><th>功能</th><th>graphify</th><th>gogfy</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>單一靜態執行檔,不需要 Python</td><td class="no">沒有</td><td class="yes">有</td></tr>
+        <tr><td><code>graph.json</code> 逐位元組可複現</td><td class="no">沒有</td><td class="yes">有</td></tr>
+        <tr><td><code>inherits</code> / <code>implements</code> / <code>embeds</code> 邊</td><td class="yes">有(類別語言)</td><td class="yes">13 種語言</td></tr>
+        <tr><td><code>imports</code> 解析到專案內模組</td><td class="yes">透過 <code>uses</code> 邊</td><td class="yes">透過解析後的 <code>imports</code></td></tr>
+        <tr><td>文件抽取(DOCX/XLSX/PPTX)</td><td class="no">有限</td><td class="yes">有,純 Go</td></tr>
+        <tr><td>Hyperedges(N 元語意關係)</td><td class="no">沒有</td><td class="yes">有</td></tr>
+        <tr><td>音訊/影片轉錄流程</td><td class="no">沒有</td><td class="yes">有(Whisper)</td></tr>
+        <tr><td>LLM 事前成本估算 + 上限</td><td class="no">沒有</td><td class="yes">有</td></tr>
+        <tr><td>內建 MCP 伺服器</td><td class="yes">有</td><td class="yes">有</td></tr>
+        <tr><td>多種 LLM 後端(Anthropic/OpenAI/Gemini/Bedrock/Kimi/Ollama)</td><td class="yes">有</td><td class="yes">有</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div>
+      gogfy &middot; <a href="https://github.com/julianshen/gogfy/releases/tag/v0.3.0">v0.3.0</a>
+    </div>
+    <div>
+      <a href="https://github.com/julianshen/gogfy">github.com/julianshen/gogfy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

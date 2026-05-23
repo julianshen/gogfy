@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gogfy — convierte tu código en un grafo de conocimiento que tu IA puede navegar</title>
+<meta name="description" content="gogfy es un constructor de grafos de conocimiento de código nativo en Go. Convierte cualquier base de código —junto con sus docs, PDFs, páginas web y vídeos de YouTube— en un grafo tipado que tu agente de IA puede consultar vía MCP." />
+<meta name="theme-color" content="#0a0612" />
+<meta property="og:title" content="gogfy — grafos de conocimiento de código para agentes de IA" />
+<meta property="og:description" content="Constructor de grafos de conocimiento de código en Go puro y determinista. 28+ lenguajes. Jerarquía de tipos + dependencias entre paquetes. Servidor MCP integrado." />
+<meta property="og:type" content="website" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <div class="brand">gogfy<span class="dot">.</span></div>
+    <div class="nav-right">
+      <nav class="nav-links">
+        <a href="#what">Qué hace</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#quickstart">Inicio rápido</a>
+        <a href="#features">Características</a>
+        <a href="#perf">Rendimiento</a>
+        <a href="usage.es.html">Uso</a>
+        <a href="https://github.com/julianshen/gogfy">GitHub</a>
+      </nav>
+      <div class="lang-switch" aria-label="Idioma">
+        <a href="index.html" hreflang="en">EN</a>
+        <a href="index.zh-TW.html" hreflang="zh-Hant">繁中</a>
+        <a href="index.ja.html" hreflang="ja">日本語</a>
+        <a href="index.es.html" class="active">ES</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <h1>Grafos de conocimiento<br/>que tu <span class="accent">agente de IA</span> puede navegar.</h1>
+    <p class="tagline">
+      Un analizador estático nativo en Go que convierte cualquier base de código —junto con sus documentos, PDFs, páginas web y vídeos de YouTube— en un grafo de conocimiento tipado.
+      Llamadas, tipos, herencia, imports, dependencias, conceptos semánticos: todas las señales en una sola estructura navegable que tu agente lee <em>antes</em> de responder preguntas sobre tu repo.
+    </p>
+    <div class="hero-cta">
+      <a class="btn primary" href="https://github.com/julianshen/gogfy">Ver en GitHub</a>
+      <a class="btn" href="https://github.com/julianshen/gogfy/releases">Versiones</a>
+      <a class="btn" href="usage.es.html">Documentación</a>
+    </div>
+    <div class="install" title="Instalar con Go">
+      <span class="prompt">$</span>
+      <code>go install github.com/julianshen/gogfy/cmd/gogfy@latest</code>
+    </div>
+  </div>
+</section>
+
+<section id="what">
+  <div class="container">
+    <span class="eyebrow">Qué hace</span>
+    <h2>Un grafo. Todas las señales que tu agente necesita.</h2>
+    <p class="lead">
+      La mayoría de agentes se las arreglan con <code>grep</code> sobre el repo. gogfy extrae la estructura una vez —llamadas, jerarquías de tipos, dependencias entre paquetes, referencias en docs— y la sirve a través de un servidor MCP integrado.
+      Tu agente le pregunta al grafo "¿quién llama a esto?" en lugar de escanear archivos.
+    </p>
+    <div class="features" style="margin-top: 1rem;">
+      <div class="feature">
+        <h3>28+ lenguajes</h3>
+        <p>Go, Python, TS/JS, Java, C/C++, C#, Rust, Kotlin, Scala, Swift, Ruby, PHP, Dart, Lua, Haskell, OCaml, Elixir, Erlang, R, Julia, Zig, Fortran, Bash, Svelte y más — todo vía tree-sitter en Go puro, sin Python ni LLM requeridos.</p>
+      </div>
+      <div class="feature">
+        <h3>Los documentos también</h3>
+        <p>Markdown, HTML, PDF, DOCX, PPTX, XLSX, RST, TOML, YAML — tratados como fuentes de primer nivel del grafo, no como comentarios. Los grafos multi-formato se componen sin fricción.</p>
+      </div>
+      <div class="feature">
+        <h3>Aristas tipadas</h3>
+        <p><code>calls</code>, <code>contains</code>, <code>imports</code> (resuelto a módulos del corpus), <code>inherits</code>, <code>implements</code>, <code>embeds</code>, <code>references</code>, más hyperaristas N-arias provenientes de la extracción semántica.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pipeline">
+  <div class="container">
+    <span class="eyebrow">Cómo funciona</span>
+    <h2>Un pipeline de ocho etapas en el que puedes detenerte en cualquier punto.</h2>
+    <p class="lead">
+      Cada etapa es Go puro, determinista y testeable de forma independiente.
+      Sin cgo (fuera de tree-sitter), sin Python, sin LLM a menos que actives <code>--semantic</code>.
+    </p>
+    <div class="pipeline">
+      <div class="pipe-stage"><span class="pipe-num">1</span><span class="pipe-name">Detect</span><div class="pipe-note">recorrer, clasificar, omitir secretos</div></div>
+      <div class="pipe-stage"><span class="pipe-num">2</span><span class="pipe-name">Extract</span><div class="pipe-note">AST tree-sitter → nodos</div></div>
+      <div class="pipe-stage"><span class="pipe-num">3</span><span class="pipe-name">Resolve</span><div class="pipe-note">calls, methods, herencia, imports</div></div>
+      <div class="pipe-stage"><span class="pipe-num">4</span><span class="pipe-name">Dedup</span><div class="pipe-note">exacto + difuso + arbitraje LLM</div></div>
+      <div class="pipe-stage"><span class="pipe-num">5</span><span class="pipe-name">Cluster</span><div class="pipe-note">Louvain determinista</div></div>
+      <div class="pipe-stage"><span class="pipe-num">6</span><span class="pipe-name">Analyze</span><div class="pipe-note">god nodes, conexiones sorprendentes, puentes</div></div>
+      <div class="pipe-stage"><span class="pipe-num">7</span><span class="pipe-name">Report</span><div class="pipe-note">GRAPH_REPORT.md</div></div>
+      <div class="pipe-stage"><span class="pipe-num">8</span><span class="pipe-name">Export</span><div class="pipe-note">JSON / HTML / GraphML / Cypher / SVG</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="container">
+    <span class="eyebrow">Inicio rápido</span>
+    <h2>Tres comandos, y tu agente lee el grafo.</h2>
+<pre><span class="c"># 1. instalar</span>
+<span class="k">$</span> go install github.com/julianshen/gogfy/cmd/gogfy@latest
+
+<span class="c"># 2. construir el grafo para el repo actual</span>
+<span class="k">$</span> gogfy run .
+<span class="c">#   graphify-out/
+#   ├── graph.html        abre en cualquier navegador
+#   ├── GRAPH_REPORT.md   god nodes, conexiones sorprendentes, preguntas sugeridas
+#   └── graph.json        el grafo completo</span>
+
+<span class="c"># 3. conectar tu agente de IA (19 plataformas soportadas)</span>
+<span class="k">$</span> gogfy claude install
+<span class="c">#   instala el servidor MCP, agrega un fragmento a CLAUDE.md,
+#   configura un hook post-commit que reconstruye automáticamente.
+#   Otros destinos: cursor, codex, vscode, gemini, aider, ...</span></pre>
+    <p>Ahora tu agente responde preguntas sobre el repo consultando el grafo — <code>gogfy_god_nodes</code>, <code>gogfy_traverse</code>, <code>gogfy_path</code>, <code>gogfy_get_neighbors</code>, <code>gogfy_explain</code> — en lugar de hacer grep.</p>
+  </div>
+</section>
+
+<section id="features">
+  <div class="container">
+    <span class="eyebrow">Características</span>
+    <h2>Pensado para bases de código reales.</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>Jerarquía de tipos</h3>
+        <p><code>inherits</code> / <code>implements</code> / <code>embeds</code> resueltos entre paquetes para Python, Java, TS, C#, Kotlin, Scala, Swift, Dart, Ruby, PHP, Rust, Go (struct embedding).</p>
+      </div>
+      <div class="feature">
+        <h3>Dependencias entre paquetes</h3>
+        <p>Los imports locales se resuelven a los módulos que realmente nombran — aristas reales de dependencia en lugar de stubs sin destino. Los imports externos permanecen como hechos observados.</p>
+      </div>
+      <div class="feature">
+        <h3>Determinista por defecto</h3>
+        <p><code>graph.json</code> es idéntico byte a byte entre ejecuciones sobre el mismo corpus. Protegido por un test de regresión e2e. Necesario para <code>--update</code> / graphdiff y la estabilidad de snapshots.</p>
+      </div>
+      <div class="feature">
+        <h3>Servidor MCP integrado</h3>
+        <p><code>gogfy serve</code> expone el grafo como herramientas MCP. 19 plataformas de agentes soportadas — Claude Code, Cursor, Codex, Gemini CLI, Copilot CLI, Aider y más — pueden leerlo sin pegamento a medida.</p>
+      </div>
+      <div class="feature">
+        <h3>Enriquecimiento semántico opcional</h3>
+        <p>Activa <code>--semantic</code>: entidades e hyperaristas N-arias extraídas de tus docs e imágenes. Backends: Anthropic, OpenAI, Gemini, Bedrock, Kimi, Ollama. Estimación de coste previa + <code>--dry-run</code> + tope de presupuesto.</p>
+      </div>
+      <div class="feature">
+        <h3>Incremental y cacheado</h3>
+        <p><code>--update</code> reconstruye sólo los archivos modificados vía caché de hash de contenido. Los resultados semánticos se cachean en <code>.gographify-cache/</code>. <code>--watch</code> para reconstrucción continua.</p>
+      </div>
+      <div class="feature">
+        <h3>Múltiples formatos de exportación</h3>
+        <p>JSON (esquema versionado), HTML interactivo, reporte Markdown, GraphML para Gephi/yEd, Cypher para Neo4j (o push directo por Bolt), SVG, sitio estático desplegable (<code>gogfy site</code>).</p>
+      </div>
+      <div class="feature">
+        <h3>Más allá del sistema de archivos</h3>
+        <p>Ingesta de URL con fetch seguro contra SSRF, extracción HTML al estilo readability, metadatos OpenGraph, reescritura de URLs de GitHub, ruteo de PDFs de arXiv, oembed de YouTube + extracción de audio en Go puro para transcripción.</p>
+      </div>
+      <div class="feature">
+        <h3>Endurecimiento integrado</h3>
+        <p>Patrones de archivos sensibles a nivel de walk, saneamiento central de Label/SourceFile en <code>AddNode</code>, guardas SSRF, lectores tolerantes a panic en PDF/OOXML. Los fallos degradan con diagnósticos, no en silencio.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="perf">
+  <div class="container">
+    <span class="eyebrow">Rendimiento</span>
+    <h2>~4× más rápido de punta a punta en v0.3.0.</h2>
+    <p class="lead">
+      Medido sobre un corpus real de 220 archivos Go (3.885 nodos, 14.869 aristas).
+      El profiling reveló que los costes no estaban donde la intuición decía — las mejoras vinieron de un Brandes paralelo con índices enteros y de levantar invariantes fuera del bucle <code>O(n²)</code> del dedup difuso.
+    </p>
+    <div class="numbers">
+      <div class="number"><span class="big">~5s</span><span class="label">ejecución completa</span></div>
+      <div class="number"><span class="big">215×</span><span class="label">aceleración de betweenness</span></div>
+      <div class="number"><span class="big">1227</span><span class="label">tests pasan</span></div>
+      <div class="number"><span class="big">0</span><span class="label">indeterminismo en runtime</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="vs">
+  <div class="container">
+    <span class="eyebrow">Comparación</span>
+    <h2>vs <code>graphify</code> upstream.</h2>
+    <p class="lead">gogfy es una reimplementación en Go de <a href="https://github.com/safishamsi/graphify">safishamsi/graphify</a> con extensiones estructurales. Binario único en Go puro; sin runtime de Python; salida reproducible.</p>
+    <table class="cmp">
+      <thead>
+        <tr><th>Capacidad</th><th>graphify</th><th>gogfy</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Binario estático único, sin Python</td><td class="no">no</td><td class="yes">sí</td></tr>
+        <tr><td><code>graph.json</code> reproducible byte a byte</td><td class="no">no</td><td class="yes">sí</td></tr>
+        <tr><td>Aristas <code>inherits</code> / <code>implements</code> / <code>embeds</code></td><td class="yes">sí (lenguajes de clases)</td><td class="yes">13 lenguajes</td></tr>
+        <tr><td><code>imports</code> resueltos a módulos del corpus</td><td class="yes">vía arista <code>uses</code></td><td class="yes">vía <code>imports</code> resuelto</td></tr>
+        <tr><td>Extractores de documentos (DOCX/XLSX/PPTX)</td><td class="no">limitado</td><td class="yes">sí, en Go puro</td></tr>
+        <tr><td>Hyperaristas (relaciones semánticas N-arias)</td><td class="no">no</td><td class="yes">sí</td></tr>
+        <tr><td>Pipeline de transcripción de audio/vídeo</td><td class="no">no</td><td class="yes">sí (Whisper)</td></tr>
+        <tr><td>Estimación previa de coste LLM + tope</td><td class="no">no</td><td class="yes">sí</td></tr>
+        <tr><td>Servidor MCP integrado</td><td class="yes">sí</td><td class="yes">sí</td></tr>
+        <tr><td>Multi-backend LLM (Anthropic/OpenAI/Gemini/Bedrock/Kimi/Ollama)</td><td class="yes">sí</td><td class="yes">sí</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div>
+      gogfy &middot; <a href="https://github.com/julianshen/gogfy/releases/tag/v0.3.0">v0.3.0</a>
+    </div>
+    <div>
+      <a href="https://github.com/julianshen/gogfy">github.com/julianshen/gogfy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
