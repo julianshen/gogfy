@@ -2,7 +2,7 @@ package extract
 
 import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_elixir "github.com/tree-sitter/tree-sitter-elixir/bindings/go"
+	tree_sitter_elixir "github.com/julianshen/tree-sitter-elixir/bindings/go"
 )
 
 // ElixirExtractor extracts module/function nodes plus alias/import/require/
