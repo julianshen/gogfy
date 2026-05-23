@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gogfy — 使用說明</title>
+<meta name="description" content="gogfy 的完整使用說明:每一個子指令、旗標、MCP 工具、代理平台整合與設定檔。" />
+<meta name="theme-color" content="#0a0612" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="nav">
+  <div class="container">
+    <a href="index.zh-TW.html" class="brand" style="color: var(--fg); text-decoration: none;">gogfy<span class="dot">.</span></a>
+    <div class="nav-right">
+      <nav class="nav-links">
+        <a href="index.zh-TW.html#what">功能</a>
+        <a href="index.zh-TW.html#pipeline">流程</a>
+        <a href="index.zh-TW.html#features">特色</a>
+        <a href="usage.zh-TW.html" style="color: var(--fg);">使用說明</a>
+        <a href="https://github.com/julianshen/gogfy">GitHub</a>
+      </nav>
+      <div class="lang-switch" aria-label="語言">
+        <a href="usage.html" hreflang="en">EN</a>
+        <a href="usage.zh-TW.html" class="active">繁中</a>
+        <a href="usage.ja.html" hreflang="ja">日本語</a>
+        <a href="usage.es.html" hreflang="es">ES</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="docs">
+
+  <aside class="toc">
+    <h4>開始使用</h4>
+    <a href="#install">安裝</a>
+    <a href="#quick-start">快速開始</a>
+    <a href="#run"><code>run</code> 指令</a>
+
+    <h4>子指令參考</h4>
+    <a href="#build">建立 / 探索</a>
+    <a href="#artifacts">產出物</a>
+    <a href="#ci">CI 整合</a>
+    <a href="#global">全域圖譜</a>
+
+    <h4>代理整合</h4>
+    <a href="#agents">代理平台</a>
+    <a href="#agent-files">寫入的檔案</a>
+    <a href="#hooks">Git hooks</a>
+    <a href="#serve">MCP 伺服器</a>
+
+    <h4>能力</h4>
+    <a href="#mcp-tools">MCP 工具</a>
+    <a href="#semantic">語意抽取(LLM)</a>
+    <a href="#ingest">URL ingestion</a>
+    <a href="#languages">支援語言</a>
+
+    <h4>運維</h4>
+    <a href="#cache">快取</a>
+    <a href="#config-files">設定檔</a>
+    <a href="#determinism">可複現性</a>
+  </aside>
+
+  <main class="docs-content">
+    <h1>使用說明</h1>
+    <p class="subtitle">所有子指令、旗標與整合點。本頁針對 <code>v0.3.0</code>。</p>
+
+    <section id="install" class="docs-section">
+      <h2>安裝</h2>
+      <p>純 Go 單一執行檔。<code>go install</code> 需要 Go 1.22+。</p>
+<pre><span class="c"># 最新版本</span>
+<span class="k">$</span> go install github.com/julianshen/gogfy/cmd/gogfy@latest
+
+<span class="c"># 或指定版本</span>
+<span class="k">$</span> go install github.com/julianshen/gogfy/cmd/gogfy@v0.3.0
+
+<span class="c"># 從原始碼建置</span>
+<span class="k">$</span> git clone https://github.com/julianshen/gogfy &amp;&amp; cd gogfy
+<span class="k">$</span> go build -o gogfy ./cmd/gogfy</pre>
+    </section>
+
+    <section id="quick-start" class="docs-section">
+      <h2>快速開始</h2>
+<pre><span class="c"># 在目前的 repo 建圖</span>
+<span class="k">$</span> gogfy run .
+<span class="c"># → graphify-out/
+#     graph.html        瀏覽器打開即可
+#     graph.json        完整圖譜(資料的根據)
+#     GRAPH_REPORT.md   god nodes、橋接點、意外連結、建議問題
+#     wiki/             每個社群一個 Markdown 頁面</span>
+
+<span class="c"># 串接你的 AI 代理(Claude Code、Cursor、Codex,等等)</span>
+<span class="k">$</span> gogfy claude install
+
+<span class="c"># 後續重建是增量的</span>
+<span class="k">$</span> gogfy run . --update</pre>
+    </section>
+
+    <section id="run" class="docs-section">
+      <h2><code>run</code> 指令</h2>
+      <p>主要流水線:detect &rarr; extract &rarr; resolve &rarr; dedup &rarr; cluster &rarr; analyze &rarr; report &rarr; export。</p>
+<pre><span class="k">$</span> gogfy run &lt;root&gt; [flags]</pre>
+      <div class="flags"><table>
+        <tr><td>--out &lt;dir&gt;</td><td>輸出目錄(預設 <code>./graphify-out/</code>)。</td></tr>
+        <tr><td>--update</td><td>增量模式:跳過內容雜湊與上次快取相同的檔案。</td></tr>
+        <tr><td>--cluster-only</td><td>不重新抽取,只重新分群目前 <code>--out</code> 下的 <code>graph.json</code>。微調社群偵測時很方便。</td></tr>
+        <tr><td>--directed</td><td>在 <code>graph.html</code> 上畫箭頭。</td></tr>
+        <tr><td>--no-viz</td><td>不產出 <code>graph.html</code>(更快、輸出更小)。</td></tr>
+        <tr><td>--graphml</td><td>另外產出 <code>graph.graphml</code>(可用於 Gephi / yEd)。</td></tr>
+        <tr><td>--cypher</td><td>另外產出 <code>graph.cypher</code>(Neo4j 的 MERGE 語法)。</td></tr>
+        <tr><td>--wiki</td><td>另外產出 <code>wiki/</code>——每個社群一個 Markdown 頁。</td></tr>
+        <tr><td>--tree</td><td>另外產出 <code>tree.html</code>——D3 可摺疊的檔案樹。</td></tr>
+        <tr><td>--follow-symlinks</td><td>跟著 root 內的 symlink 目錄遞迴(會記錄已解析路徑避免循環)。</td></tr>
+        <tr><td>--no-dedup</td><td>不做實體去重(更快;可能殘留重複節點)。</td></tr>
+        <tr><td>--semantic --backend &lt;name&gt;</td><td>啟用 LLM 後端的語意抽取。詳見<a href="#semantic">語意</a>一節。</td></tr>
+        <tr><td>--dry-run</td><td>搭配 <code>--semantic</code>,印出事前的 token / 成本估算後直接退出,不發出 LLM 呼叫。</td></tr>
+        <tr><td>--max-cost-usd &lt;N&gt;</td><td>事前估算若超過這個上限就終止整個 run。</td></tr>
+        <tr><td>--transcribe-backend &lt;name&gt;</td><td>啟用音訊/影片轉錄流程(需要 <code>--semantic</code>)。</td></tr>
+      </table></div>
+    </section>
+
+    <section id="build" class="docs-section">
+      <h2>子指令參考 &mdash; 建立 / 探索</h2>
+
+      <article class="cmd" id="watch">
+        <h3>gogfy watch &lt;root&gt;</h3>
+        <p class="summary">用 fsnotify 監看檔案變動並持續重建。會印出啟動狀態與每次重建耗時。</p>
+<pre><span class="k">$</span> gogfy watch . [--out dir] [--directed]</pre>
+      </article>
+
+      <article class="cmd" id="clone">
+        <h3>gogfy clone &lt;git-url&gt;</h3>
+        <p class="summary">純 Go 的 git clone,接著自動跑一次流水線。<code>--no-run</code> 只 clone。</p>
+<pre><span class="k">$</span> gogfy clone https://github.com/foo/bar [--dir D] [--branch B] [--out dir] [--no-run]</pre>
+      </article>
+
+      <article class="cmd" id="validate">
+        <h3>gogfy validate &lt;graph.json&gt;</h3>
+        <p class="summary">檢查 schema——驗證節點/邊的約束、確認沒有 dangling edge、檢查 language-ID 格式。</p>
+      </article>
+
+      <article class="cmd" id="report">
+        <h3>gogfy report &lt;graph.json&gt;</h3>
+        <p class="summary">從現有圖譜在 stdout 印出 <code>GRAPH_REPORT.md</code>。</p>
+      </article>
+
+      <article class="cmd" id="path">
+        <h3>gogfy path &lt;source&gt; &lt;target&gt;</h3>
+        <p class="summary">兩個節點 ID 之間最短連通路徑。</p>
+<pre><span class="k">$</span> gogfy path go:function:/api.go:Handler go:type:/db.go:DB [--graph graph.json]</pre>
+      </article>
+
+      <article class="cmd" id="diff">
+        <h3>gogfy diff &lt;old.json&gt; &lt;new.json&gt;</h3>
+        <p class="summary">兩個圖譜快照的結構差異——新增/移除的節點與邊、信心度變化。</p>
+      </article>
+
+      <article class="cmd" id="manifest">
+        <h3>gogfy manifest &lt;root&gt;</h3>
+        <p class="summary">所有原始碼檔案的 mtime + SHA 快照。<code>--diff</code> 會印出與上次快照之間的變更檔案清單。增量流程會用到。</p>
+<pre><span class="k">$</span> gogfy manifest . [--out dir] [--diff] [--follow-symlinks]</pre>
+      </article>
+
+      <article class="cmd" id="merge-graphs">
+        <h3>gogfy merge-graphs &lt;a.json&gt; &lt;b.json&gt; ...</h3>
+        <p class="summary">把多張圖併成一張(每個 repo 一張 → 組織級的圖)。輸出位置以 <code>--out</code> 指定。</p>
+      </article>
+
+      <article class="cmd" id="build-merge">
+        <h3>gogfy build-merge &lt;prior.json&gt; &lt;next.json&gt;</h3>
+        <p class="summary">增量合併並修剪被刪檔案的節點——保留 <code>prior</code> 中沒變動的檔案節點,用 <code>next</code> 取代有變動的檔案節點,丟掉已刪除檔案的節點。</p>
+<pre><span class="k">$</span> gogfy build-merge prior.json next.json [--files list.txt] [--out merged.json]</pre>
+      </article>
+
+      <article class="cmd" id="benchmark">
+        <h3>gogfy benchmark &lt;graph.json&gt;</h3>
+        <p class="summary">token 節省量測:代理讀完整原始碼會吃多少 token,改讀圖譜又少多少。</p>
+<pre><span class="k">$</span> gogfy benchmark graph.json [--corpus-words N] [--depth D] [--json]</pre>
+      </article>
+    </section>
+
+    <section id="artifacts" class="docs-section">
+      <h2>從現有圖譜產出周邊產物</h2>
+
+      <article class="cmd" id="wiki">
+        <h3>gogfy wiki &lt;graph.json&gt;</h3>
+        <p class="summary">可被代理爬讀的每個社群一個 Markdown 頁、附交叉連結。索引頁在 <code>wiki/README.md</code>。</p>
+      </article>
+
+      <article class="cmd" id="site">
+        <h3>gogfy site &lt;graph.json&gt;</h3>
+        <p class="summary">自帶搜尋的純靜態 HTML 站,適合丟到 GitHub Pages。可透過 <code>--wiki-dir</code> 重用既有的 <code>wiki/</code>。</p>
+      </article>
+
+      <article class="cmd" id="tree">
+        <h3>gogfy tree &lt;graph.json&gt;</h3>
+        <p class="summary">D3 可摺疊檔案樹的 HTML 視圖。</p>
+      </article>
+
+      <article class="cmd" id="callflow">
+        <h3>gogfy callflow &lt;graph.json&gt;</h3>
+        <p class="summary">帶有標籤與 Key Insights 段落的 Mermaid 架構圖。</p>
+<pre><span class="k">$</span> gogfy callflow graph.json [--max-sections N] [--max-nodes M] [--max-edges E] [--project NAME]</pre>
+      </article>
+
+      <article class="cmd" id="obsidian">
+        <h3>gogfy obsidian &lt;graph.json&gt;</h3>
+        <p class="summary">Obsidian vault:每個節點一個 Markdown 檔、邊用 <code>[[wikilinks]]</code> 表達、加上社群總覽。</p>
+      </article>
+
+      <article class="cmd" id="svg">
+        <h3>gogfy svg &lt;graph.json&gt;</h3>
+        <p class="summary">靜態力導向 SVG(不需要 JS)——可嵌進文件、部落格、任何地方。</p>
+<pre><span class="k">$</span> gogfy svg graph.json [--out path.svg] [--labels] [--width N] [--height N] [--iterations N]</pre>
+      </article>
+
+      <article class="cmd" id="labels">
+        <h3>gogfy labels &lt;graph.json&gt;</h3>
+        <p class="summary">為每個社群產生或編輯人類可讀的標籤。<code>--force</code> 會覆寫既有的。</p>
+      </article>
+
+      <article class="cmd" id="neo4j-push">
+        <h3>gogfy neo4j-push &lt;graph.json&gt;</h3>
+        <p class="summary">透過 Bolt 直接把 graph.json 推進 Neo4j——可取代產出 <code>graph.cypher</code> 再執行的兩步流程。</p>
+<pre><span class="k">$</span> gogfy neo4j-push graph.json --uri neo4j://localhost:7687 --user U --password P [--database D]</pre>
+      </article>
+    </section>
+
+    <section id="ci" class="docs-section">
+      <h2>CI 整合</h2>
+      <p>當圖譜的回歸超過門檻時讓 PR build 失敗。Markdown 摘要會印到 stdout(可以 pipe 給 <code>gh pr comment</code>);超過門檻會以非 0 結束。</p>
+<pre><span class="k">$</span> gogfy ci base.json head.json \
+    --max-removed-nodes 0 \
+    --max-removed-edges 10 \
+    --max-new-ambiguous 5</pre>
+      <div class="flags"><table>
+        <tr><td>--max-removed-nodes &lt;N&gt;</td><td>消失的節點超過 N 個就失敗。</td></tr>
+        <tr><td>--max-removed-edges &lt;N&gt;</td><td>消失的邊超過 N 條就失敗。</td></tr>
+        <tr><td>--max-new-ambiguous &lt;N&gt;</td><td>新增的 AMBIGUOUS 邊超過 N 條就失敗。</td></tr>
+      </table></div>
+    </section>
+
+    <section id="global" class="docs-section">
+      <h2>全域圖譜(多 repo)</h2>
+      <p>放在 home 目錄下的共享圖譜倉,可跨 repo 查詢。</p>
+<pre><span class="k">$</span> gogfy global add graphify-out/graph.json --as myrepo
+<span class="k">$</span> gogfy global list
+<span class="k">$</span> gogfy global path &lt;source&gt; &lt;target&gt;        <span class="c"># 跨 repo 連通性</span>
+<span class="k">$</span> gogfy global remove myrepo
+<span class="k">$</span> gogfy global path                            <span class="c"># 顯示倉的路徑</span></pre>
+    </section>
+
+    <section id="agents" class="docs-section">
+      <h2>代理平台</h2>
+      <p>支援 19 種代理平台。combo 安裝會一次幫你接上 MCP 伺服器 + 文件片段 + post-commit 鉤子:</p>
+<pre><span class="k">$</span> gogfy &lt;platform&gt; install
+<span class="k">$</span> gogfy &lt;platform&gt; uninstall            <span class="c"># 加 --purge 同時移除片段與鉤子</span>
+
+<span class="c"># 也可以分步</span>
+<span class="k">$</span> gogfy install --platform &lt;platform&gt;         <span class="c"># 只接 MCP 設定</span>
+<span class="k">$</span> gogfy install-instructions --file CLAUDE.md <span class="c"># 只插入文件片段</span>
+<span class="k">$</span> gogfy hook install                          <span class="c"># post-commit + post-checkout 鉤子</span></pre>
+      <p style="margin-top: 1rem;">可用平台:
+        <code>claude</code> &middot; <code>codex</code> &middot; <code>cursor</code> &middot; <code>vscode</code> &middot;
+        <code>gemini</code> &middot; <code>opencode</code> &middot; <code>kilocode</code> &middot; <code>qwen</code> &middot;
+        <code>kimi</code> &middot; <code>aider</code> &middot; <code>claw</code> &middot; <code>copilot</code> &middot;
+        <code>droid</code> &middot; <code>trae</code> &middot; <code>trae-cn</code> &middot; <code>hermes</code> &middot;
+        <code>kiro</code> &middot; <code>pi</code> &middot; <code>antigravity</code>
+      </p>
+    </section>
+
+    <section id="agent-files" class="docs-section">
+      <h2>各平台寫入的檔案</h2>
+      <table class="platforms">
+        <thead><tr><th>平台</th><th>MCP 設定</th><th>文件片段目的地</th></tr></thead>
+        <tbody>
+          <tr><td>claude</td><td>.mcp.json</td><td>CLAUDE.md</td></tr>
+          <tr><td>codex</td><td>.codex/config.toml</td><td>AGENTS.md</td></tr>
+          <tr><td>cursor</td><td>.cursor/mcp.json</td><td>.cursorrules</td></tr>
+          <tr><td>vscode</td><td>.vscode/mcp.json(在 <code>servers</code> 之下)</td><td>AGENTS.md</td></tr>
+          <tr><td>gemini</td><td>.gemini/settings.json</td><td>GEMINI.md</td></tr>
+          <tr><td>opencode</td><td>opencode.json(在 <code>mcp</code> 之下)</td><td>AGENTS.md</td></tr>
+          <tr><td>copilot</td><td>.github/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>aider</td><td>.aider/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>claw</td><td>.openclaw/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>droid</td><td>.factory/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>trae / trae-cn</td><td>.trae/mcp.json / .trae-cn/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>hermes</td><td>.hermes/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>kiro</td><td>.kiro/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>pi</td><td>.pi/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>antigravity</td><td>.antigravity/mcp.json</td><td>AGENTS.md</td></tr>
+          <tr><td>kimi</td><td>.kimi/settings.json</td><td>AGENTS.md</td></tr>
+          <tr><td>qwen</td><td>.qwen/settings.json</td><td>QWEN.md</td></tr>
+          <tr><td>kilocode</td><td>.kilocode/mcp.json</td><td>AGENTS.md</td></tr>
+        </tbody>
+      </table>
+      <div class="callout" style="margin-top: 1rem;">
+        <strong>盡力而為:</strong>某些平台目前並未明確規範工作區內的 MCP 設定路徑(例如 Aider 主要走 <code>.aider.conf.yml</code>;Copilot CLI 的 MCP 設定過去都放在使用者層級)。gogfy 會寫到常見的 <code>.&lt;platform&gt;/</code> 位置——使用前請參照平台目前的官方文件確認。
+      </div>
+    </section>
+
+    <section id="hooks" class="docs-section">
+      <h2>Git hooks</h2>
+      <p>會自動重建圖譜的 post-commit + post-checkout 鉤子,以及一個可選的 merge driver——在 git merge 時自動 union <code>graph.json</code>。</p>
+<pre><span class="k">$</span> gogfy hook install [--repo dir] [--gogfy-bin path] [--out dir]
+<span class="k">$</span> gogfy hook uninstall [--repo dir]
+<span class="k">$</span> gogfy hook status [--repo dir]
+<span class="k">$</span> gogfy hook install-merge-driver [--repo dir] [--gogfy-bin path]
+<span class="k">$</span> gogfy hook uninstall-merge-driver [--repo dir]</pre>
+    </section>
+
+    <section id="serve" class="docs-section">
+      <h2>MCP 伺服器</h2>
+      <p>無狀態、走 stdio 的 MCP 伺服器。combo 安裝器會幫你接好;<code>gogfy serve</code> 用來直接執行,方便測試或自己接入非標準整合。</p>
+<pre><span class="k">$</span> gogfy serve [--graph graphify-out/graph.json] [--report graphify-out/GRAPH_REPORT.md]</pre>
+    </section>
+
+    <section id="mcp-tools" class="docs-section">
+      <h2>MCP 工具一覽</h2>
+      <p>對外提供 8 個工具,代理可以直接呼叫。全部都是唯讀的;不會修改圖譜。</p>
+      <div class="flags"><table>
+        <tr><td>gogfy_god_nodes</td><td>圖中連線最多的前 N 個實體(結構性的中樞)。</td></tr>
+        <tr><td>gogfy_explain</td><td>單一節點的摘要:它是什麼、誰呼叫/使用它、它依賴什麼。</td></tr>
+        <tr><td>gogfy_query</td><td>過濾條件式列出節點——可依 kind、檔案、社群、Label 子字串。</td></tr>
+        <tr><td>gogfy_path</td><td>兩節點間最短連通路徑。</td></tr>
+        <tr><td>gogfy_get_neighbors</td><td>節點的直接鄰居,並依關係分組。</td></tr>
+        <tr><td>gogfy_graph_stats</td><td>統計:按 kind/relation 區分的節點/邊數量、社群大小。</td></tr>
+        <tr><td>gogfy_get_community</td><td>單一社群的成員與摘要。</td></tr>
+        <tr><td>gogfy_traverse</td><td>從節點出發的 BFS/DFS,支援深度與關係過濾。</td></tr>
+      </table></div>
+    </section>
+
+    <section id="semantic" class="docs-section">
+      <h2>語意抽取(可選,LLM 後端)</h2>
+      <p>加上 <code>--semantic</code> 後,gogfy 會從文件與圖片裡多抽取出實體與 N 元的 <em>hyperedges</em>。每個後端都是純 Go 的 HTTP client——不依賴任何官方 SDK。</p>
+<pre><span class="k">$</span> gogfy run . --semantic --backend anthropic --dry-run    <span class="c"># 事前估算</span>
+<span class="k">$</span> gogfy run . --semantic --backend anthropic --max-cost-usd 5.00</pre>
+      <div class="flags"><table>
+        <tr><td>anthropic</td><td><code>ANTHROPIC_API_KEY</code> &middot; Claude(預設 Sonnet)</td></tr>
+        <tr><td>openai</td><td><code>OPENAI_API_KEY</code></td></tr>
+        <tr><td>gemini</td><td><code>GEMINI_API_KEY</code></td></tr>
+        <tr><td>kimi</td><td><code>MOONSHOT_API_KEY</code> &middot; Moonshot / Kimi</td></tr>
+        <tr><td>bedrock</td><td><code>AWS_ACCESS_KEY_ID</code>、<code>AWS_SECRET_ACCESS_KEY</code>、<code>AWS_REGION</code> &middot; 透過 AWS Bedrock 呼叫 Claude(純 Go SigV4)</td></tr>
+        <tr><td>ollama</td><td>本機 Ollama endpoint(不需要 key)</td></tr>
+      </table></div>
+      <p style="margin-top: 0.8rem;">結果會快取在 <code>&lt;out&gt;/.gographify-cache/semantic/</code> 之下;搭配 <code>--update</code> 重跑時,只有變動過的輸入會真的呼叫 LLM。</p>
+    </section>
+
+    <section id="ingest" class="docs-section">
+      <h2>URL ingestion</h2>
+      <p>把一個 URL 當成圖譜來源拉進語料:SSRF 安全的 fetch、readability 風格的 HTML 萃取、OpenGraph metadata、GitHub URL 重寫、arXiv PDF 路由、YouTube oembed。</p>
+<pre><span class="k">$</span> gogfy ingest https://example.com/post [--out dir]
+<span class="k">$</span> gogfy ingest https://youtu.be/&lt;id&gt; --audio        <span class="c"># 用純 Go 拉音訊給 --transcribe 用</span>
+<span class="k">$</span> gogfy add ...                                     <span class="c"># ingest 的別名</span></pre>
+    </section>
+
+    <section id="languages" class="docs-section">
+      <h2>支援的語言與格式</h2>
+      <p>28+ 種程式語言、10+ 種文件格式——全部走純 Go tree-sitter,任何抽取器都不需要 Python 或 LLM。</p>
+      <p style="font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--fg-soft);">
+        <strong style="color: var(--fg);">程式碼:</strong>
+        go &middot; py &middot; js/jsx/mjs/cjs &middot; ts/tsx &middot; java &middot; c/h &middot; cpp/cc/cxx/hpp &middot;
+        cs &middot; rs &middot; rb &middot; kt/kts &middot; scala/sc &middot; php &middot; lua &middot; zig &middot; jl &middot;
+        sh/bash &middot; hs &middot; ml &middot; r &middot; ex/exs &middot; erl &middot; swift &middot; dart &middot; fortran &middot; svelte
+      </p>
+      <p style="font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--fg-soft);">
+        <strong style="color: var(--fg);">文件 & 資料:</strong>
+        md/mdx/markdown &middot; html/htm &middot; rst &middot; txt &middot; docx &middot; xlsx &middot; pdf &middot; pptx &middot; yaml/yml &middot; toml &middot; gdoc/gsheet/gslides
+      </p>
+      <p>完整的每語言抽取項目對照表:<a href="https://github.com/julianshen/gogfy/blob/main/docs/languages.md">docs/languages.md</a>。</p>
+    </section>
+
+    <section id="cache" class="docs-section">
+      <h2>快取管理</h2>
+      <p>增量的 <code>--update</code> 流程與語意結果都放在 <code>&lt;out&gt;/.gographify-cache/</code> 之下。</p>
+<pre><span class="k">$</span> gogfy cache stats [--out dir]                                        <span class="c"># 大小與項目數</span>
+<span class="k">$</span> gogfy cache clear [--out dir] [--older-than 7d | --all]              <span class="c"># 清理</span></pre>
+    </section>
+
+    <section id="config-files" class="docs-section">
+      <h2>設定檔與慣例</h2>
+      <div class="flags"><table>
+        <tr><td>.graphifyignore</td><td>在 walk 層直接跳過的 glob 模式(類似 gitignore)。</td></tr>
+        <tr><td>.graphifyinclude</td><td>把通常被略過的隱藏檔/路徑列為允許清單。</td></tr>
+        <tr><td>tsconfig.json(<code>paths</code>)</td><td>JS/TS 路徑別名(<code>@app/* → src/*</code>)會在下游合併之前先被讀進來解析。</td></tr>
+        <tr><td>&lt;out&gt;/.gographify-cache/</td><td>內容雜湊快取(抽取)+ 語意結果快取。刪掉沒關係,會自動重建。</td></tr>
+        <tr><td>&lt;out&gt;/graph.json</td><td>資料的根據(帶版本的 schema,有 <code>schema_version</code> 欄位)。</td></tr>
+        <tr><td>&lt;out&gt;/GRAPH_REPORT.md</td><td>會印上語料的 <code>HEAD</code> 短 SHA,過期的版本看一眼就知道。</td></tr>
+      </table></div>
+    </section>
+
+    <section id="determinism" class="docs-section">
+      <h2>可複現性保證</h2>
+      <p>同一份語料跑兩次,<code>graph.json</code> 逐位元組相同。<code>--update</code> / <code>diff</code> / <code>ci</code> 都依賴這個保證——否則 CI 守門員會被假變更觸發。</p>
+      <p>兩個機制一起確保這個保證:預設使用 gogfy 自己的可複現 <code>LouvainClusterer</code>(排序的節點迭代、排序的決勝);以及對 dedup 的邊輸出套用 <code>schema.SortEdges</code>。整段流水線跑兩次、確認 byte 級別相同的 e2e 回歸測試守著。</p>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <div class="container">
+    <div>
+      gogfy &middot; <a href="https://github.com/julianshen/gogfy/releases/tag/v0.3.0">v0.3.0</a>
+    </div>
+    <div>
+      <a href="https://github.com/julianshen/gogfy">github.com/julianshen/gogfy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
