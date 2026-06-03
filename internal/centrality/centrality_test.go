@@ -145,3 +145,66 @@ func TestBetweennessLineGraphExactScores(t *testing.T) {
 		t.Errorf("cb[c] = %f, want 4.0 (halved)", cb["c"])
 	}
 }
+
+func TestPageRankHubAccumulatesMostRank(t *testing.T) {
+	// a→hub, b→hub, c→hub: everyone references hub, so hub should rank
+	// highest. Edges are directed (rank flows source→target).
+	nodes := []schema.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "hub"}}
+	edges := []schema.Edge{
+		{Source: "a", Target: "hub"},
+		{Source: "b", Target: "hub"},
+		{Source: "c", Target: "hub"},
+	}
+	pr := PageRank(nodes, edges, nil)
+	for _, leaf := range []string{"a", "b", "c"} {
+		if pr["hub"] <= pr[leaf] {
+			t.Fatalf("hub (%g) should outrank leaf %s (%g)", pr["hub"], leaf, pr[leaf])
+		}
+	}
+	// Ranks should form a probability distribution summing to ~1.
+	var sum float64
+	for _, v := range pr {
+		sum += v
+	}
+	if math.Abs(sum-1.0) > 1e-6 {
+		t.Fatalf("PageRank should sum to 1, got %g", sum)
+	}
+}
+
+func TestPageRankPersonalizationBiasesRanking(t *testing.T) {
+	// Two disconnected pairs: a→b and c→d. With uniform teleport, b and d
+	// are symmetric. Personalizing toward {a} should pull rank into the
+	// a/b component, lifting b above d.
+	nodes := []schema.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}}
+	edges := []schema.Edge{
+		{Source: "a", Target: "b"},
+		{Source: "c", Target: "d"},
+	}
+	uniform := PageRank(nodes, edges, nil)
+	if math.Abs(uniform["b"]-uniform["d"]) > 1e-6 {
+		t.Fatalf("symmetric components should tie under uniform: b=%g d=%g", uniform["b"], uniform["d"])
+	}
+	personalized := PageRank(nodes, edges, map[string]float64{"a": 1})
+	if personalized["b"] <= personalized["d"] {
+		t.Fatalf("personalizing toward a should lift b above d: b=%g d=%g", personalized["b"], personalized["d"])
+	}
+}
+
+func TestPageRankUnknownPersonalizationFallsBackToUniform(t *testing.T) {
+	nodes := []schema.Node{{ID: "a"}, {ID: "b"}}
+	edges := []schema.Edge{{Source: "a", Target: "b"}}
+	// Personalization referencing only unknown IDs must not divide by zero
+	// or produce NaN — it falls back to uniform teleport.
+	pr := PageRank(nodes, edges, map[string]float64{"ghost": 1})
+	for id, v := range pr {
+		if math.IsNaN(v) || v <= 0 {
+			t.Fatalf("expected positive finite rank for %s, got %g", id, v)
+		}
+	}
+}
+
+func TestPageRankEmptyGraph(t *testing.T) {
+	if pr := PageRank(nil, nil, nil); len(pr) != 0 {
+		t.Fatalf("expected empty result, got %v", pr)
+	}
+}

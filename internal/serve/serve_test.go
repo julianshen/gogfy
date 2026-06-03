@@ -861,3 +861,93 @@ func TestToolsListIncludesImpact(t *testing.T) {
 		t.Fatal("gogfy_impact missing from tools/list")
 	}
 }
+
+// repoMapServer builds a small graph with a clear hub plus file grouping.
+//
+//	helperA, helperB, main --calls--> core   (core is the most-referenced symbol)
+//	main --calls--> helperA
+func repoMapServer() *Server {
+	return New(export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "go:function:/core.go:Core", Label: "Core", SourceFile: "core.go", SourceLocation: "L10"},
+			{ID: "go:function:/helpers.go:HelperA", Label: "HelperA", SourceFile: "helpers.go", SourceLocation: "L5"},
+			{ID: "go:function:/helpers.go:HelperB", Label: "HelperB", SourceFile: "helpers.go", SourceLocation: "L20"},
+			{ID: "go:function:/main.go:main", Label: "main", SourceFile: "main.go", SourceLocation: "L1"},
+		},
+		Edges: []schema.Edge{
+			{Source: "go:function:/helpers.go:HelperA", Target: "go:function:/core.go:Core", Relation: "calls"},
+			{Source: "go:function:/helpers.go:HelperB", Target: "go:function:/core.go:Core", Relation: "calls"},
+			{Source: "go:function:/main.go:main", Target: "go:function:/core.go:Core", Relation: "calls"},
+			{Source: "go:function:/main.go:main", Target: "go:function:/helpers.go:HelperA", Relation: "calls"},
+		},
+	}, nil)
+}
+
+func repoMapText(t *testing.T, srv *Server, args map[string]any) string {
+	t.Helper()
+	resp := runOnce(t, srv, jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_repomap",
+		"arguments": args,
+	}))
+	return resp[0]["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+}
+
+func TestToolCallRepoMapRanksHubFirst(t *testing.T) {
+	text := repoMapText(t, repoMapServer(), map[string]any{})
+	// Core is referenced by everyone, so its file should head the map.
+	coreIdx := strings.Index(text, "core.go")
+	helpersIdx := strings.Index(text, "helpers.go")
+	if coreIdx < 0 || helpersIdx < 0 {
+		t.Fatalf("expected both files in map, got:\n%s", text)
+	}
+	if coreIdx > helpersIdx {
+		t.Fatalf("core.go (hub file) should lead the map, got:\n%s", text)
+	}
+	// Entries render kind + location.
+	if !strings.Contains(text, "(function)") || !strings.Contains(text, "L10") {
+		t.Fatalf("expected kind+location rendering, got:\n%s", text)
+	}
+}
+
+func TestToolCallRepoMapRespectsLimit(t *testing.T) {
+	text := repoMapText(t, repoMapServer(), map[string]any{"limit": 1})
+	// Only the single top-ranked symbol (Core) should appear.
+	if !strings.Contains(text, "Core") {
+		t.Fatalf("expected top symbol Core, got:\n%s", text)
+	}
+	if strings.Contains(text, "HelperB") || strings.Contains(text, "main") {
+		t.Fatalf("limit=1 must drop lower-ranked symbols, got:\n%s", text)
+	}
+}
+
+func TestToolCallRepoMapReportsUnresolvedFocus(t *testing.T) {
+	text := repoMapText(t, repoMapServer(), map[string]any{"focus": []string{"ghost"}})
+	if !strings.Contains(text, "unresolved focus: ghost") {
+		t.Fatalf("expected unresolved-focus note, got:\n%s", text)
+	}
+	// With no resolvable seed it still produces a (global) map.
+	if !strings.Contains(text, "Core") {
+		t.Fatalf("expected a global map as fallback, got:\n%s", text)
+	}
+}
+
+func TestToolCallRepoMapFocusIsNoted(t *testing.T) {
+	text := repoMapText(t, repoMapServer(), map[string]any{"focus": []string{"HelperB"}})
+	if !strings.Contains(text, "focused on 1 seed") {
+		t.Fatalf("expected focus annotation, got:\n%s", text)
+	}
+}
+
+func TestToolsListIncludesRepoMap(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/list", nil))
+	tools := resp[0]["result"].(map[string]any)["tools"].([]any)
+	found := false
+	for _, tool := range tools {
+		if tool.(map[string]any)["name"].(string) == "gogfy_repomap" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("gogfy_repomap missing from tools/list")
+	}
+}

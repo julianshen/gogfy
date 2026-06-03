@@ -205,3 +205,127 @@ func buildAdjInt(edges []schema.Edge, idx map[string]int) [][]int32 {
 	}
 	return adj
 }
+
+// PageRank computes the (optionally personalized) PageRank of each node
+// over the DIRECTED graph: an edge source → target flows rank to the
+// target, so heavily-referenced definitions (callees, imported packages,
+// implemented interfaces) accumulate the most rank. This is the ranking
+// signal behind a "repo map" — the project's most important symbols.
+//
+// personalization maps node IDs to non-negative teleport weights. A
+// nil/empty map (or one whose weights sum to zero over known nodes)
+// yields uniform teleport = standard global PageRank. A non-empty map
+// biases the random surfer toward those seed nodes, so the ranking
+// reflects "what matters relative to where the agent is looking" — this
+// is the Personalized-PageRank trick from Aider's repo map.
+//
+// Damping is 0.85. Dangling nodes (no out-edges) redistribute their rank
+// through the teleport vector each iteration so total rank is conserved.
+// Iterates until the L1 delta falls below 1e-8 or 100 iterations.
+func PageRank(nodes []schema.Node, edges []schema.Edge, personalization map[string]float64) map[string]float64 {
+	const (
+		damping = 0.85
+		maxIter = 100
+		epsilon = 1e-8
+	)
+	if len(nodes) == 0 {
+		return map[string]float64{}
+	}
+
+	// Dense int index over unique node IDs (matches Betweenness semantics).
+	idx := make(map[string]int, len(nodes))
+	ids := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		if _, ok := idx[n.ID]; !ok {
+			idx[n.ID] = len(ids)
+			ids = append(ids, n.ID)
+		}
+	}
+	m := len(ids)
+
+	// Directed adjacency + out-degree. Self-loops and dangling endpoints
+	// are skipped so they don't distort the flow.
+	outAdj := make([][]int32, m)
+	outDeg := make([]int, m)
+	for _, e := range edges {
+		si, ok := idx[e.Source]
+		if !ok {
+			continue
+		}
+		ti, ok := idx[e.Target]
+		if !ok || si == ti {
+			continue
+		}
+		outAdj[si] = append(outAdj[si], int32(ti))
+		outDeg[si]++
+	}
+
+	// Teleport vector p. Normalize the personalization weights over known
+	// nodes; fall back to uniform when nothing usable was supplied.
+	p := make([]float64, m)
+	var sum float64
+	for id, w := range personalization {
+		if w <= 0 {
+			continue
+		}
+		if i, ok := idx[id]; ok {
+			p[i] += w
+			sum += w
+		}
+	}
+	if sum == 0 {
+		uniform := 1.0 / float64(m)
+		for i := range p {
+			p[i] = uniform
+		}
+	} else {
+		for i := range p {
+			p[i] /= sum
+		}
+	}
+
+	// Power iteration. Initialize at the teleport distribution.
+	r := make([]float64, m)
+	copy(r, p)
+	next := make([]float64, m)
+	for iter := 0; iter < maxIter; iter++ {
+		// Dangling mass (rank stuck on out-degree-0 nodes) teleports out.
+		var dangling float64
+		for i := 0; i < m; i++ {
+			if outDeg[i] == 0 {
+				dangling += r[i]
+			}
+		}
+		base := (1 - damping) // teleport-to-p contribution multiplier
+		for i := 0; i < m; i++ {
+			next[i] = base*p[i] + damping*dangling*p[i]
+		}
+		for i := 0; i < m; i++ {
+			if outDeg[i] == 0 {
+				continue
+			}
+			share := damping * r[i] / float64(outDeg[i])
+			for _, t := range outAdj[i] {
+				next[t] += share
+			}
+		}
+		var delta float64
+		for i := 0; i < m; i++ {
+			d := next[i] - r[i]
+			if d < 0 {
+				d = -d
+			}
+			delta += d
+		}
+		r, next = next, r
+		if delta < epsilon {
+			break
+		}
+	}
+
+	out := make(map[string]float64, m)
+	for i, id := range ids {
+		out[id] = r[i]
+	}
+	return out
+}

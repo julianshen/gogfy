@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/julianshen/gogfy/internal/analyze"
+	"github.com/julianshen/gogfy/internal/centrality"
 	"github.com/julianshen/gogfy/internal/export"
 	"github.com/julianshen/gogfy/internal/schema"
 )
@@ -43,6 +44,7 @@ const (
 	ToolGetCommunity = "gogfy_get_community"
 	ToolTraverse     = "gogfy_traverse"
 	ToolImpact       = "gogfy_impact"
+	ToolRepoMap      = "gogfy_repomap"
 )
 
 // dependencyRelations are the edge relations where the edge *source*
@@ -238,6 +240,8 @@ func (s *Server) toolsCall(req rpcRequest) []byte {
 		return jsonRPCResult(req.ID, s.callTraverse(p.Arguments))
 	case ToolImpact:
 		return jsonRPCResult(req.ID, s.callImpact(p.Arguments))
+	case ToolRepoMap:
+		return jsonRPCResult(req.ID, s.callRepoMap(p.Arguments))
 	default:
 		return jsonRPCError(req.ID, -32602, "unknown tool: "+p.Name)
 	}
@@ -777,6 +781,136 @@ func impactScopeSuffix(depth int, filter string) string {
 	return " (" + strings.Join(parts, ", ") + ")"
 }
 
+// callRepoMap returns a ranked, file-grouped "repo map": the project's
+// most important symbols, in the spirit of Aider's repo map. Importance
+// is (Personalized) PageRank over the directed graph — heavily-referenced
+// definitions float to the top. When `focus` node IDs/labels are given,
+// the ranking is personalized toward them so the map reflects "what
+// matters relative to where you are looking" rather than global hubs.
+//
+// gogfy stores no full signatures, so each entry renders as
+// `name (kind) — file:loc` — the most signature-like view available
+// without re-parsing source. The result is capped at `limit` symbols to
+// stay within an agent's context budget.
+func (s *Server) callRepoMap(args json.RawMessage) map[string]any {
+	var p struct {
+		Focus []string `json:"focus"`
+		Limit int      `json:"limit"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &p); err != nil {
+			return toolResult("invalid arguments: "+err.Error(), true)
+		}
+	}
+	if p.Limit <= 0 {
+		p.Limit = 40
+	}
+
+	// Resolve focus seeds to a personalization vector. Unresolved entries
+	// are reported so the agent can correct a typo'd symbol; if none
+	// resolve we proceed with global (uniform) PageRank.
+	personalization := map[string]float64{}
+	var unresolved []string
+	for _, f := range p.Focus {
+		if n, _, ok := s.findNode(f); ok {
+			personalization[n.ID] = 1
+		} else {
+			unresolved = append(unresolved, f)
+		}
+	}
+
+	ranks := centrality.PageRank(s.graph.Nodes, s.graph.Edges, personalization)
+
+	// Rank nodes by PageRank desc, ID asc for stable ties.
+	ranked := make([]schema.Node, len(s.graph.Nodes))
+	copy(ranked, s.graph.Nodes)
+	sort.Slice(ranked, func(i, j int) bool {
+		ri, rj := ranks[ranked[i].ID], ranks[ranked[j].ID]
+		if ri != rj {
+			return ri > rj
+		}
+		return ranked[i].ID < ranked[j].ID
+	})
+	if len(ranked) > p.Limit {
+		ranked = ranked[:p.Limit]
+	}
+
+	// Group the top symbols by source file, ordering files by their
+	// best-ranked member so the most important files lead.
+	type fileGroup struct {
+		file    string
+		best    float64
+		members []schema.Node
+	}
+	groups := map[string]*fileGroup{}
+	var order []*fileGroup
+	for _, n := range ranked {
+		file := n.SourceFile
+		if file == "" {
+			file = "(no file)"
+		}
+		g := groups[file]
+		if g == nil {
+			g = &fileGroup{file: file, best: ranks[n.ID]}
+			groups[file] = g
+			order = append(order, g)
+		}
+		if ranks[n.ID] > g.best {
+			g.best = ranks[n.ID]
+		}
+		g.members = append(g.members, n)
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if order[i].best != order[j].best {
+			return order[i].best > order[j].best
+		}
+		return order[i].file < order[j].file
+	})
+
+	var b strings.Builder
+	b.WriteString("## Repo map\n")
+	if len(personalization) > 0 {
+		fmt.Fprintf(&b, "_ranked by importance, focused on %d seed(s)_\n", len(personalization))
+	} else {
+		b.WriteString("_ranked by importance (global)_\n")
+	}
+	if len(unresolved) > 0 {
+		fmt.Fprintf(&b, "_unresolved focus: %s_\n", strings.Join(unresolved, ", "))
+	}
+	for _, g := range order {
+		fmt.Fprintf(&b, "\n### %s\n", g.file)
+		for _, n := range g.members {
+			label := n.Label
+			if label == "" {
+				label = n.ID
+			}
+			fmt.Fprintf(&b, "- %s", label)
+			if kind := nodeKind(n.ID); kind != "" {
+				fmt.Fprintf(&b, " (%s)", kind)
+			}
+			if n.SourceLocation != "" {
+				fmt.Fprintf(&b, " — %s", n.SourceLocation)
+			}
+			b.WriteByte('\n')
+		}
+	}
+	if len(order) == 0 {
+		b.WriteString("\n(graph is empty)\n")
+	}
+	return toolResult(b.String(), false)
+}
+
+// nodeKind extracts the kind segment from a node ID following the
+// `<lang>:<kind>:<path>:<name>` grammar. Returns "" if the ID doesn't
+// carry a recognizable kind field.
+func nodeKind(id string) string {
+	parts := strings.SplitN(id, ":", 4)
+	if len(parts) >= 2 {
+		return parts[1]
+	}
+	return ""
+}
+
 // callGraphStats surfaces orientation-level numbers an agent can use
 // to decide where to drill in: node/edge/community counts plus
 // file-type and confidence breakdowns.
@@ -1251,6 +1385,17 @@ var toolDescriptors = []map[string]any{
 				"relation": map[string]any{"type": "string", "description": "Optional: follow only this one relation (e.g. 'calls' for the pure call-impact, 'imports' for module-level impact)."},
 			},
 			"required": []any{"id"},
+		},
+	},
+	{
+		"name":        ToolRepoMap,
+		"description": "Get a ranked, file-grouped \"repo map\": the project's most important symbols by PageRank, the best first-look orientation for a codebase. Pass `focus` node IDs/labels to personalize the ranking toward what you're working on (Personalized PageRank) — the map then surfaces what matters near your task instead of global hubs. Entries render as 'name (kind) — location'. Use this before diving in to decide where to read.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"focus": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional node IDs/labels to bias the ranking toward (the symbols/files you're currently working on). Omit for a global importance ranking."},
+				"limit": map[string]any{"type": "integer", "description": "Max symbols to include (default: 40). Keeps the map within a context budget."},
+			},
 		},
 	},
 }
