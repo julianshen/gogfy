@@ -760,3 +760,104 @@ func TestToolCallQuerySourceFileMatchRanksLowest(t *testing.T) {
 		t.Fatalf("source-file-only match should rank last: exact=%d src=%d\n%s", exactIdx, srcIdx, text)
 	}
 }
+
+// impactServer builds a graph with a transitive dependency chain plus a
+// non-dependency `contains` edge, for exercising gogfy_impact.
+//
+//	a --calls--> b --calls--> c        (c's transitive dependents: b hop1, a hop2)
+//	file --contains--> c               (structural; must NOT count as a dependent)
+//	x --imports--> c                   (c's direct dependent via imports)
+func impactServer() *Server {
+	return New(export.GraphExport{
+		Nodes: []schema.Node{
+			{ID: "a", Label: "a"},
+			{ID: "b", Label: "b"},
+			{ID: "c", Label: "c"},
+			{ID: "x", Label: "x"},
+			{ID: "file", Label: "file"},
+		},
+		Edges: []schema.Edge{
+			{Source: "a", Target: "b", Relation: "calls", Confidence: schema.Inferred},
+			{Source: "b", Target: "c", Relation: "calls", Confidence: schema.Inferred},
+			{Source: "x", Target: "c", Relation: "imports", Confidence: schema.Inferred},
+			{Source: "file", Target: "c", Relation: "contains", Confidence: schema.Extracted},
+		},
+	}, nil)
+}
+
+func impactText(t *testing.T, srv *Server, args map[string]any) string {
+	t.Helper()
+	resp := runOnce(t, srv, jsonRPCRequest(t, 1, "tools/call", map[string]any{
+		"name":      "gogfy_impact",
+		"arguments": args,
+	}))
+	return resp[0]["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+}
+
+func TestToolCallImpactTransitiveDependents(t *testing.T) {
+	text := impactText(t, impactServer(), map[string]any{"id": "c"})
+	// b (hop1, via calls) and x (hop1, via imports) are direct dependents;
+	// a is a hop-2 dependent via b. file (contains) must be excluded.
+	for _, want := range []string{"b", "x", "a"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected dependent %q in impact output, got:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "file") {
+		t.Fatalf("structural `contains` edge must not count as a dependent, got:\n%s", text)
+	}
+	if !strings.Contains(text, "Direct dependents") || !strings.Contains(text, "Hop 2") {
+		t.Fatalf("expected hop grouping in output, got:\n%s", text)
+	}
+}
+
+func TestToolCallImpactDepthLimitsHops(t *testing.T) {
+	// depth=1 keeps only direct dependents (b, x) — a (hop 2) is excluded.
+	text := impactText(t, impactServer(), map[string]any{"id": "c", "depth": 1})
+	if !strings.Contains(text, "b") || !strings.Contains(text, "x") {
+		t.Fatalf("expected direct dependents b and x, got:\n%s", text)
+	}
+	if strings.Contains(text, "Hop 2") {
+		t.Fatalf("depth=1 must not include hop 2, got:\n%s", text)
+	}
+}
+
+func TestToolCallImpactRelationFilter(t *testing.T) {
+	// Filtering to imports surfaces only x; the calls-chain (b, a) is excluded.
+	text := impactText(t, impactServer(), map[string]any{"id": "c", "relation": "imports"})
+	if !strings.Contains(text, "x") {
+		t.Fatalf("expected imports dependent x, got:\n%s", text)
+	}
+	if strings.Contains(text, "via calls") {
+		t.Fatalf("relation=imports must not follow calls edges, got:\n%s", text)
+	}
+}
+
+func TestToolCallImpactNothingDepends(t *testing.T) {
+	// `a` is the top of the chain — nothing depends on it.
+	text := impactText(t, impactServer(), map[string]any{"id": "a"})
+	if !strings.Contains(text, "Nothing depends") {
+		t.Fatalf("expected 'Nothing depends' for leaf-of-reverse-graph, got:\n%s", text)
+	}
+}
+
+func TestToolCallImpactMissingID(t *testing.T) {
+	text := impactText(t, impactServer(), map[string]any{})
+	if !strings.Contains(text, "requires an `id`") {
+		t.Fatalf("expected missing-id error, got: %q", text)
+	}
+}
+
+func TestToolsListIncludesImpact(t *testing.T) {
+	resp := runOnce(t, sampleServer(), jsonRPCRequest(t, 1, "tools/list", nil))
+	tools := resp[0]["result"].(map[string]any)["tools"].([]any)
+	found := false
+	for _, tool := range tools {
+		if tool.(map[string]any)["name"].(string) == "gogfy_impact" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("gogfy_impact missing from tools/list")
+	}
+}

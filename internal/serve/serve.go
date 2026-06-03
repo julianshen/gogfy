@@ -42,7 +42,25 @@ const (
 	ToolGraphStats   = "gogfy_graph_stats"
 	ToolGetCommunity = "gogfy_get_community"
 	ToolTraverse     = "gogfy_traverse"
+	ToolImpact       = "gogfy_impact"
 )
+
+// dependencyRelations are the edge relations where the edge *source*
+// depends on the edge *target* — i.e. a change to the target can break
+// the source. callImpact walks these edges in reverse (target → source)
+// to find everything downstream of a node. Structural/weak relations
+// (`contains`, `mentions`) are excluded by default: a file that
+// `contains` a function doesn't break when the function changes, and a
+// doc that `mentions` a symbol is a loose reference, not a
+// compile/runtime dependency. Callers can still target any single
+// relation explicitly via the `relation` argument.
+var dependencyRelations = map[string]struct{}{
+	"calls":      {},
+	"references": {},
+	"imports":    {},
+	"implements": {},
+	"extends":    {},
+}
 
 // Server holds the in-memory graph + report bytes the MCP tools read from.
 //
@@ -218,6 +236,8 @@ func (s *Server) toolsCall(req rpcRequest) []byte {
 		return jsonRPCResult(req.ID, s.callGetCommunity(p.Arguments))
 	case ToolTraverse:
 		return jsonRPCResult(req.ID, s.callTraverse(p.Arguments))
+	case ToolImpact:
+		return jsonRPCResult(req.ID, s.callImpact(p.Arguments))
 	default:
 		return jsonRPCError(req.ID, -32602, "unknown tool: "+p.Name)
 	}
@@ -612,6 +632,149 @@ func (s *Server) callTraverse(args json.RawMessage) map[string]any {
 		}
 	}
 	return toolResult(b.String(), false)
+}
+
+// callImpact answers "what breaks if I change this node?" by walking
+// dependency edges in *reverse* (transitive dependents) from the named
+// node. An edge `A --calls--> B` means A depends on B, so B's impact set
+// is found by following in-edges. Only dependency-bearing relations are
+// followed by default (see dependencyRelations); structural edges like
+// `contains` are skipped so the result is "things that would break", not
+// "things that physically enclose it". Results are grouped by hop
+// distance so hop 1 = direct dependents, hop 2 = their dependents, etc.
+//
+// `depth` <= 0 means unlimited (the full transitive closure), bounded
+// only by `limit` — impact analysis usually wants everything reachable.
+func (s *Server) callImpact(args json.RawMessage) map[string]any {
+	var p struct {
+		ID       string `json:"id"`
+		Depth    int    `json:"depth"`
+		Limit    int    `json:"limit"`
+		Relation string `json:"relation"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil || p.ID == "" {
+		return toolResult("impact requires an `id` argument (node ID or label)", true)
+	}
+	if p.Limit <= 0 {
+		p.Limit = 100
+	}
+	target, _, ok := s.findNode(p.ID)
+	if !ok {
+		return toolResult(fmt.Sprintf("no node matched %q", p.ID), true)
+	}
+
+	// Reverse BFS over dependency in-edges. dist[target]=0; the target
+	// itself is never counted as "affected". `via` records the relation a
+	// node was first (closest) reached through, for display.
+	dist := map[string]int{target.ID: 0}
+	via := map[string]string{}
+	queue := []string{target.ID}
+	truncated := false
+	for len(queue) > 0 && !truncated {
+		cur := queue[0]
+		queue = queue[1:]
+		d := dist[cur]
+		if p.Depth > 0 && d >= p.Depth {
+			continue
+		}
+		for _, e := range s.inEdges[cur] {
+			if !impactRelationAllowed(e.Relation, p.Relation) {
+				continue
+			}
+			if _, seen := dist[e.Source]; seen {
+				continue
+			}
+			dist[e.Source] = d + 1
+			via[e.Source] = e.Relation
+			queue = append(queue, e.Source)
+			if len(dist)-1 >= p.Limit {
+				truncated = true
+				break
+			}
+		}
+	}
+
+	affected := len(dist) - 1
+	if affected == 0 {
+		return toolResult(fmt.Sprintf(
+			"Nothing depends on %s%s — changing it is locally contained (no inbound %s edges).",
+			target.Label, relationFilterSuffix(p.Relation), impactRelationsLabel(p.Relation)), false)
+	}
+
+	// Group by hop distance, skipping hop 0 (the node itself). Sort each
+	// layer by label so output is reproducible.
+	byHop := map[int][]string{}
+	for id, d := range dist {
+		if d == 0 {
+			continue
+		}
+		byHop[d] = append(byHop[d], id)
+	}
+	for d := range byHop {
+		layer := byHop[d]
+		sort.Slice(layer, func(i, j int) bool { return s.labelFor(layer[i]) < s.labelFor(layer[j]) })
+		byHop[d] = layer
+	}
+	hops := make([]int, 0, len(byHop))
+	for d := range byHop {
+		hops = append(hops, d)
+	}
+	sort.Ints(hops)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Impact of changing %s\n", target.Label)
+	fmt.Fprintf(&b, "- %d node(s) depend on it%s\n", affected, impactScopeSuffix(p.Depth, p.Relation))
+	if truncated {
+		fmt.Fprintf(&b, "- _result truncated at limit %d; pass a higher `limit` to see more_\n", p.Limit)
+	}
+	for _, d := range hops {
+		layer := byHop[d]
+		if d == 1 {
+			fmt.Fprintf(&b, "\n### Direct dependents (hop 1, %d)\n", len(layer))
+		} else {
+			fmt.Fprintf(&b, "\n### Hop %d (%d)\n", d, len(layer))
+		}
+		for _, id := range layer {
+			fmt.Fprintf(&b, "- %s (via %s)\n", s.labelFor(id), via[id])
+		}
+	}
+	return toolResult(b.String(), false)
+}
+
+// impactRelationAllowed reports whether an edge relation should be
+// followed during impact analysis. With an explicit filter, only that
+// relation passes; otherwise the default dependency-bearing set applies.
+func impactRelationAllowed(rel, filter string) bool {
+	if filter != "" {
+		return rel == filter
+	}
+	_, ok := dependencyRelations[rel]
+	return ok
+}
+
+// impactRelationsLabel describes the relations being followed, for the
+// "nothing depends" message.
+func impactRelationsLabel(filter string) string {
+	if filter != "" {
+		return filter
+	}
+	return "calls/references/imports/implements/extends"
+}
+
+// impactScopeSuffix annotates the headline count with the depth and
+// relation scope used.
+func impactScopeSuffix(depth int, filter string) string {
+	var parts []string
+	if depth > 0 {
+		parts = append(parts, fmt.Sprintf("within %d hop(s)", depth))
+	}
+	if filter != "" {
+		parts = append(parts, "via "+filter)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
 }
 
 // callGraphStats surfaces orientation-level numbers an agent can use
@@ -1072,6 +1235,20 @@ var toolDescriptors = []map[string]any{
 				"id":     map[string]any{"type": "string", "description": "Starting node ID or label."},
 				"depth":  map[string]any{"type": "integer", "description": "Max BFS hops from the source (default: 2). Each hop adds a layer of neighbors."},
 				"limit":  map[string]any{"type": "integer", "description": "Max nodes total in the result (default: 50). BFS stops when reached so you stay within a context budget."},
+			},
+			"required": []any{"id"},
+		},
+	},
+	{
+		"name":        ToolImpact,
+		"description": "Impact analysis: \"what breaks if I change this node?\" Walks dependency edges in reverse to list the transitive dependents of a node (its callers, referencers, importers, implementers, subtypes), grouped by hop distance. Use before editing a symbol to gauge blast radius. By default follows calls/references/imports/implements/extends (not structural 'contains'/'mentions' edges).",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":       map[string]any{"type": "string", "description": "Node ID or label whose dependents to find."},
+				"depth":    map[string]any{"type": "integer", "description": "Max reverse hops (default: unlimited — the full transitive closure, bounded by limit)."},
+				"limit":    map[string]any{"type": "integer", "description": "Max affected nodes to return (default: 100). The result is truncated past this."},
+				"relation": map[string]any{"type": "string", "description": "Optional: follow only this one relation (e.g. 'calls' for the pure call-impact, 'imports' for module-level impact)."},
 			},
 			"required": []any{"id"},
 		},
