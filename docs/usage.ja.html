@@ -320,7 +320,7 @@
 
     <section id="mcp-tools" class="docs-section">
       <h2>公開される MCP ツール</h2>
-      <p>エージェントが呼び出せる 8 つのツール。すべて読み取り専用 —— グラフを変更しません。</p>
+      <p>エージェントが呼び出せる 10 個のツール。すべて読み取り専用 —— グラフを変更しません。</p>
       <div class="flags"><table>
         <tr><td>gogfy_god_nodes</td><td>接続数が最も多いエンティティの上位 N 件(構造的ハブ)。</td></tr>
         <tr><td>gogfy_explain</td><td>ノード単位のサマリー:何であるか、誰が呼ぶ/使うか、何に依存するか。</td></tr>
@@ -330,6 +330,8 @@
         <tr><td>gogfy_graph_stats</td><td>統計:kind/relation 別のノード/エッジ数、コミュニティサイズ。</td></tr>
         <tr><td>gogfy_get_community</td><td>単一コミュニティのメンバーとサマリー。</td></tr>
         <tr><td>gogfy_traverse</td><td>ノードからの BFS/DFS、深さと関係フィルタ付き。</td></tr>
+        <tr><td>gogfy_impact</td><td>逆到達可能性:ノードを変更したときに壊れる推移的な依存元の集合。</td></tr>
+        <tr><td>gogfy_repomap</td><td>重要度(PageRank)順に並べ、ファイル単位でグループ化した主要シンボルのマップ(タスクに合わせてフォーカス可能)。</td></tr>
       </table></div>
     </section>
 

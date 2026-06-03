@@ -320,7 +320,7 @@
 
     <section id="mcp-tools" class="docs-section">
       <h2>Herramientas MCP expuestas</h2>
-      <p>Ocho herramientas que tu agente puede invocar. Todas de sólo lectura; ninguna modifica el grafo.</p>
+      <p>Diez herramientas que tu agente puede invocar. Todas de sólo lectura; ninguna modifica el grafo.</p>
       <div class="flags"><table>
         <tr><td>gogfy_god_nodes</td><td>Las N entidades con más conexiones (los nodos hub estructurales).</td></tr>
         <tr><td>gogfy_explain</td><td>Resumen por nodo: qué es, quién lo llama/usa, de qué depende.</td></tr>
@@ -330,6 +330,8 @@
         <tr><td>gogfy_graph_stats</td><td>Conteos: nodos/aristas por kind/relation; tamaños de comunidad.</td></tr>
         <tr><td>gogfy_get_community</td><td>Miembros y resumen de una comunidad.</td></tr>
         <tr><td>gogfy_traverse</td><td>BFS/DFS desde un nodo, con filtros de profundidad y relación.</td></tr>
+        <tr><td>gogfy_impact</td><td>Alcanzabilidad inversa: los dependientes transitivos que se rompen si cambias un nodo.</td></tr>
+        <tr><td>gogfy_repomap</td><td>Mapa de los símbolos más importantes, agrupados por archivo y ordenados por PageRank (opcionalmente enfocado en tu tarea).</td></tr>
       </table></div>
     </section>
 
