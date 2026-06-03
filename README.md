@@ -71,6 +71,8 @@ Now your agent has these MCP tools:
 | `gogfy_get_neighbors` | direct neighbors of a node |
 | `gogfy_get_community` | all members of a community |
 | `gogfy_traverse` | BFS from a node up to N hops |
+| `gogfy_impact` | reverse-reachability: what breaks if you change a node |
+| `gogfy_repomap` | ranked, file-grouped map of the most important symbols (PageRank; optionally focused) |
 | `gogfy_graph_stats` | corpus counts + breakdowns |
 
 …plus six MCP **resources** the agent can read directly:

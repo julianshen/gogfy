@@ -334,7 +334,7 @@
     <!-- ----------------------------------------- MCP tools ----------- -->
     <section id="mcp-tools" class="docs-section">
       <h2>MCP tools exposed</h2>
-      <p>Eight tools your agent can call. All read-only; none modify the graph.</p>
+      <p>Ten tools your agent can call. All read-only; none modify the graph.</p>
       <div class="flags"><table>
         <tr><td>gogfy_god_nodes</td><td>Top-N most-connected entities (the structural hubs).</td></tr>
         <tr><td>gogfy_explain</td><td>Per-node summary: what it is, who calls/uses it, what it depends on.</td></tr>
@@ -344,6 +344,8 @@
         <tr><td>gogfy_graph_stats</td><td>Counts: nodes/edges by kind/relation; community sizes.</td></tr>
         <tr><td>gogfy_get_community</td><td>Members + summary of a single community.</td></tr>
         <tr><td>gogfy_traverse</td><td>BFS/DFS from a node with depth + relation filters.</td></tr>
+        <tr><td>gogfy_impact</td><td>Reverse-reachability: the transitive dependents that break if you change a node.</td></tr>
+        <tr><td>gogfy_repomap</td><td>Ranked, file-grouped map of the most important symbols (PageRank; optionally focused on your task).</td></tr>
       </table></div>
     </section>
 

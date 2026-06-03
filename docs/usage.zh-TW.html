@@ -320,7 +320,7 @@
 
     <section id="mcp-tools" class="docs-section">
       <h2>MCP 工具一覽</h2>
-      <p>對外提供 8 個工具,代理可以直接呼叫。全部都是唯讀的;不會修改圖譜。</p>
+      <p>對外提供 10 個工具,代理可以直接呼叫。全部都是唯讀的;不會修改圖譜。</p>
       <div class="flags"><table>
         <tr><td>gogfy_god_nodes</td><td>圖中連線最多的前 N 個實體(結構性的中樞)。</td></tr>
         <tr><td>gogfy_explain</td><td>單一節點的摘要:它是什麼、誰呼叫/使用它、它依賴什麼。</td></tr>
@@ -330,6 +330,8 @@
         <tr><td>gogfy_graph_stats</td><td>統計:按 kind/relation 區分的節點/邊數量、社群大小。</td></tr>
         <tr><td>gogfy_get_community</td><td>單一社群的成員與摘要。</td></tr>
         <tr><td>gogfy_traverse</td><td>從節點出發的 BFS/DFS,支援深度與關係過濾。</td></tr>
+        <tr><td>gogfy_impact</td><td>反向可達性:當你修改某節點時,會連帶受影響的所有遞移依賴者。</td></tr>
+        <tr><td>gogfy_repomap</td><td>依重要性(PageRank)排序、按檔案分組的關鍵符號地圖(可選擇針對你的任務聚焦)。</td></tr>
       </table></div>
     </section>
 
