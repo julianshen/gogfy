@@ -92,7 +92,7 @@ accuracy on Go specifically:
   `TypesInfo.Uses`/`Defs` give exact use→definition (reference) edges;
   `Selections` give field/method-access edges with receiver types.
 - **Interface-impl edges (the valuable one Go does uniquely well):**
-  `types.Implements(T, I)` **and** `types.Implements(NewPointer(T), I)`
+  `types.Implements(T, I)` **and** `types.Implements(types.NewPointer(T), I)`
   (pointer-vs-value receivers differ!). Naive is O(types×interfaces) — use a
   **method-set fingerprint index** (gopls's `methodsets` pattern) to scale.
 - **Call edges:** `go/ssa` + `go/callgraph` with **RTA** (reachability/dead-code)
